@@ -59,7 +59,7 @@ button { color: inherit; font: inherit; }
 button:focus-visible { outline: 3px solid #f08a58; outline-offset: 3px; }
 .game-shell { position: relative; width: 100%; height: 100dvh; min-height: 560px; overflow: hidden; isolation: isolate; background: #b9dfdc; }
 .game-canvas { position: absolute !important; inset: 0; z-index: 0; }
-.game-canvas canvas { display: block; width: 100%; height: 100%; outline: none; image-rendering: pixelated; }
+.game-canvas canvas { display: block; width: 100%; height: 100%; outline: none; image-rendering: pixelated; touch-action: none; }
 .voxel-fallback { position: absolute; inset: 0; z-index: 0; display: block; width: 100%; height: 100%; image-rendering: pixelated; touch-action: none; }
 .game-shell::after { content: ''; position: absolute; inset: 0; pointer-events: none; z-index: 1; opacity: .13; background-image: radial-gradient(rgba(32,48,44,.52) .55px, transparent .7px); background-size: 3px 3px; mix-blend-mode: multiply; }
 .hud { position: absolute; z-index: 3; inset: 0; pointer-events: none; }
@@ -79,6 +79,14 @@ button:focus-visible { outline: 3px solid #f08a58; outline-offset: 3px; }
 .world-card small { display:block;font:9px var(--app-font-mono);text-transform:uppercase;letter-spacing:.14em;color:#688176; }
 .world-card strong { display:block;margin-top:4px;font-size:15px;font-weight:600;letter-spacing:-.04em;color:#24453c; }
 .world-card p { margin:5px 0 0;font:10px/1.4 var(--app-font-mono);color:#577168; }
+.rules-toggle { margin-top:8px;padding:0;border:0;background:none;color:#a85f45;text-align:left;cursor:pointer;font:8px var(--app-font-mono);letter-spacing:.08em;text-transform:uppercase; }
+.rules-toggle:hover { color:#713f32;text-decoration:underline; }
+.world-rules-panel { position:absolute;left:clamp(18px,3.2vw,48px);top:220px;width:min(330px,calc(100vw - 36px));padding:14px 16px;background:rgba(246,239,214,.96);border:1px solid rgba(35,62,53,.3);border-left:3px solid #de7854;box-shadow:4px 5px 0 rgba(35,62,53,.2);backdrop-filter:blur(10px);pointer-events:auto;color:#29493f; }
+.world-rules-heading { display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:9px; }
+.world-rules-heading h2 { margin:0;font-size:15px;letter-spacing:-.04em; }
+.world-rules-heading button { width:24px;height:24px;border:1px solid rgba(31,60,52,.2);background:rgba(255,255,255,.4);cursor:pointer;font-size:18px;line-height:1; }
+.world-rules-panel p { margin:7px 0 0;font:10px/1.45 var(--app-font-mono);color:#557168; }
+.world-rules-panel b { color:#31584b;font-weight:500; }
 .crosshair { position:absolute;left:50%;top:50%;width:22px;height:22px;transform:translate(-50%,-50%);display:grid;place-items:center; }
 .crosshair:before,.crosshair:after { content:'';position:absolute;background:#fff4d7;box-shadow:0 1px 2px rgba(22,45,39,.8); }
 .crosshair:before { width:2px;height:18px; }
@@ -99,6 +107,10 @@ button:focus-visible { outline: 3px solid #f08a58; outline-offset: 3px; }
 .swatch-wood { background:repeating-linear-gradient(90deg,#bb7448 0 5px,#8c513b 5px 8px,#d3935a 8px 11px); }
 .swatch-leaves { background:linear-gradient(135deg,#86b860 0 35%,#538c5d 36% 67%,#a1c66a 68%); }
 .swatch-flower { background:radial-gradient(circle at 50% 32%,#fff1a2 0 16%,#e98675 17% 39%,transparent 40%),linear-gradient(0deg,#539370 0 34%,#a7cb7a 35%); }
+.swatch-gravel { background:repeating-linear-gradient(135deg,#b7ad98 0 3px,#817b70 3px 5px,#d1c4a7 5px 7px); }
+.swatch-clay { background:linear-gradient(135deg,#d09a84 0 32%,#a96c62 33% 62%,#e0ab91 63%); }
+.swatch-snow { background:linear-gradient(135deg,#f4f2df 0 37%,#a9bec5 38% 62%,#e1e8e3 63%); }
+.swatch-cobblestone { background:repeating-linear-gradient(45deg,#98988a 0 6px,#656d68 6px 9px,#b8b9a9 9px 13px); }
 .slot-label { max-width:100%;font:8px var(--app-font-mono);letter-spacing:.02em;text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
 .slot-count { position:absolute;right:4px;top:3px;font:9px var(--app-font-mono);font-weight:500; }
 .hint-line { display:flex;align-items:center;gap:15px;color:#f8f0d7;text-shadow:0 1px 3px rgba(24,49,42,.7);font:9px var(--app-font-mono);letter-spacing:.03em; }
@@ -132,15 +144,22 @@ button:focus-visible { outline: 3px solid #f08a58; outline-offset: 3px; }
  .world-card { left:15px;top:67px;padding:9px 11px;max-width:190px; }
  .world-card p { font-size:9px; }
  .bottom-hud { bottom:14px;gap:9px; }
- .hotbar { gap:3px;padding:5px; }
- .hotbar-slot { width:39px;height:52px;padding:4px 2px; }
- .voxel-swatch { width:20px;height:20px; }
- .slot-label { font-size:7px; }
+  .hotbar { width:calc(100vw - 16px);gap:2px;padding:5px;justify-content:space-between; }
+  .hotbar-slot { width:auto;min-width:0;flex:1 1 0;height:52px;padding:4px 1px; }
+  .voxel-swatch { width:clamp(16px,5vw,20px);height:clamp(16px,5vw,20px); }
+  .slot-label { font-size:clamp(5px,1.65vw,7px); }
+  .slot-number,.slot-count { font-size:7px; }
  .hint-line { display:none; }
  .bottom-left { display:none; }
  .mobile-controls { position:absolute;z-index:4;bottom:100px;right:15px;display:grid;grid-template-columns:repeat(3,39px);grid-template-rows:repeat(2,39px);gap:4px;pointer-events:auto; }
  .mobile-controls button { border:1px solid rgba(255,244,214,.65);background:rgba(32,59,53,.55);color:#fff4d7;font:13px var(--app-font-mono);backdrop-filter:blur(5px);touch-action:none; }
  .mobile-controls button:active { background:rgba(231,126,86,.8); }
+  .mobile-actions { position:absolute;left:15px;bottom:104px;display:flex;gap:6px;pointer-events:auto; }
+  .mobile-actions button { min-width:56px;padding:9px 10px;border:1px solid rgba(255,244,214,.68);background:rgba(32,59,53,.65);color:#fff4d7;font:9px var(--app-font-mono);letter-spacing:.06em;text-transform:uppercase;touch-action:none;backdrop-filter:blur(5px); }
+  .mobile-actions button:active { background:rgba(231,126,86,.85); }
+  .world-card { top:67px; }
+  .world-rules-panel { left:15px;top:178px;width:min(330px,calc(100vw - 30px));padding:12px 13px; }
+  .world-rules-panel p { font-size:9px; }
 }
 @media (max-height:650px) {
  .world-card { top:95px; }

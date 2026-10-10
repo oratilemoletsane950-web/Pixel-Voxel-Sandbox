@@ -3,41 +3,64 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import {
   BLOCK_TYPES,
+  CHUNK_LOAD_RADIUS,
+  MAX_BUILD_HEIGHT,
+  PLAYER_EYE_HEIGHT,
+  PLAYER_HEIGHT,
+  WORLD_BLOCK_TYPES,
   blockKey,
   createWorld,
+  ensureChunks,
   getBlock,
+  getChunkCoordinates,
+  getLoadedBlockCount,
+  getLoadedChunkCount,
   getVisibleBlocks,
   loadWorld,
   saveWorld,
   setBlock,
   type BlockCell,
   type BlockType,
+  type WorldBlockType,
   type WorldData,
 } from './game/world';
+import {
+  createPlayerMotion,
+  updatePlayerMotion,
+  type PlayerMotion,
+  type Position,
+} from './game/physics';
 
-const BLOCK_META: Record<BlockType, { label: string; short: string }> = {
+const BLOCK_META: Record<WorldBlockType, { label: string; short: string }> = {
   grass: { label: 'Grass', short: 'GRS' },
   dirt: { label: 'Dirt', short: 'DRT' },
   stone: { label: 'Stone', short: 'STN' },
   sand: { label: 'Sand', short: 'SND' },
   wood: { label: 'Wood', short: 'WOD' },
   leaves: { label: 'Leaves', short: 'LVF' },
-  flower: { label: 'Bloom', short: 'FLR' },
+  gravel: { label: 'Gravel', short: 'GRV' },
+  clay: { label: 'Clay', short: 'CLY' },
+  snow: { label: 'Snow', short: 'SNW' },
+  cobblestone: { label: 'Cobble', short: 'CBL' },
+  flower: { label: 'Wild bloom', short: 'FLR' },
 };
 
-const BLOCK_COLORS: Record<BlockType, [string, string, string]> = {
+const BLOCK_COLORS: Record<WorldBlockType, [string, string, string]> = {
   grass: ['#788d53', '#829e5b', '#bc8459'],
   dirt: ['#9b6b48', '#ad7950', '#ad7950'],
   stone: ['#82877c', '#9b9d8b', '#777c73'],
   sand: ['#d1b870', '#e3cb83', '#c3a965'],
   wood: ['#956044', '#bd8150', '#80513e'],
   leaves: ['#4c7957', '#6f9b61', '#416b50'],
+  gravel: ['#8a8578', '#b7ad98', '#706d63'],
+  clay: ['#a66f65', '#ce9480', '#8c5d59'],
+  snow: ['#aabac2', '#eef0dc', '#869da6'],
+  cobblestone: ['#686f6b', '#93968a', '#5a625f'],
   flower: ['#59845b', '#7aa76a', '#507b54'],
 };
 
 type AimTarget = { cell: BlockCell; adjacent: { x: number; y: number; z: number } };
 type Inventory = Record<BlockType, number>;
-type Position = { x: number; y: number; z: number };
 
 const DEFAULT_INVENTORY: Inventory = {
   grass: 24,
@@ -46,7 +69,10 @@ const DEFAULT_INVENTORY: Inventory = {
   sand: 12,
   wood: 14,
   leaves: 12,
-  flower: 8,
+  gravel: 16,
+  clay: 12,
+  snow: 10,
+  cobblestone: 16,
 };
 
 const SAVE_KEY = 'pixel-wilds-player-v1';
@@ -80,11 +106,13 @@ function readPlayerSave() {
   }
 }
 
-function initialWorld(): WorldData {
+function initialWorld(position: Position | null = null): WorldData {
+  const x = position?.x ?? 0;
+  const z = position?.z ?? 0;
   try {
-    return loadWorld() ?? createWorld();
+    return loadWorld(x, z) ?? createWorld(undefined, x, z);
   } catch {
-    return createWorld();
+    return createWorld(undefined, x, z);
   }
 }
 
@@ -93,8 +121,8 @@ function findSpawn(world: WorldData): Position {
   for (let x = -5; x <= 5; x += 1) {
     for (let z = -5; z <= 5; z += 1) {
       let top = -Infinity;
-      let topType: BlockType | null = null;
-      for (let y = 14; y >= -4; y -= 1) {
+      let topType: WorldBlockType | null = null;
+      for (let y = MAX_BUILD_HEIGHT; y >= 0; y -= 1) {
         const type = getBlock(world, x, y, z);
         if (type) {
           top = y;
@@ -108,11 +136,21 @@ function findSpawn(world: WorldData): Position {
       if (!best || score < best.score) best = { x, z, y: top, score };
     }
   }
-  if (best) return { x: best.x + 0.5, y: best.y + 2.68, z: best.z + 0.5 };
+  if (best) return {
+    x: best.x + 0.5,
+    y: best.y + 1 + PLAYER_EYE_HEIGHT,
+    z: best.z + 0.5,
+  };
   return { x: 0.5, y: 6, z: 0.5 };
 }
 
-function pixelTexture(type: BlockType, face: number) {
+function getHotbarIndexFromCode(code: string): number {
+  if (code === 'Digit0') return 9;
+  if (/^Digit[1-9]$/.test(code)) return Number(code.slice(-1)) - 1;
+  return -1;
+}
+
+function pixelTexture(type: WorldBlockType, face: number) {
   const [side, top, base] = BLOCK_COLORS[type];
   const canvas = document.createElement('canvas');
   canvas.width = 16;
@@ -157,10 +195,14 @@ function pixelTexture(type: BlockType, face: number) {
     ctx.fillRect(5, 6, 2, 2);
     ctx.fillRect(9, 6, 2, 2);
   }
-  const colors = type === 'stone'
+  const colors = type === 'stone' || type === 'cobblestone'
     ? ['#c0bca1', '#626e69', '#9e9f90']
-    : type === 'sand'
+    : type === 'sand' || type === 'snow'
       ? ['#f0d993', '#b99d61', '#e2c77e']
+      : type === 'gravel'
+        ? ['#b7ad98', '#706d63', '#8a8578']
+        : type === 'clay'
+          ? ['#ce9480', '#8c5d59', '#a66f65']
       : type === 'leaves'
         ? ['#91b66a', '#416c50', '#6d985d']
         : ['#d3a16c', '#644a3c', base];
@@ -188,7 +230,7 @@ function pixelTexture(type: BlockType, face: number) {
 
 const textureCache = new Map<string, THREE.CanvasTexture | null>();
 
-function getMaterials(type: BlockType) {
+function getMaterials(type: WorldBlockType) {
   return [0, 1, 2, 3, 4, 5].map((face) => {
     const key = `${type}-${face}`;
     if (!textureCache.has(key)) textureCache.set(key, pixelTexture(type, face));
@@ -196,7 +238,7 @@ function getMaterials(type: BlockType) {
   });
 }
 
-function VoxelBatch({ type, cells }: { type: BlockType; cells: BlockCell[] }) {
+function VoxelBatch({ type, cells }: { type: WorldBlockType; cells: BlockCell[] }) {
   const meshRef = useRef<THREE.InstancedMesh>(null);
   const materials = useMemo(() => getMaterials(type), [type]);
   const dummy = useMemo(() => new THREE.Object3D(), []);
@@ -232,6 +274,7 @@ function GameWorld({
   onMine,
   onPlace,
   onPosition,
+  onChunkChange,
   savedPosition,
   mobileMove,
 }: {
@@ -240,29 +283,43 @@ function GameWorld({
   onMine: (cell: BlockCell) => void;
   onPlace: (cell: BlockCell, adjacent: AimTarget['adjacent']) => void;
   onPosition: (position: Position) => void;
+  onChunkChange: (chunkX: number, chunkZ: number) => void;
   savedPosition: Position | null;
   mobileMove: { forward: number; side: number; jump: boolean };
 }) {
   const visible = useMemo(() => getVisibleBlocks(world), [world]);
   const cellsByType = useMemo(() => {
-    const grouped = Object.fromEntries(BLOCK_TYPES.map((type) => [type, [] as BlockCell[]])) as Record<BlockType, BlockCell[]>;
+    const grouped = Object.fromEntries(
+      WORLD_BLOCK_TYPES.map((type) => [type, [] as BlockCell[]]),
+    ) as Record<WorldBlockType, BlockCell[]>;
     for (const cell of visible) grouped[cell.type].push(cell);
     return grouped;
   }, [visible]);
   const { camera, gl, scene } = useThree();
   const yaw = useRef(0);
   const pitch = useRef(-0.17);
-  const player = useRef<Position>(savedPosition ?? findSpawn(world));
-  const verticalVelocity = useRef(0);
+  const [player] = useState<PlayerMotion>(() =>
+    createPlayerMotion(world, savedPosition ?? findSpawn(world)),
+  );
   const keyState = useRef<Record<string, boolean>>({});
   const target = useRef<AimTarget | null>(null);
   const aimCellKey = useRef('');
-  const callbacks = useRef({ onTarget, onMine, onPlace, onPosition, world, mobileMove });
-  callbacks.current = { onTarget, onMine, onPlace, onPosition, world, mobileMove };
+  const lastChunkKey = useRef('');
+  const touchLook = useRef<{ pointerId: number; x: number; y: number } | null>(null);
+  const callbacks = useRef({
+    onTarget,
+    onMine,
+    onPlace,
+    onPosition,
+    onChunkChange,
+    world,
+    mobileMove,
+  });
+  callbacks.current = { onTarget, onMine, onPlace, onPosition, onChunkChange, world, mobileMove };
 
   useEffect(() => {
     camera.rotation.order = 'YXZ';
-    camera.position.set(player.current.x, player.current.y, player.current.z);
+    camera.position.set(player.x, player.y, player.z);
   }, [camera]);
 
   useEffect(() => {
@@ -271,11 +328,11 @@ function GameWorld({
       const code = event.code;
       if (
         ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(code) ||
-        /^Digit[1-7]$/.test(code)
+        getHotbarIndexFromCode(code) >= 0
       ) event.preventDefault();
       keyState.current[code] = true;
-      if (/^Digit[1-7]$/.test(code)) {
-        const slot = Number(code.replace('Digit', '')) - 1;
+      const slot = getHotbarIndexFromCode(code);
+      if (slot >= 0) {
         const type = BLOCK_TYPES[slot];
         if (type) window.dispatchEvent(new CustomEvent('pixel-wilds-select', { detail: type }));
       }
@@ -288,10 +345,39 @@ function GameWorld({
       yaw.current -= event.movementX * 0.00215;
       pitch.current = THREE.MathUtils.clamp(pitch.current - event.movementY * 0.00215, -1.48, 1.48);
     };
+    const onTouchStart = (event: PointerEvent) => {
+      if (event.pointerType !== 'touch') return;
+      touchLook.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY };
+      try {
+        canvas.setPointerCapture(event.pointerId);
+      } catch {
+        // Pointer capture is optional on older mobile browsers.
+      }
+    };
+    const onTouchMove = (event: PointerEvent) => {
+      const activeTouch = touchLook.current;
+      if (!activeTouch || event.pointerId !== activeTouch.pointerId) return;
+      yaw.current -= (event.clientX - activeTouch.x) * 0.006;
+      pitch.current = THREE.MathUtils.clamp(
+        pitch.current - (event.clientY - activeTouch.y) * 0.006,
+        -1.48,
+        1.48,
+      );
+      activeTouch.x = event.clientX;
+      activeTouch.y = event.clientY;
+    };
+    const onTouchEnd = (event: PointerEvent) => {
+      if (touchLook.current?.pointerId === event.pointerId) touchLook.current = null;
+    };
     const onMouseDown = (event: MouseEvent) => {
       if (event.button === 2) event.preventDefault();
       if (document.pointerLockElement !== canvas) {
-        if (event.button === 0) canvas.requestPointerLock?.();
+        if (
+          event.button === 0 &&
+          !window.matchMedia('(pointer: coarse)').matches
+        ) {
+          canvas.requestPointerLock?.();
+        }
         return;
       }
       const hit = target.current;
@@ -305,9 +391,17 @@ function GameWorld({
       const direction = event.deltaY > 0 ? 1 : -1;
       window.dispatchEvent(new CustomEvent('pixel-wilds-cycle', { detail: direction }));
     };
+    const onBlur = () => {
+      keyState.current = {};
+    };
     window.addEventListener('keydown', onKeyDown, { passive: false });
     window.addEventListener('keyup', onKeyUp);
     window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('blur', onBlur);
+    canvas.addEventListener('pointerdown', onTouchStart);
+    canvas.addEventListener('pointermove', onTouchMove);
+    canvas.addEventListener('pointerup', onTouchEnd);
+    canvas.addEventListener('pointercancel', onTouchEnd);
     canvas.addEventListener('mousedown', onMouseDown);
     canvas.addEventListener('contextmenu', onContextMenu);
     canvas.addEventListener('wheel', onWheel, { passive: false });
@@ -315,6 +409,11 @@ function GameWorld({
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
       window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('blur', onBlur);
+      canvas.removeEventListener('pointerdown', onTouchStart);
+      canvas.removeEventListener('pointermove', onTouchMove);
+      canvas.removeEventListener('pointerup', onTouchEnd);
+      canvas.removeEventListener('pointercancel', onTouchEnd);
       canvas.removeEventListener('mousedown', onMouseDown);
       canvas.removeEventListener('contextmenu', onContextMenu);
       canvas.removeEventListener('wheel', onWheel);
@@ -326,70 +425,55 @@ function GameWorld({
   const normalMatrix = useMemo(() => new THREE.Matrix3(), []);
   const mobileRef = useRef(mobileMove);
   mobileRef.current = mobileMove;
-  const jumpPressed = useRef(false);
   const positionClock = useRef(0);
   const aimClock = useRef(0);
 
   useFrame((_, delta) => {
     const dt = Math.min(delta, 0.05);
-    camera.rotation.set(pitch.current, yaw.current, 0, 'YXZ');
     const keys = keyState.current;
-    const forward = Number(Boolean(keys.KeyW || keys.ArrowUp)) - Number(Boolean(keys.KeyS || keys.ArrowDown)) + mobileRef.current.forward;
-    const side = Number(Boolean(keys.KeyD || keys.ArrowRight)) - Number(Boolean(keys.KeyA || keys.ArrowLeft)) + mobileRef.current.side;
-    const length = Math.hypot(forward, side) || 1;
-    const speed = 4.8;
-    const nextX = player.current.x + ((-Math.sin(yaw.current) * forward + Math.cos(yaw.current) * side) / length) * speed * dt;
-    const nextZ = player.current.z + ((-Math.cos(yaw.current) * forward - Math.sin(yaw.current) * side) / length) * speed * dt;
-    const feetBlockX = Math.floor(nextX);
-    const feetBlockZ = Math.floor(nextZ);
-    const wallAtFeet = getBlock(world, feetBlockX, Math.floor(player.current.y - 1.5), feetBlockZ);
-    const wallAtHead = getBlock(world, feetBlockX, Math.floor(player.current.y - 0.55), feetBlockZ);
-    if (!wallAtFeet && !wallAtHead) {
-      player.current.x = nextX;
-      player.current.z = nextZ;
-    }
+    const forward =
+      Number(Boolean(keys.KeyW || keys.ArrowUp)) -
+      Number(Boolean(keys.KeyS || keys.ArrowDown)) +
+      mobileRef.current.forward;
+    const side =
+      Number(Boolean(keys.KeyD || keys.ArrowRight)) -
+      Number(Boolean(keys.KeyA || keys.ArrowLeft)) +
+      mobileRef.current.side;
+    updatePlayerMotion(
+      callbacks.current.world,
+      player,
+      {
+        forward,
+        side,
+        jump: Boolean(keys.Space || mobileRef.current.jump),
+        sprint: Boolean(keys.ShiftLeft || keys.ShiftRight),
+      },
+      yaw.current,
+      dt,
+    );
 
-    let ground = -Infinity;
-    const bx = Math.floor(player.current.x);
-    const bz = Math.floor(player.current.z);
-    for (let y = Math.floor(player.current.y - 1.2); y >= Math.floor(player.current.y - 3); y -= 1) {
-      if (getBlock(world, bx, y, bz)) {
-        ground = y + 2.68;
-        break;
-      }
+    if (player.y < -12) {
+      Object.assign(
+        player,
+        createPlayerMotion(callbacks.current.world, findSpawn(callbacks.current.world)),
+      );
     }
-    if (ground === -Infinity) {
-      for (let y = 15; y >= -8; y -= 1) {
-        if (getBlock(world, bx, y, bz)) {
-          ground = y + 2.68;
-          break;
-        }
-      }
+    camera.rotation.set(pitch.current, yaw.current, 0, 'YXZ');
+    camera.position.set(player.x, player.y, player.z);
+    const chunk = getChunkCoordinates(player.x, player.z);
+    const chunkKeyNow = `${chunk.x},${chunk.z}`;
+    if (chunkKeyNow !== lastChunkKey.current) {
+      lastChunkKey.current = chunkKeyNow;
+      callbacks.current.onChunkChange(chunk.x, chunk.z);
     }
-    const wantsJump = keys.Space || mobileRef.current.jump;
-    if (wantsJump && !jumpPressed.current && Math.abs(player.current.y - ground) < 0.14) {
-      verticalVelocity.current = 6.1;
-    }
-    jumpPressed.current = Boolean(wantsJump);
-    verticalVelocity.current -= 17 * dt;
-    player.current.y += verticalVelocity.current * dt;
-    if (player.current.y < ground) {
-      player.current.y = ground;
-      verticalVelocity.current = 0;
-    }
-    if (player.current.y < -12) {
-      player.current = findSpawn(world);
-      verticalVelocity.current = 0;
-    }
-    camera.position.set(player.current.x, player.current.y, player.current.z);
     positionClock.current += dt;
     if (positionClock.current >= 0.4) {
       positionClock.current = 0;
-      callbacks.current.onPosition({ ...player.current });
+      callbacks.current.onPosition({ x: player.x, y: player.y, z: player.z });
     }
 
     aimClock.current += dt;
-    if (aimClock.current >= 0.1) {
+    if (aimClock.current >= 0.06) {
       aimClock.current = 0;
       camera.getWorldDirection(direction);
       raycaster.set(camera.position, direction);
@@ -444,7 +528,7 @@ function GameWorld({
         <boxGeometry args={[3.2, 3.2, 0.25]} />
         <meshBasicMaterial color="#f1b76b" />
       </mesh>
-      {BLOCK_TYPES.map((type) => (
+      {WORLD_BLOCK_TYPES.map((type) => (
         <VoxelBatch key={type} type={type} cells={cellsByType[type]} />
       ))}
       {target.current && (
@@ -458,7 +542,7 @@ function GameWorld({
 }
 
 function findColumnTop(world: WorldData, x: number, z: number) {
-  for (let y = 16; y >= 0; y -= 1) {
+  for (let y = MAX_BUILD_HEIGHT; y >= 0; y -= 1) {
     const type = getBlock(world, x, y, z);
     if (type) return { y, type };
   }
@@ -471,6 +555,7 @@ function VoxelFallback({
   onMine,
   onPlace,
   onPosition,
+  onChunkChange,
   savedPosition,
   mobileMove,
   started,
@@ -481,19 +566,22 @@ function VoxelFallback({
   onMine: (cell: BlockCell) => void;
   onPlace: (cell: BlockCell, adjacent: AimTarget['adjacent']) => void;
   onPosition: (position: Position) => void;
+  onChunkChange: (chunkX: number, chunkZ: number) => void;
   savedPosition: Position | null;
   mobileMove: { forward: number; side: number; jump: boolean };
   started: boolean;
   onStart: () => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const player = useRef<Position>(savedPosition ?? findSpawn(world));
+  const [player] = useState<PlayerMotion>(() =>
+    createPlayerMotion(world, savedPosition ?? findSpawn(world)),
+  );
   const keys = useRef<Record<string, boolean>>({});
   const moveRef = useRef(mobileMove);
   const targetRef = useRef<AimTarget | null>(null);
   const startedRef = useRef(started);
-  const jumpVelocity = useRef(0);
   const lastPositionSent = useRef(0);
+  const lastChunkKey = useRef('');
   moveRef.current = mobileMove;
   startedRef.current = started;
 
@@ -504,10 +592,26 @@ function VoxelFallback({
       ),
     [world],
   );
-
-  useEffect(() => {
-    if (savedPosition) player.current = { ...savedPosition };
-  }, [savedPosition]);
+  const latest = useRef({
+    world,
+    ordered,
+    onTarget,
+    onMine,
+    onPlace,
+    onPosition,
+    onChunkChange,
+    onStart,
+  });
+  latest.current = {
+    world,
+    ordered,
+    onTarget,
+    onMine,
+    onPlace,
+    onPosition,
+    onChunkChange,
+    onStart,
+  };
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -564,9 +668,9 @@ function VoxelFallback({
       const projectedX = ((clientX - rect.left - rect.width / 2) * 2) / tileWidth;
       const projectedZ =
         ((clientY - rect.top - rect.height * 0.51) * 2) / tileHeight;
-      const x = Math.floor(player.current.x + (projectedX + projectedZ) / 2);
-      const z = Math.floor(player.current.z + (projectedZ - projectedX) / 2);
-      const top = findColumnTop(world, x, z);
+      const x = Math.floor(player.x + (projectedX + projectedZ) / 2);
+      const z = Math.floor(player.z + (projectedZ - projectedX) / 2);
+      const top = findColumnTop(latest.current.world, x, z);
       if (!top) return null;
       return {
         cell: { x, y: top.y, z, type: top.type },
@@ -583,36 +687,41 @@ function VoxelFallback({
         ? blockKey(nextTarget.cell.x, nextTarget.cell.y, nextTarget.cell.z)
         : '';
       targetRef.current = nextTarget;
-      if (previousKey !== nextKey) onTarget(nextTarget);
+      if (previousKey !== nextKey) latest.current.onTarget(nextTarget);
     };
 
-    const onPointerMove = (event: MouseEvent) => {
+    const onPointerMove = (event: PointerEvent) => {
       updateTarget(getTargetAt(event.clientX, event.clientY));
     };
-    const onPointerDown = (event: MouseEvent) => {
-      if (!startedRef.current) onStart();
+    const onPointerDown = (event: PointerEvent) => {
+      if (!startedRef.current) latest.current.onStart();
       event.preventDefault();
+      updateTarget(getTargetAt(event.clientX, event.clientY));
       const hit = targetRef.current;
       if (!hit) return;
-      if (event.button === 0) onMine(hit.cell);
-      if (event.button === 2) onPlace(hit.cell, hit.adjacent);
+      if (event.button === 0) latest.current.onMine(hit.cell);
+      if (event.button === 2) latest.current.onPlace(hit.cell, hit.adjacent);
     };
     const onContextMenu = (event: Event) => event.preventDefault();
     const onKeyDown = (event: KeyboardEvent) => {
       keys.current[event.code] = true;
       if (
         ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(event.code) ||
-        /^Digit[1-7]$/.test(event.code)
+        getHotbarIndexFromCode(event.code) >= 0
       ) {
         event.preventDefault();
       }
-      if (/^Digit[1-7]$/.test(event.code)) {
-        const type = BLOCK_TYPES[Number(event.code.replace('Digit', '')) - 1];
+      const index = getHotbarIndexFromCode(event.code);
+      if (index >= 0) {
+        const type = BLOCK_TYPES[index];
         if (type) window.dispatchEvent(new CustomEvent('pixel-wilds-select', { detail: type }));
       }
     };
     const onKeyUp = (event: KeyboardEvent) => {
       keys.current[event.code] = false;
+    };
+    const onBlur = () => {
+      keys.current = {};
     };
     const onWheel = (event: WheelEvent) => {
       event.preventDefault();
@@ -626,18 +735,18 @@ function VoxelFallback({
       canvas.height = Math.round(canvas.clientHeight * ratio);
     };
 
-    canvas.addEventListener('mousemove', onPointerMove);
-    canvas.addEventListener('mousedown', onPointerDown);
+    canvas.addEventListener('pointermove', onPointerMove);
+    canvas.addEventListener('pointerdown', onPointerDown);
     canvas.addEventListener('contextmenu', onContextMenu);
     canvas.addEventListener('wheel', onWheel, { passive: false });
     window.addEventListener('keydown', onKeyDown, { passive: false });
     window.addEventListener('keyup', onKeyUp);
+    window.addEventListener('blur', onBlur);
     window.addEventListener('resize', onResize);
     onResize();
 
     const render = (time: number) => {
       frame = window.requestAnimationFrame(render);
-      if (time - lastTime < 34) return;
       const dt = Math.min((time - lastTime) / 1000 || 0, 0.05);
       lastTime = time;
       const rect = canvas.getBoundingClientRect();
@@ -655,36 +764,27 @@ function VoxelFallback({
           Number(Boolean(keys.current.KeyD || keys.current.ArrowRight)) -
           Number(Boolean(keys.current.KeyA || keys.current.ArrowLeft)) +
           moveRef.current.side;
-        const length = Math.hypot(inputForward, inputSide) || 1;
-        const speed = 4 * dt / length;
-        const nextX = Math.max(-39, Math.min(39, player.current.x - (inputForward + inputSide) * speed));
-        const nextZ = Math.max(-39, Math.min(39, player.current.z - (inputForward - inputSide) * speed));
-        const nextTop = findColumnTop(world, Math.floor(nextX), Math.floor(nextZ));
-        const currentGround = player.current.y - 2.68;
-        if (nextTop && nextTop.y <= currentGround + 1) {
-          player.current.x = nextX;
-          player.current.z = nextZ;
-        }
-
-        const groundTop = findColumnTop(
-          world,
-          Math.floor(player.current.x),
-          Math.floor(player.current.z),
+        updatePlayerMotion(
+          latest.current.world,
+          player,
+          {
+            forward: inputForward,
+            side: inputSide,
+            jump: Boolean(keys.current.Space || moveRef.current.jump),
+            sprint: Boolean(keys.current.ShiftLeft || keys.current.ShiftRight),
+          },
+          0,
+          dt,
         );
-        const eyeHeight = (groundTop?.y ?? 3) + 2.68;
-        const jump = keys.current.Space || moveRef.current.jump;
-        if (jump && player.current.y <= eyeHeight + 0.025 && !jumpVelocity.current) {
-          jumpVelocity.current = 5.3;
-        }
-        jumpVelocity.current -= 15 * dt;
-        player.current.y += jumpVelocity.current * dt;
-        if (player.current.y <= eyeHeight) {
-          player.current.y = eyeHeight;
-          jumpVelocity.current = 0;
+        const chunk = getChunkCoordinates(player.x, player.z);
+        const chunkKeyNow = `${chunk.x},${chunk.z}`;
+        if (chunkKeyNow !== lastChunkKey.current) {
+          lastChunkKey.current = chunkKeyNow;
+          latest.current.onChunkChange(chunk.x, chunk.z);
         }
         if (time - lastPositionSent.current > 350) {
           lastPositionSent.current = time;
-          onPosition({ ...player.current });
+          latest.current.onPosition({ x: player.x, y: player.y, z: player.z });
         }
       }
 
@@ -704,11 +804,11 @@ function VoxelFallback({
       const tileWidth = Math.max(21, Math.min(36, width / 31));
       const tileHeight = tileWidth * 0.48;
       const blockHeight = tileHeight * 1.02;
-      const baseY = Math.floor(player.current.y - 2.68);
+       const baseY = Math.floor(player.y - 1 - PLAYER_EYE_HEIGHT);
       const centerY = height * 0.51;
-      for (const cell of ordered) {
-        const dx = cell.x + 0.5 - player.current.x;
-        const dz = cell.z + 0.5 - player.current.z;
+       for (const cell of latest.current.ordered) {
+         const dx = cell.x + 0.5 - player.x;
+         const dz = cell.z + 0.5 - player.z;
         if (Math.abs(dx) > 31 || Math.abs(dz) > 31) continue;
         const centerX = width / 2 + ((dx - dz) * tileWidth) / 2;
         const top = centerY + ((dx + dz) * tileHeight) / 2 -
@@ -736,15 +836,16 @@ function VoxelFallback({
 
     return () => {
       window.cancelAnimationFrame(frame);
-      canvas.removeEventListener('mousemove', onPointerMove);
-      canvas.removeEventListener('mousedown', onPointerDown);
+      canvas.removeEventListener('pointermove', onPointerMove);
+      canvas.removeEventListener('pointerdown', onPointerDown);
       canvas.removeEventListener('contextmenu', onContextMenu);
       canvas.removeEventListener('wheel', onWheel);
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
+      window.removeEventListener('blur', onBlur);
       window.removeEventListener('resize', onResize);
     };
-  }, [onMine, onPlace, onPosition, onStart, onTarget, ordered, world]);
+  }, []);
 
   return (
     <canvas
@@ -757,13 +858,18 @@ function VoxelFallback({
 }
 
 function App() {
-  const [world, setWorld] = useState<WorldData>(initialWorld);
   const savedPlayer = useMemo(() => readPlayerSave(), []);
+  const [world, setWorld] = useState<WorldData>(() =>
+    initialWorld(savedPlayer?.position ?? null),
+  );
+  const worldRef = useRef(world);
+  worldRef.current = world;
   const [inventory, setInventory] = useState<Inventory>(savedPlayer?.inventory ?? DEFAULT_INVENTORY);
   const [playerPosition, setPlayerPosition] = useState<Position | null>(savedPlayer?.position ?? null);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [target, setTarget] = useState<AimTarget | null>(null);
   const [started, setStarted] = useState(false);
+  const [rulesOpen, setRulesOpen] = useState(false);
   const [saveState, setSaveState] = useState<'saved' | 'unsaved'>('saved');
   const [notice, setNotice] = useState('');
   const [mobileMove, setMobileMove] = useState({ forward: 0, side: 0, jump: false });
@@ -788,7 +894,17 @@ function App() {
     setStarted(true);
   }, []);
 
-  const setWorldEdited = useCallback((next: WorldData) => {
+  const streamChunks = useCallback((chunkX: number, chunkZ: number) => {
+    const next = ensureChunks(worldRef.current, chunkX, chunkZ, CHUNK_LOAD_RADIUS);
+    if (next === worldRef.current) return;
+    worldRef.current = next;
+    setWorld(next);
+  }, []);
+
+  const setWorldEdited = useCallback((edit: (current: WorldData) => WorldData) => {
+    const next = edit(worldRef.current);
+    if (next === worldRef.current) return;
+    worldRef.current = next;
     setWorld(next);
     setSaveState('unsaved');
     try {
@@ -800,33 +916,47 @@ function App() {
   }, [showNotice]);
 
   const mineBlock = useCallback((cell: BlockCell) => {
-    const found = getBlock(world, cell.x, cell.y, cell.z);
+    const current = worldRef.current;
+    const found = getBlock(current, cell.x, cell.y, cell.z);
     if (!found) return;
-    setWorldEdited(setBlock(world, cell.x, cell.y, cell.z, null));
-    setInventory((current) => ({ ...current, [found]: current[found] + 1 }));
-    showNotice(`${BLOCK_META[found].label} gathered`);
-  }, [showNotice, setWorldEdited, world]);
+    setWorldEdited((latestWorld) => setBlock(latestWorld, cell.x, cell.y, cell.z, null));
+    if (found !== 'flower') {
+      setInventory((currentInventory) => ({
+        ...currentInventory,
+        [found]: currentInventory[found] + 1,
+      }));
+      showNotice(`${BLOCK_META[found].label} gathered`);
+    } else {
+      showNotice('Wild bloom cleared');
+    }
+  }, [showNotice, setWorldEdited]);
 
   const placeBlock = useCallback((cell: BlockCell, adjacent: AimTarget['adjacent']) => {
     if (inventory[selected] < 1) {
       showNotice(`Out of ${BLOCK_META[selected].label.toLowerCase()}`);
       return;
     }
-    if (getBlock(world, adjacent.x, adjacent.y, adjacent.z)) return;
-    const close = Math.hypot(
-      adjacent.x + 0.5 - (playerPosition?.x ?? 0.5),
-      adjacent.y + 0.5 - (playerPosition?.y ?? 4),
-      adjacent.z + 0.5 - (playerPosition?.z ?? 0.5),
-    ) < 1.5;
-    if (close) {
+    if (getBlock(worldRef.current, adjacent.x, adjacent.y, adjacent.z)) return;
+    const feetY = (playerPosition?.y ?? 4) - PLAYER_EYE_HEIGHT;
+    const headY = feetY + PLAYER_HEIGHT;
+    const overlapsPlayer =
+      adjacent.x < (playerPosition?.x ?? 0.5) + 0.28 &&
+      adjacent.x + 1 > (playerPosition?.x ?? 0.5) - 0.28 &&
+      adjacent.z < (playerPosition?.z ?? 0.5) + 0.28 &&
+      adjacent.z + 1 > (playerPosition?.z ?? 0.5) - 0.28 &&
+      adjacent.y < headY &&
+      adjacent.y + 1 > feetY;
+    if (overlapsPlayer) {
       showNotice('A little more room, please');
       return;
     }
     void cell;
-    setWorldEdited(setBlock(world, adjacent.x, adjacent.y, adjacent.z, selected));
+    setWorldEdited((latestWorld) =>
+      setBlock(latestWorld, adjacent.x, adjacent.y, adjacent.z, selected),
+    );
     setInventory((current) => ({ ...current, [selected]: Math.max(0, current[selected] - 1) }));
     showNotice(`${BLOCK_META[selected].label} placed`);
-  }, [inventory, playerPosition, selected, setWorldEdited, showNotice, world]);
+  }, [inventory, playerPosition, selected, setWorldEdited, showNotice]);
 
   const savePlayerState = useCallback((position?: Position) => {
     try {
@@ -869,12 +999,13 @@ function App() {
 
   const beginExplore = () => {
     setStarted(true);
-    if (supportsWebGL !== true) return;
+    if (supportsWebGL !== true || window.matchMedia('(pointer: coarse)').matches) return;
     const canvas = document.querySelector('.game-canvas canvas') as HTMLCanvasElement | null;
     canvas?.requestPointerLock?.();
   };
 
-  const visibleCount = useMemo(() => getVisibleBlocks(world).length, [world]);
+  const loadedBlockCount = useMemo(() => getLoadedBlockCount(world), [world]);
+  const loadedChunkCount = useMemo(() => getLoadedChunkCount(world), [world]);
   const coordinates = playerPosition
     ? `${Math.floor(playerPosition.x)} · ${Math.floor(playerPosition.y)} · ${Math.floor(playerPosition.z)}`
     : 'ROAM FREE';
@@ -888,6 +1019,7 @@ function App() {
           onMine={mineBlock}
           onPlace={placeBlock}
           onPosition={setPlayerPosition}
+          onChunkChange={streamChunks}
           savedPosition={playerPosition}
           mobileMove={mobileMove}
           started={started}
@@ -913,6 +1045,7 @@ function App() {
             onMine={mineBlock}
             onPlace={placeBlock}
             onPosition={setPlayerPosition}
+            onChunkChange={streamChunks}
             savedPosition={playerPosition}
             mobileMove={mobileMove}
           />
@@ -961,7 +1094,40 @@ function App() {
           <small>somewhere out there</small>
           <strong>Marigold Reach</strong>
           <p>Make a path. Leave it brighter.</p>
+          <button
+            className="rules-toggle"
+            type="button"
+            aria-expanded={rulesOpen}
+            aria-controls="world-generation-rules"
+            onClick={() => setRulesOpen((current) => !current)}
+          >
+            {rulesOpen ? 'Hide world rules' : 'How blocks generate'}
+          </button>
         </div>
+
+        <aside
+          className="world-rules-panel"
+          id="world-generation-rules"
+          aria-label="World generation rules"
+          hidden={!rulesOpen}
+        >
+          <div className="world-rules-heading">
+            <h2>How the wild grows</h2>
+            <button
+              type="button"
+              aria-label="Close world rules"
+              onClick={() => setRulesOpen(false)}
+            >
+              ×
+            </button>
+          </div>
+          <p><b>Grasslands:</b> grass over two dirt layers; trees add wood trunks and leaf crowns, with occasional flowers.</p>
+          <p><b>Drylands:</b> sand surface with gravel seams over deep stone.</p>
+          <p><b>Wet lowlands:</b> clay at the surface where damp terrain stays low.</p>
+          <p><b>Cold peaks:</b> snow caps higher, colder hills; dirt and stone below.</p>
+          <p><b>Rocky ridges:</b> cobblestone on exposed high ground, with gravel patches.</p>
+          <p><b>Everywhere:</b> 16×16 chunks stream in a 5×5 area around you; the world seed keeps terrain stable and your edits persist when chunks unload.</p>
+        </aside>
 
         <div className={`crosshair ${target ? 'crosshair-active' : ''}`} data-testid="status-crosshair" aria-label={target ? `Aiming at ${target.cell.type}` : 'Aim crosshair'}>
           <span className="crosshair-center" />
@@ -973,8 +1139,8 @@ function App() {
             <strong>{coordinates}</strong>
           </div>
           <div className="readout" data-testid="status-block-count">
-            VOXELS IN WORLD
-            <strong>{visibleCount.toLocaleString()}</strong>
+            CHUNKS LOADED
+            <strong>{loadedChunkCount} · {loadedBlockCount.toLocaleString()} blocks</strong>
           </div>
         </div>
 
@@ -990,7 +1156,7 @@ function App() {
                 data-testid={`button-hotbar-${type}`}
                 onClick={() => setSelectedIndex(index)}
               >
-                <span className="slot-number">{index + 1}</span>
+                <span className="slot-number">{index === 9 ? '0' : index + 1}</span>
                 <span className={`voxel-swatch swatch-${type}`} aria-hidden="true" />
                 <span className="slot-label">{BLOCK_META[type].label}</span>
                 <span className="slot-count" data-testid={`count-${type}`}>{inventory[type]}</span>
@@ -1002,7 +1168,8 @@ function App() {
             <span className="hint-item"><kbd className="keycap">SPACE</kbd> hop</span>
             <span className="hint-item"><kbd className="keycap">LMB</kbd> gather</span>
             <span className="hint-item"><kbd className="keycap">RMB</kbd> place</span>
-            <span className="hint-item"><kbd className="keycap">1–7</kbd> choose</span>
+            <span className="hint-item"><kbd className="keycap">SHIFT</kbd> run</span>
+            <span className="hint-item"><kbd className="keycap">1–9 / 0</kbd> choose</span>
           </div>
         </div>
 
@@ -1025,17 +1192,39 @@ function App() {
           <span />
           <button type="button" aria-label="Move forward" data-testid="button-move-forward"
             onTouchStart={(event) => { event.preventDefault(); setMobileMove((value) => ({ ...value, forward: 1 })); }}
-            onTouchEnd={(event) => { event.preventDefault(); setMobileMove((value) => ({ ...value, forward: 0 })); }}>↑</button>
+            onTouchEnd={(event) => { event.preventDefault(); setMobileMove((value) => ({ ...value, forward: 0 })); }}
+            onTouchCancel={() => setMobileMove((value) => ({ ...value, forward: 0 }))}>↑</button>
           <span />
           <button type="button" aria-label="Move left" data-testid="button-move-left"
             onTouchStart={(event) => { event.preventDefault(); setMobileMove((value) => ({ ...value, side: -1 })); }}
-            onTouchEnd={(event) => { event.preventDefault(); setMobileMove((value) => ({ ...value, side: 0 })); }}>←</button>
+            onTouchEnd={(event) => { event.preventDefault(); setMobileMove((value) => ({ ...value, side: 0 })); }}
+            onTouchCancel={() => setMobileMove((value) => ({ ...value, side: 0 }))}>←</button>
           <button type="button" aria-label="Jump" data-testid="button-jump"
             onTouchStart={(event) => { event.preventDefault(); setMobileMove((value) => ({ ...value, jump: true })); }}
-            onTouchEnd={(event) => { event.preventDefault(); setMobileMove((value) => ({ ...value, jump: false })); }}>↑</button>
+            onTouchEnd={(event) => { event.preventDefault(); setMobileMove((value) => ({ ...value, jump: false })); }}
+            onTouchCancel={() => setMobileMove((value) => ({ ...value, jump: false }))}>↑</button>
           <button type="button" aria-label="Move right" data-testid="button-move-right"
             onTouchStart={(event) => { event.preventDefault(); setMobileMove((value) => ({ ...value, side: 1 })); }}
-            onTouchEnd={(event) => { event.preventDefault(); setMobileMove((value) => ({ ...value, side: 0 })); }}>→</button>
+            onTouchEnd={(event) => { event.preventDefault(); setMobileMove((value) => ({ ...value, side: 0 })); }}
+            onTouchCancel={() => setMobileMove((value) => ({ ...value, side: 0 }))}>→</button>
+        </div>
+        <div className="mobile-actions" aria-label="Touch building controls">
+          <button
+            type="button"
+            aria-label="Mine targeted block"
+            data-testid="button-touch-mine"
+            onClick={() => { if (target) mineBlock(target.cell); }}
+          >
+            Mine
+          </button>
+          <button
+            type="button"
+            aria-label="Place selected block"
+            data-testid="button-touch-place"
+            onClick={() => { if (target) placeBlock(target.cell, target.adjacent); }}
+          >
+            Place
+          </button>
         </div>
       </div>
     </main>
