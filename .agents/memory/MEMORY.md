@@ -1,0 +1,1 @@
+- [WebGL fallback](webgl-fallback.md) — keep the voxel world visible and editable when preview browsers cannot create a WebGL context.

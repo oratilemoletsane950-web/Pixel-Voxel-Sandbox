@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "Pixel Wilds"
+description = "A playable, browser-based voxel sandbox with a compact open world to explore, mine, and build in, styled with a deliberately crisp, extra-pixelated look."
+version = "1.0.0"
+id = "artifacts/pixel-wilds"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 23352
+
+[services.development]
+run = "pnpm --filter @workspace/pixel-wilds run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/pixel-wilds", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/pixel-wilds/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "23352"
+BASE_PATH = "/"
