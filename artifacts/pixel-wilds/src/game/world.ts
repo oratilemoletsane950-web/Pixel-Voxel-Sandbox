@@ -1,3 +1,8 @@
+import {
+  addSettlementBlocksToChunk,
+  type TerrainSampler,
+} from "./settlements";
+
 export const CHUNK_SIZE = 16;
 export const CHUNK_LOAD_RADIUS = 2;
 export const MAX_BUILD_HEIGHT = 64;
@@ -18,8 +23,16 @@ export const BLOCK_TYPES = [
   "cobblestone",
 ] as const;
 
-/** Flowers are generated as scenery, but are not part of the build palette. */
-export const WORLD_BLOCK_TYPES = [...BLOCK_TYPES, "flower"] as const;
+/** These are generated scenery/architecture, not selectable building inventory. */
+export const WORLD_BLOCK_TYPES = [
+  ...BLOCK_TYPES,
+  "flower",
+  "water",
+  "planks",
+  "brick",
+  "roof",
+  "glass",
+] as const;
 
 export type BlockType = (typeof BLOCK_TYPES)[number];
 export type WorldBlockType = (typeof WORLD_BLOCK_TYPES)[number];
@@ -107,33 +120,115 @@ function valueNoise(x: number, z: number, scale: number, seed: number): number {
   return top * (1 - fz) + bottom * fz;
 }
 
-export function getTerrainHeight(x: number, z: number, seed: number): number {
+interface HeightField {
+  height: number;
+  mountain: number;
+}
+
+function getHeightField(x: number, z: number, seed: number): HeightField {
   const broad = valueNoise(x, z, 27, seed) * 0.55;
   const rolling = valueNoise(x, z, 11, seed + 91) * 0.3;
   const fine = valueNoise(x, z, 4, seed + 177) * 0.15;
-  return 3 + Math.floor((broad + rolling + fine) * 11);
+  const mountainField = valueNoise(x + 113, z - 67, 104, seed + 503);
+  const mountain = Math.max(0, Math.min(1, (mountainField - 0.56) / 0.44));
+  const ridge = valueNoise(x - 82, z + 43, 42, seed + 509);
+  const foothills = 3 + Math.floor((broad + rolling + fine) * 9);
+  const mountainRise = Math.floor(Math.pow(mountain, 1.22) * (13 + ridge * 25));
+  return { height: Math.min(48, foothills + mountainRise), mountain };
 }
 
-function getTerrainProfile(x: number, z: number, seed: number) {
-  const height = getTerrainHeight(x, z, seed);
+export function getTerrainHeight(x: number, z: number, seed: number): number {
+  return getHeightField(x, z, seed).height;
+}
+
+interface TerrainProfile {
+  height: number;
+  rawHeight: number;
+  mountain: number;
+  moisture: number;
+  forest: number;
+  forested: boolean;
+  river: boolean;
+  wetland: boolean;
+  desert: boolean;
+  snowy: boolean;
+  rocky: boolean;
+  gravelPatch: boolean;
+  surface: WorldBlockType;
+}
+
+const MAX_TERRAIN_PROFILE_CACHE = 8192;
+const terrainProfileCache = new Map<string, TerrainProfile>();
+
+export function getTerrainProfile(x: number, z: number, seed: number): TerrainProfile {
+  const cacheKey = `${seed}:${x}:${z}`;
+  const cached = terrainProfileCache.get(cacheKey);
+  if (cached) {
+    terrainProfileCache.delete(cacheKey);
+    terrainProfileCache.set(cacheKey, cached);
+    return cached;
+  }
+  const heightField = getHeightField(x, z, seed);
+  const rawHeight = heightField.height;
   const moisture = valueNoise(x + 70, z - 46, 29, seed + 7);
   const temperature = valueNoise(x - 31, z + 89, 31, seed + 22);
   const geology = valueNoise(x + 51, z + 12, 13, seed + 211);
   const gravel = valueNoise(x - 83, z + 27, 10, seed + 419);
-  const wetland = height <= 8 && moisture > 0.6;
+  const forest = valueNoise(x - 200, z + 61, 63, seed + 701);
+  const riverField = valueNoise(x + 140, z - 90, 43, seed + 1001) +
+    (valueNoise(x - 37, z + 120, 19, seed + 1007) - 0.5) * 0.13;
+  const river = Math.abs(riverField - 0.5) < 0.027 &&
+    rawHeight >= 5 && rawHeight < 34;
+  const wetland = rawHeight <= 8 && moisture > 0.6;
   const desert = moisture < 0.3;
-  const snowy = height >= 8 && temperature < 0.3;
-  const rocky = height >= 10 || geology > 0.86;
-  const gravelPatch = gravel > 0.86 && (desert || height >= 7);
+  const snowy = rawHeight >= 17 && temperature < 0.58;
+  const rocky = rawHeight >= 18 || heightField.mountain > 0.64 || geology > 0.86;
+  const gravelPatch = gravel > 0.86 && (desert || rawHeight >= 7);
+  const forested = !river && rawHeight < 20 && !snowy &&
+    moisture > 0.28 && moisture < 0.84 && forest > 0.59;
+  const groundHeight = river ? Math.max(2, rawHeight - 3) : rawHeight;
 
   let surface: WorldBlockType = "grass";
-  if (snowy) surface = "snow";
+  if (river) surface = "water";
+  else if (snowy) surface = "snow";
   else if (wetland) surface = "clay";
+  else if (rocky) surface = "cobblestone";
   else if (gravelPatch) surface = "gravel";
   else if (desert) surface = "sand";
-  else if (rocky) surface = "cobblestone";
 
-  return { height, moisture, desert, wetland, snowy, rocky, gravelPatch, surface };
+  const profile: TerrainProfile = {
+    height: groundHeight,
+    rawHeight,
+    mountain: heightField.mountain,
+    moisture,
+    forest,
+    forested,
+    river,
+    wetland,
+    desert,
+    snowy,
+    rocky,
+    gravelPatch,
+    surface,
+  };
+  if (terrainProfileCache.size >= MAX_TERRAIN_PROFILE_CACHE) {
+    const oldest = terrainProfileCache.keys().next().value;
+    if (oldest !== undefined) terrainProfileCache.delete(oldest);
+  }
+  terrainProfileCache.set(cacheKey, profile);
+  return profile;
+}
+
+export function getTerrainSiteInfo(x: number, z: number, seed: number) {
+  const terrain = getTerrainProfile(x, z, seed);
+  return {
+    height: terrain.height,
+    surface: terrain.surface,
+    forest: terrain.forest,
+    moisture: terrain.moisture,
+    mountain: terrain.mountain,
+    river: terrain.river,
+  };
 }
 
 function setChunkCell(
@@ -149,7 +244,11 @@ function setChunkCell(
   blocks[blockKey(x, y, z)] = type;
 }
 
-function generateChunk(seed: number, chunkX: number, chunkZ: number): Record<string, WorldBlockType> {
+function generateChunk(
+  seed: number,
+  chunkX: number,
+  chunkZ: number,
+): Record<string, WorldBlockType> {
   const blocks: Record<string, WorldBlockType> = {};
   const startX = chunkX * CHUNK_SIZE;
   const startZ = chunkZ * CHUNK_SIZE;
@@ -159,7 +258,11 @@ function generateChunk(seed: number, chunkX: number, chunkZ: number): Record<str
       const profile = getTerrainProfile(x, z, seed);
       for (let y = 0; y <= profile.height; y += 1) {
         let type: WorldBlockType = "stone";
-        if (y === profile.height) {
+        if (profile.river && y === profile.height) {
+          type = "gravel";
+        } else if (profile.river && y >= profile.height - 1) {
+          type = "sand";
+        } else if (y === profile.height) {
           type = profile.surface;
         } else if (profile.surface === "sand") {
           type = y >= profile.height - 2
@@ -179,32 +282,39 @@ function generateChunk(seed: number, chunkX: number, chunkZ: number): Record<str
         blocks[blockKey(x, y, z)] = type;
       }
 
+      if (profile.river && profile.height < MAX_BUILD_HEIGHT) {
+        blocks[blockKey(x, profile.height + 1, z)] = "water";
+      }
+
       const flowerRoll = hash2(x, z, seed + 819);
-      if (profile.surface === "grass" && flowerRoll > 0.972) {
+      if (profile.surface === "grass" && profile.forest < 0.7 && flowerRoll > 0.972) {
         blocks[blockKey(x, profile.height + 1, z)] = "flower";
       }
     }
   }
 
-  // Scan a two-block halo so tree crowns remain seamless across chunk borders.
-  for (let x = startX - 2; x < startX + CHUNK_SIZE + 2; x += 1) {
-    for (let z = startZ - 2; z < startZ + CHUNK_SIZE + 2; z += 1) {
+  // Scan a three-block halo so tall canopies remain seamless across chunk borders.
+  for (let x = startX - 3; x < startX + CHUNK_SIZE + 3; x += 1) {
+    for (let z = startZ - 3; z < startZ + CHUNK_SIZE + 3; z += 1) {
       const profile = getTerrainProfile(x, z, seed);
-      if (
-        profile.surface !== "grass" ||
-        Math.abs(x) + Math.abs(z) < 7 ||
-        hash2(x, z, seed + 2801) < 0.991
-      ) continue;
+      const treeRoll = hash2(x, z, seed + 2801);
+      const treeThreshold = profile.forested
+        ? profile.forest > 0.78 ? 0.9 : 0.965
+        : 0.997;
+      if (profile.surface !== "grass" || treeRoll < treeThreshold) continue;
 
-      const treeHeight = 3 + Math.floor(hash2(x, z, seed + 3791) * 3);
+      const treeHeight = 3 + Math.floor(hash2(x, z, seed + 3791) * 6);
       for (let y = profile.height + 1; y <= profile.height + treeHeight; y += 1) {
         setChunkCell(blocks, x, y, z, "wood", chunkX, chunkZ);
       }
       const crown = profile.height + treeHeight;
-      for (let dx = -2; dx <= 2; dx += 1) {
-        for (let dz = -2; dz <= 2; dz += 1) {
+      const tallPine = profile.rawHeight >= 15;
+      for (let dx = -3; dx <= 3; dx += 1) {
+        for (let dz = -3; dz <= 3; dz += 1) {
           for (let dy = -1; dy <= 2; dy += 1) {
-            if (Math.abs(dx) + Math.abs(dz) + Math.max(0, dy) > 5) continue;
+            const radius = tallPine ? Math.max(1, 3 - Math.floor(Math.max(0, dy) / 2)) : 2;
+            if (Math.abs(dx) > radius || Math.abs(dz) > radius) continue;
+            if (Math.abs(dx) + Math.abs(dz) + Math.max(0, dy) > (tallPine ? 6 : 5)) continue;
             if (dx === 0 && dz === 0 && dy <= 0) continue;
             const key = blockKey(x + dx, crown + dy, z + dz);
             if (!blocks[key]) {
@@ -215,6 +325,14 @@ function generateChunk(seed: number, chunkX: number, chunkZ: number): Record<str
       }
     }
   }
+
+  addSettlementBlocksToChunk(
+    blocks,
+    chunkX,
+    chunkZ,
+    seed,
+    getTerrainSiteInfo as TerrainSampler,
+  );
 
   return blocks;
 }

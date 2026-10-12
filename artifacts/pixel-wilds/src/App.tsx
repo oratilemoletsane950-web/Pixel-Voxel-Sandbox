@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
+import HumanoidBatches from './components/HumanoidBatches';
 import {
   BLOCK_TYPES,
   CHUNK_LOAD_RADIUS,
@@ -15,6 +16,7 @@ import {
   getChunkCoordinates,
   getLoadedBlockCount,
   getLoadedChunkCount,
+  getTerrainSiteInfo,
   getVisibleBlocks,
   loadWorld,
   saveWorld,
@@ -24,6 +26,14 @@ import {
   type WorldBlockType,
   type WorldData,
 } from './game/world';
+import {
+  FACTION_COLORS,
+  FACTION_LABELS,
+  FACTION_SKIN_COLORS,
+  getNearbySettlements,
+  type Humanoid,
+  type SettlementKind,
+} from './game/settlements';
 import {
   createPlayerMotion,
   updatePlayerMotion,
@@ -43,6 +53,11 @@ const BLOCK_META: Record<WorldBlockType, { label: string; short: string }> = {
   snow: { label: 'Snow', short: 'SNW' },
   cobblestone: { label: 'Cobble', short: 'CBL' },
   flower: { label: 'Wild bloom', short: 'FLR' },
+  water: { label: 'River water', short: 'WTR' },
+  planks: { label: 'Planks', short: 'PLK' },
+  brick: { label: 'Brick', short: 'BRK' },
+  roof: { label: 'Roof', short: 'ROF' },
+  glass: { label: 'Glass', short: 'GLS' },
 };
 
 const BLOCK_COLORS: Record<WorldBlockType, [string, string, string]> = {
@@ -57,10 +72,87 @@ const BLOCK_COLORS: Record<WorldBlockType, [string, string, string]> = {
   snow: ['#aabac2', '#eef0dc', '#869da6'],
   cobblestone: ['#686f6b', '#93968a', '#5a625f'],
   flower: ['#59845b', '#7aa76a', '#507b54'],
+  water: ['#246b78', '#55b5bc', '#195665'],
+  planks: ['#8d6846', '#c09866', '#70513b'],
+  brick: ['#81584c', '#b47d67', '#67473d'],
+  roof: ['#46534d', '#6b7770', '#35433d'],
+  glass: ['#5d9997', '#b8e6d8', '#487a7d'],
+};
+
+const SETTLEMENT_KIND_LABELS: Record<SettlementKind, string> = {
+  village: 'Village',
+  town: 'Town',
+  city: 'City',
+  grove: 'Elven grove',
+  hold: 'Mountain hold',
+  camp: 'Orc camp',
+  tower: 'Mage tower',
+  lodge: 'Warden lodge',
 };
 
 type AimTarget = { cell: BlockCell; adjacent: { x: number; y: number; z: number } };
 type Inventory = Record<BlockType, number>;
+
+function traceVoxelWorld(
+  world: WorldData,
+  origin: THREE.Vector3,
+  direction: THREE.Vector3,
+  maxDistance: number,
+): AimTarget | null {
+  let x = Math.floor(origin.x);
+  let y = Math.floor(origin.y);
+  let z = Math.floor(origin.z);
+  const stepX = Math.sign(direction.x);
+  const stepY = Math.sign(direction.y);
+  const stepZ = Math.sign(direction.z);
+  const deltaX = stepX ? Math.abs(1 / direction.x) : Infinity;
+  const deltaY = stepY ? Math.abs(1 / direction.y) : Infinity;
+  const deltaZ = stepZ ? Math.abs(1 / direction.z) : Infinity;
+  let nextX = stepX
+    ? ((stepX > 0 ? x + 1 : x) - origin.x) / direction.x
+    : Infinity;
+  let nextY = stepY
+    ? ((stepY > 0 ? y + 1 : y) - origin.y) / direction.y
+    : Infinity;
+  let nextZ = stepZ
+    ? ((stepZ > 0 ? z + 1 : z) - origin.z) / direction.z
+    : Infinity;
+  let previous: { x: number; y: number; z: number } | null = null;
+
+  for (let step = 0; step < 48; step += 1) {
+    const type = getBlock(world, x, y, z);
+    if (type) {
+      const dominant = Math.max(
+        Math.abs(direction.x),
+        Math.abs(direction.y),
+        Math.abs(direction.z),
+      );
+      return {
+        cell: { x, y, z, type },
+        adjacent: previous ?? {
+          x: x - (Math.abs(direction.x) === dominant ? stepX : 0),
+          y: y - (Math.abs(direction.y) === dominant ? stepY : 0),
+          z: z - (Math.abs(direction.z) === dominant ? stepZ : 0),
+        },
+      };
+    }
+
+    const nextDistance = Math.min(nextX, nextY, nextZ);
+    if (!Number.isFinite(nextDistance) || nextDistance > maxDistance) return null;
+    previous = { x, y, z };
+    if (nextX <= nextY && nextX <= nextZ) {
+      x += stepX;
+      nextX += deltaX;
+    } else if (nextY <= nextZ) {
+      y += stepY;
+      nextY += deltaY;
+    } else {
+      z += stepZ;
+      nextZ += deltaZ;
+    }
+  }
+  return null;
+}
 
 const DEFAULT_INVENTORY: Inventory = {
   grass: 24,
@@ -203,9 +295,19 @@ function pixelTexture(type: WorldBlockType, face: number) {
         ? ['#b7ad98', '#706d63', '#8a8578']
         : type === 'clay'
           ? ['#ce9480', '#8c5d59', '#a66f65']
-      : type === 'leaves'
-        ? ['#91b66a', '#416c50', '#6d985d']
-        : ['#d3a16c', '#644a3c', base];
+          : type === 'water'
+            ? ['#9ad7d1', '#257a88', '#61b7ba']
+            : type === 'planks'
+              ? ['#d0a16d', '#79553b', '#a4774e']
+              : type === 'brick'
+                ? ['#d49c81', '#744b43', '#a66d5b']
+                : type === 'roof'
+                  ? ['#89948a', '#394741', '#66746b']
+                  : type === 'glass'
+                    ? ['#d2f0df', '#4b8285', '#83bcb3']
+                    : type === 'leaves'
+                      ? ['#91b66a', '#416c50', '#6d985d']
+                      : ['#d3a16c', '#644a3c', base];
   let seed = type.split('').reduce((total, char) => total + char.charCodeAt(0), 0) + face * 31;
   const random = () => {
     seed = (seed * 9301 + 49297) % 233280;
@@ -223,6 +325,7 @@ function pixelTexture(type: WorldBlockType, face: number) {
   const texture = new THREE.CanvasTexture(canvas);
   texture.magFilter = THREE.NearestFilter;
   texture.minFilter = THREE.NearestFilter;
+  texture.generateMipmaps = false;
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.needsUpdate = true;
   return texture;
@@ -231,10 +334,18 @@ function pixelTexture(type: WorldBlockType, face: number) {
 const textureCache = new Map<string, THREE.CanvasTexture | null>();
 
 function getMaterials(type: WorldBlockType) {
+  const isWater = type === 'water';
   return [0, 1, 2, 3, 4, 5].map((face) => {
     const key = `${type}-${face}`;
     if (!textureCache.has(key)) textureCache.set(key, pixelTexture(type, face));
-    return new THREE.MeshLambertMaterial({ map: textureCache.get(key), color: '#fffaf0' });
+    return new THREE.MeshLambertMaterial({
+      map: textureCache.get(key),
+      color: '#fffaf0',
+      transparent: isWater,
+      opacity: isWater ? 0.78 : 1,
+      depthWrite: !isWater,
+      side: isWater ? THREE.DoubleSide : THREE.FrontSide,
+    });
   });
 }
 
@@ -250,7 +361,6 @@ function VoxelBatch({ type, cells }: { type: WorldBlockType; cells: BlockCell[] 
       dummy.updateMatrix();
       mesh.setMatrixAt(index, dummy.matrix);
     });
-    mesh.userData.cells = cells;
     mesh.instanceMatrix.needsUpdate = true;
     mesh.computeBoundingSphere();
   }, [cells, dummy]);
@@ -258,9 +368,7 @@ function VoxelBatch({ type, cells }: { type: WorldBlockType; cells: BlockCell[] 
     <instancedMesh
       ref={meshRef}
       args={[undefined, undefined, cells.length]}
-      userData={{ cells }}
-      castShadow
-      receiveShadow
+      castShadow={false}
       material={materials}
     >
       <boxGeometry args={[1, 1, 1]} />
@@ -275,6 +383,7 @@ function GameWorld({
   onPlace,
   onPosition,
   onChunkChange,
+  inhabitants,
   savedPosition,
   mobileMove,
 }: {
@@ -284,6 +393,7 @@ function GameWorld({
   onPlace: (cell: BlockCell, adjacent: AimTarget['adjacent']) => void;
   onPosition: (position: Position) => void;
   onChunkChange: (chunkX: number, chunkZ: number) => void;
+  inhabitants: Humanoid[];
   savedPosition: Position | null;
   mobileMove: { forward: number; side: number; jump: boolean };
 }) {
@@ -295,7 +405,7 @@ function GameWorld({
     for (const cell of visible) grouped[cell.type].push(cell);
     return grouped;
   }, [visible]);
-  const { camera, gl, scene } = useThree();
+  const { camera, gl } = useThree();
   const yaw = useRef(0);
   const pitch = useRef(-0.17);
   const [player] = useState<PlayerMotion>(() =>
@@ -312,10 +422,20 @@ function GameWorld({
     onPlace,
     onPosition,
     onChunkChange,
+    inhabitants,
     world,
     mobileMove,
   });
-  callbacks.current = { onTarget, onMine, onPlace, onPosition, onChunkChange, world, mobileMove };
+  callbacks.current = {
+    onTarget,
+    onMine,
+    onPlace,
+    onPosition,
+    onChunkChange,
+    inhabitants,
+    world,
+    mobileMove,
+  };
 
   useEffect(() => {
     camera.rotation.order = 'YXZ';
@@ -420,9 +540,7 @@ function GameWorld({
     };
   }, [gl]);
 
-  const raycaster = useMemo(() => new THREE.Raycaster(), []);
   const direction = useMemo(() => new THREE.Vector3(), []);
-  const normalMatrix = useMemo(() => new THREE.Matrix3(), []);
   const mobileRef = useRef(mobileMove);
   mobileRef.current = mobileMove;
   const positionClock = useRef(0);
@@ -476,23 +594,15 @@ function GameWorld({
     if (aimClock.current >= 0.06) {
       aimClock.current = 0;
       camera.getWorldDirection(direction);
-      raycaster.set(camera.position, direction);
-      raycaster.far = 6.2;
-      const hit = raycaster.intersectObjects(scene.children, true).find((intersection) => {
-        const object = intersection.object as THREE.InstancedMesh;
-        return object.userData?.cells && Number.isInteger(intersection.instanceId) && intersection.face;
-      });
-      if (hit?.face) {
-        const mesh = hit.object as THREE.InstancedMesh;
-        const cell = mesh.userData.cells[hit.instanceId as number] as BlockCell;
-        normalMatrix.getNormalMatrix(mesh.matrixWorld);
-        const normal = hit.face.normal.clone().applyMatrix3(normalMatrix).round();
-        const nextTarget: AimTarget = {
-          cell,
-          adjacent: { x: cell.x + normal.x, y: cell.y + normal.y, z: cell.z + normal.z },
-        };
+      const nextTarget = traceVoxelWorld(
+        callbacks.current.world,
+        camera.position,
+        direction,
+        6.2,
+      );
+      if (nextTarget) {
         target.current = nextTarget;
-        const key = blockKey(cell.x, cell.y, cell.z);
+        const key = blockKey(nextTarget.cell.x, nextTarget.cell.y, nextTarget.cell.z);
         if (key !== aimCellKey.current) {
           aimCellKey.current = key;
           callbacks.current.onTarget(nextTarget);
@@ -510,19 +620,12 @@ function GameWorld({
   return (
     <>
       <color attach="background" args={['#a9d9d1']} />
-      <fog attach="fog" args={['#b7ddd0', 18, 43]} />
+      <fog attach="fog" args={['#b7ddd0', 30, 70]} />
       <hemisphereLight args={['#f9e9ba', '#567558', 1.45]} />
       <directionalLight
         position={[-8, 15, 7]}
         intensity={2.05}
         color="#ffe3a4"
-        castShadow
-        shadow-mapSize-width={1024}
-        shadow-mapSize-height={1024}
-        shadow-camera-left={-22}
-        shadow-camera-right={22}
-        shadow-camera-top={22}
-        shadow-camera-bottom={-22}
       />
       <mesh position={[14, 13, -24]} rotation={[0.15, 0, 0]}>
         <boxGeometry args={[3.2, 3.2, 0.25]} />
@@ -531,6 +634,7 @@ function GameWorld({
       {WORLD_BLOCK_TYPES.map((type) => (
         <VoxelBatch key={type} type={type} cells={cellsByType[type]} />
       ))}
+      <HumanoidBatches inhabitants={inhabitants} />
       {target.current && (
         <mesh position={[target.current.cell.x + 0.5, target.current.cell.y + 0.5, target.current.cell.z + 0.5]}>
           <boxGeometry args={[1.012, 1.012, 1.012]} />
@@ -556,6 +660,7 @@ function VoxelFallback({
   onPlace,
   onPosition,
   onChunkChange,
+  inhabitants,
   savedPosition,
   mobileMove,
   started,
@@ -567,6 +672,7 @@ function VoxelFallback({
   onPlace: (cell: BlockCell, adjacent: AimTarget['adjacent']) => void;
   onPosition: (position: Position) => void;
   onChunkChange: (chunkX: number, chunkZ: number) => void;
+  inhabitants: Humanoid[];
   savedPosition: Position | null;
   mobileMove: { forward: number; side: number; jump: boolean };
   started: boolean;
@@ -600,6 +706,7 @@ function VoxelFallback({
     onPlace,
     onPosition,
     onChunkChange,
+    inhabitants,
     onStart,
   });
   latest.current = {
@@ -610,6 +717,7 @@ function VoxelFallback({
     onPlace,
     onPosition,
     onChunkChange,
+    inhabitants,
     onStart,
   };
 
@@ -831,6 +939,32 @@ function VoxelFallback({
         );
       }
 
+      for (const person of latest.current.inhabitants) {
+        const dx = person.x - player.x;
+        const dz = person.z - player.z;
+        if (Math.abs(dx) > 30 || Math.abs(dz) > 30) continue;
+        const centerX = width / 2 + ((dx - dz) * tileWidth) / 2;
+        const feetY = centerY + ((dx + dz) * tileHeight) / 2 -
+          (person.y - baseY) * blockHeight;
+        const pixel = Math.max(3, Math.round(tileWidth * 0.23));
+        if (centerX < -pixel * 3 || centerX > width + pixel * 3 ||
+          feetY < -pixel * 10 || feetY > height + pixel * 3) continue;
+        context.fillStyle = 'rgba(47, 59, 48, 0.35)';
+        context.fillRect(centerX - pixel * 1.15, feetY - pixel * 0.4, pixel * 2.3, pixel * 0.7);
+        context.fillStyle = FACTION_COLORS[person.faction];
+        context.fillRect(centerX - pixel, feetY - pixel * 3, pixel * 2, pixel * 2);
+        context.fillStyle = FACTION_SKIN_COLORS[person.faction];
+        context.fillRect(centerX - pixel * 0.75, feetY - pixel * 4.4, pixel * 1.5, pixel * 1.4);
+        context.fillStyle = '#3c3b34';
+        context.fillRect(centerX - pixel * 0.82, feetY - pixel, pixel * 0.68, pixel);
+        context.fillRect(centerX + pixel * 0.14, feetY - pixel, pixel * 0.68, pixel);
+        if (person.faction === 'mages') {
+          context.fillStyle = '#d8a958';
+          context.fillRect(centerX - pixel, feetY - pixel * 5.1, pixel * 2, pixel * 0.8);
+          context.fillRect(centerX - pixel * 0.55, feetY - pixel * 6, pixel * 1.1, pixel);
+        }
+      }
+
     };
     frame = window.requestAnimationFrame(render);
 
@@ -876,6 +1010,37 @@ function App() {
   const [supportsWebGL, setSupportsWebGL] = useState<boolean | null>(null);
   const noticeTimeout = useRef<number | undefined>(undefined);
   const selected = BLOCK_TYPES[selectedIndex] ?? 'grass';
+  const nearbySettlements = useMemo(
+    () =>
+      getNearbySettlements(
+        world.seed,
+        playerPosition?.x ?? 0.5,
+        playerPosition?.z ?? 0.5,
+        48,
+        getTerrainSiteInfo,
+      ),
+    [world.seed, playerPosition],
+  );
+  const inhabitants = useMemo(
+    () =>
+      nearbySettlements
+        .flatMap((settlement) => settlement.inhabitants)
+        .filter((person) =>
+          Math.hypot(
+            person.x - (playerPosition?.x ?? 0.5),
+            person.z - (playerPosition?.z ?? 0.5),
+          ) < 48,
+        ),
+    [nearbySettlements, playerPosition],
+  );
+  const nearestSettlement = nearbySettlements[0];
+  const settlementDistance = nearestSettlement
+    ? Math.hypot(
+      nearestSettlement.x - (playerPosition?.x ?? 0.5),
+      nearestSettlement.z - (playerPosition?.z ?? 0.5),
+    )
+    : Infinity;
+  const visibleSettlement = settlementDistance <= 42 ? nearestSettlement : null;
 
   useEffect(() => {
     const probe = document.createElement('canvas');
@@ -920,14 +1085,17 @@ function App() {
     const found = getBlock(current, cell.x, cell.y, cell.z);
     if (!found) return;
     setWorldEdited((latestWorld) => setBlock(latestWorld, cell.x, cell.y, cell.z, null));
-    if (found !== 'flower') {
+    if (BLOCK_TYPES.includes(found as BlockType)) {
+      const item = found as BlockType;
       setInventory((currentInventory) => ({
         ...currentInventory,
-        [found]: currentInventory[found] + 1,
+        [item]: currentInventory[item] + 1,
       }));
-      showNotice(`${BLOCK_META[found].label} gathered`);
-    } else {
+      showNotice(`${BLOCK_META[item].label} gathered`);
+    } else if (found === 'flower') {
       showNotice('Wild bloom cleared');
+    } else {
+      showNotice(`${BLOCK_META[found].label} cleared`);
     }
   }, [showNotice, setWorldEdited]);
 
@@ -1020,6 +1188,7 @@ function App() {
           onPlace={placeBlock}
           onPosition={setPlayerPosition}
           onChunkChange={streamChunks}
+          inhabitants={inhabitants}
           savedPosition={playerPosition}
           mobileMove={mobileMove}
           started={started}
@@ -1028,9 +1197,8 @@ function App() {
       ) : (
         <Canvas
           className="game-canvas"
-          shadows
-          dpr={[1, 1.6]}
-          camera={{ position: [0.5, 5, 0.5], fov: 74, near: 0.08, far: 90 }}
+          dpr={[1, 1.35]}
+          camera={{ position: [0.5, 5, 0.5], fov: 74, near: 0.08, far: 100 }}
           gl={{ antialias: false, powerPreference: 'high-performance' }}
           onCreated={({ gl }) => {
             gl.setPixelRatio(Math.min(window.devicePixelRatio, 1.6));
@@ -1046,6 +1214,7 @@ function App() {
             onPlace={placeBlock}
             onPosition={setPlayerPosition}
             onChunkChange={streamChunks}
+            inhabitants={inhabitants}
             savedPosition={playerPosition}
             mobileMove={mobileMove}
           />
@@ -1105,6 +1274,20 @@ function App() {
           </button>
         </div>
 
+        {visibleSettlement && (
+          <div className="settlement-card" data-testid="status-nearby-settlement">
+            <small>
+              <i style={{ backgroundColor: FACTION_COLORS[visibleSettlement.faction] }} />
+              {FACTION_LABELS[visibleSettlement.faction]} · {SETTLEMENT_KIND_LABELS[visibleSettlement.kind]}
+            </small>
+            <strong>{visibleSettlement.name}</strong>
+            <p>
+              {visibleSettlement.inhabitants.length} residents · {visibleSettlement.inhabitants[0]?.name}
+            </p>
+            <p>{visibleSettlement.inhabitants[0]?.role}</p>
+          </div>
+        )}
+
         <aside
           className="world-rules-panel"
           id="world-generation-rules"
@@ -1121,12 +1304,12 @@ function App() {
               ×
             </button>
           </div>
-          <p><b>Grasslands:</b> grass over two dirt layers; trees add wood trunks and leaf crowns, with occasional flowers.</p>
-          <p><b>Drylands:</b> sand surface with gravel seams over deep stone.</p>
-          <p><b>Wet lowlands:</b> clay at the surface where damp terrain stays low.</p>
-          <p><b>Cold peaks:</b> snow caps higher, colder hills; dirt and stone below.</p>
-          <p><b>Rocky ridges:</b> cobblestone on exposed high ground, with gravel patches.</p>
-          <p><b>Everywhere:</b> 16×16 chunks stream in a 5×5 area around you; the world seed keeps terrain stable and your edits persist when chunks unload.</p>
+          <p><b>Ground:</b> grass covers two dirt layers, then stone; dry regions use sand with gravel patches.</p>
+          <p><b>Mountains:</b> broad ridges rise from lowlands; cold high ground gets snow and exposed cobblestone.</p>
+          <p><b>Rivers:</b> seeded winding channels carve valleys, with gravel and sand beneath blue water.</p>
+          <p><b>Wetlands:</b> low, damp ground forms clay banks; forests grow wood trunks and leaf crowns, 3–8 blocks tall.</p>
+          <p><b>Settlements:</b> villages, towns, cities, groves, holds, camps, towers, and lodges have matching folk and materials.</p>
+          <p><b>Everywhere:</b> 16×16 chunks stream in a 5×5 area around you; seed-based terrain and your edits persist as chunks unload.</p>
         </aside>
 
         <div className={`crosshair ${target ? 'crosshair-active' : ''}`} data-testid="status-crosshair" aria-label={target ? `Aiming at ${target.cell.type}` : 'Aim crosshair'}>

@@ -79,6 +79,11 @@ button:focus-visible { outline: 3px solid #f08a58; outline-offset: 3px; }
 .world-card small { display:block;font:9px var(--app-font-mono);text-transform:uppercase;letter-spacing:.14em;color:#688176; }
 .world-card strong { display:block;margin-top:4px;font-size:15px;font-weight:600;letter-spacing:-.04em;color:#24453c; }
 .world-card p { margin:5px 0 0;font:10px/1.4 var(--app-font-mono);color:#577168; }
+.settlement-card { position:absolute;right:clamp(18px,3.2vw,48px);top:112px;max-width:min(250px,calc(100vw - 36px));padding:11px 14px;background:rgba(246,239,214,.82);border-right:3px solid #6f9975;backdrop-filter:blur(8px);color:#24453c; }
+.settlement-card small { display:flex;align-items:center;gap:6px;font:8px var(--app-font-mono);letter-spacing:.08em;text-transform:uppercase;color:#688176; }
+.settlement-card small i { width:7px;height:7px;flex:none; }
+.settlement-card strong { display:block;margin-top:5px;font-size:14px;font-weight:600;letter-spacing:-.04em; }
+.settlement-card p { margin:5px 0 0;font:9px/1.35 var(--app-font-mono);color:#577168; }
 .rules-toggle { margin-top:8px;padding:0;border:0;background:none;color:#a85f45;text-align:left;cursor:pointer;font:8px var(--app-font-mono);letter-spacing:.08em;text-transform:uppercase; }
 .rules-toggle:hover { color:#713f32;text-decoration:underline; }
 .world-rules-panel { position:absolute;left:clamp(18px,3.2vw,48px);top:220px;width:min(330px,calc(100vw - 36px));padding:14px 16px;background:rgba(246,239,214,.96);border:1px solid rgba(35,62,53,.3);border-left:3px solid #de7854;box-shadow:4px 5px 0 rgba(35,62,53,.2);backdrop-filter:blur(10px);pointer-events:auto;color:#29493f; }
@@ -141,8 +146,12 @@ button:focus-visible { outline: 3px solid #f08a58; outline-offset: 3px; }
  .top-right { top:16px;right:15px;gap:6px; }
  .status-pill { padding:8px 9px;font-size:8px; }
  .icon-button { width:34px;height:34px; }
- .world-card { left:15px;top:67px;padding:9px 11px;max-width:190px; }
+  .world-card { left:15px;top:67px;padding:9px 11px;max-width:42vw; }
  .world-card p { font-size:9px; }
+  .settlement-card { right:15px;top:67px;max-width:42vw;padding:8px 9px; }
+  .settlement-card small { font-size:6px; }
+  .settlement-card strong { font-size:11px; }
+  .settlement-card p { font-size:7px; }
  .bottom-hud { bottom:14px;gap:9px; }
   .hotbar { width:calc(100vw - 16px);gap:2px;padding:5px;justify-content:space-between; }
   .hotbar-slot { width:auto;min-width:0;flex:1 1 0;height:52px;padding:4px 1px; }
