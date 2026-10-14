@@ -253,6 +253,90 @@ function drawTile(ctx: Ctx, ox: number, oy: number, info: BlockInfo, face: numbe
       for (let k = 0; k < 24; k += 1) px(Math.floor(rand() * S), Math.floor(rand() * S), rand() < 0.5 ? "#cfdde6" : "#ffffff");
       break;
     }
+    case "door": {
+      // A ledged plank door: frame, two recessed panels, an iron latch.
+      fill(base);
+      const frame = shade(base, 0.62);
+      const edge = shade(base, 0.8);
+      for (let i = 0; i < S; i += 1) {
+        px(i, 0, frame); px(i, S - 1, frame); px(0, i, frame); px(S - 1, i, frame);
+        px(i, 1, shade(base, 0.78)); px(i, S - 2, shade(base, 0.78));
+      }
+      if (face !== FACE_TOP && face !== FACE_BOTTOM) {
+        for (const [y0, y1] of [[2, 7], [9, 14]]) {
+          for (let x = 3; x <= 12; x += 1) { px(x, y0, frame); px(x, y1, frame); }
+          for (let y = y0; y <= y1; y += 1) { px(3, y, frame); px(12, y, frame); }
+          for (let y = y0 + 1; y < y1; y += 1) for (let x = 4; x < 12; x += 1) {
+            if (rand() < 0.18) px(x, y, edge);
+          }
+        }
+        px(11, 8, "#d8b04a");
+        px(12, 8, "#b98f36");
+      }
+      break;
+    }
+    case "chair": {
+      // Cross-braced side panels; the top reads as a round seat.
+      fill(base);
+      if (face === FACE_TOP || face === FACE_BOTTOM) {
+        for (let y = 0; y < S; y += 1) for (let x = 0; x < S; x += 1) {
+          const d = Math.hypot(x - 7.5, y - 7.5);
+          if (d > 6.5) px(x, y, shade(base, 0.6));
+          else if (rand() < 0.16) px(x, y, shade(base, 0.86 + rand() * 0.24));
+        }
+      } else {
+        const brace = shade(base, 0.66);
+        for (let i = 3; i < S - 3; i += 1) {
+          px(i, Math.round(3 + ((i - 3) * 9) / (S - 7)), brace);
+          px(i, Math.round(12 - ((i - 3) * 9) / (S - 7)), brace);
+        }
+        for (let x = 1; x < S; x += 1) { px(x, 1, shade(base, 0.7)); px(x, S - 2, shade(base, 0.7)); }
+        if (rand() < 0.5) for (let k = 0; k < 10; k += 1) px(Math.floor(rand() * S), Math.floor(rand() * S), shade(base, 1.06));
+      }
+      break;
+    }
+    case "table": {
+      // A thick apron under the top edge and two legs, so it reads as furniture.
+      fill(base);
+      if (face === FACE_TOP || face === FACE_BOTTOM) {
+        for (let i = 0; i < S; i += 1) { px(i, 0, shade(base, 0.72)); px(i, S - 1, shade(base, 0.72)); px(0, i, shade(base, 0.78)); px(S - 1, i, shade(base, 0.78)); }
+        for (let y = 2; y < S - 2; y += 1) for (let x = 2; x < S - 2; x += 1) {
+          if (rand() < 0.12) px(x, y, shade(base, 0.88 + rand() * 0.22));
+          else if (y === 5 || y === 10) px(x, y, shade(base, 0.82));
+        }
+      } else {
+        for (let x = 0; x < S; x += 1) for (let y = 0; y < 4; y += 1) px(x, y, shade(base, 0.7));
+        for (const legX of [1, 13]) {
+          for (let x = legX; x < legX + 2; x += 1) for (let y = 4; y < S - 1; y += 1) px(x, y, shade(base, 0.78));
+        }
+        for (let y = 4; y < S - 1; y += 1) { px(3, y, shade(base, 0.62)); px(12, y, shade(base, 0.62)); }
+      }
+      break;
+    }
+    case "marble": {
+      // Pale stone with soft grey veins wandering across the face.
+      fill(base);
+      for (let y = 0; y < S; y += 1) for (let x = 0; x < S; x += 1) {
+        if (rand() < 0.1) px(x, y, shade(base, 0.94 + rand() * 0.08));
+      }
+      const veins = 3;
+      for (let vein = 0; vein < veins; vein += 1) {
+        let vx = rand() * S;
+        let vy = rand() * S;
+        let angle = rand() * Math.PI * 2;
+        for (let step = 0; step < 26; step += 1) {
+          angle += (rand() - 0.5) * 0.9;
+          vx += Math.cos(angle) * 1.2;
+          vy += Math.sin(angle) * 1.2;
+          const px0 = Math.round(vx);
+          const py0 = Math.round(vy);
+          if (px0 < 0 || px0 >= S || py0 < 0 || py0 >= S) break;
+          px(px0, py0, info.speckle[1]);
+          if (rand() < 0.5 && px0 + 1 < S) px(px0 + 1, py0, shade(info.speckle[1], 1.12));
+        }
+      }
+      break;
+    }
     default: {
       fill(base);
       speckle(0.28);

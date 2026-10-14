@@ -21,6 +21,8 @@ export interface PlayerMotion extends Position {
   velocityZ: number;
   grounded: boolean;
   jumpHeld: boolean;
+  /** True while flight mode is on (double-tap Space in the game view). */
+  flying: boolean;
 }
 
 export interface MovementInput {
@@ -28,6 +30,8 @@ export interface MovementInput {
   side: number;
   jump: boolean;
   sprint: boolean;
+  /** Held to sink while flying (Ctrl); ignored on the ground. */
+  descend: boolean;
 }
 
 /*
@@ -43,6 +47,18 @@ const GRAVITY = 19.6;
 const JUMP_SPEED = 6.9;
 const WALK_SPEED = 4.6;
 const SPRINT_SPEED = 8;
+/*
+ * Flight (creative-style, toggled by double-tapping Space):
+ *  - cruise is faster than a sprint, Shift makes it faster still;
+ *  - Space rises, Ctrl sinks, and gravity is off while it is on.
+ * Autojump: a standing jump of JUMP_SPEED peaks at about 1.2 m, so any
+ * obstacle between step height and ~2.3 blocks is hopped over automatically
+ * while you keep walking into it - taller walls still need a manual jump.
+ */
+const FLY_SPEED = 10;
+const FLY_SPRINT_SPEED = 17;
+const FLY_RISE_SPEED = 6;
+const AUTO_JUMP_MAX = 2.3;
 const SWIM_SPEED = 2.8;
 const SWIM_UP_SPEED = 4;
 const WATER_GRAVITY = 5;
@@ -66,6 +82,7 @@ export function createPlayerMotion(world: WorldData, position: Position): Player
     velocityZ: 0,
     grounded: false,
     jumpHeld: false,
+    flying: false,
   };
   const floor = findFloor(world, motion.x, motion.z, motion.y - PLAYER_EYE_HEIGHT + 0.1);
   motion.grounded = floor !== null &&
@@ -126,12 +143,49 @@ function approach(current: number, target: number, amount: number): number {
   return Math.max(target, current - amount);
 }
 
+/**
+ * Top surface of the obstruction that blocks horizontal motion at a target
+ * position (the bottom of the blocking wall plus the height of the solid run
+ * above it), or Infinity when the target position is free. This is what the
+ * autojump uses: a low ledge is hopped, a castle wall is not.
+ */
+function obstructionTop(world: WorldData, x: number, eyeY: number, z: number): number {
+  const feetY = eyeY - PLAYER_EYE_HEIGHT;
+  const firstY = Math.max(0, Math.floor(feetY + 0.04));
+  const lastY = Math.min(MAX_BUILD_HEIGHT, Math.floor(feetY + PLAYER_HEIGHT - 0.04));
+  let lowest: number | null = null;
+  for (const [sampleX, sampleZ] of cornerSamples(x, z)) {
+    const blockX = Math.floor(sampleX);
+    const blockZ = Math.floor(sampleZ);
+    for (let y = firstY; y <= lastY; y += 1) {
+      if (isSolidAt(world, blockX, y, blockZ) && (lowest === null || y < lowest)) lowest = y;
+    }
+  }
+  if (lowest === null) return Infinity;
+  // Follow the stack upwards: only its actual top decides whether a jump clears it.
+  let top = lowest + 1;
+  const stackLimit = Math.min(MAX_BUILD_HEIGHT, lowest + 10);
+  for (let y = lowest + 1; y <= stackLimit; y += 1) {
+    let solidAbove = false;
+    for (const [sampleX, sampleZ] of cornerSamples(x, z)) {
+      if (isSolidAt(world, Math.floor(sampleX), y, Math.floor(sampleZ))) {
+        solidAbove = true;
+        break;
+      }
+    }
+    if (!solidAbove) break;
+    top = y + 1;
+  }
+  return top;
+}
+
+/** Moves the player along one axis in small steps; returns the obstruction top when blocked. */
 function moveAlongAxis(
   world: WorldData,
   motion: PlayerMotion,
   axis: "x" | "z",
   distance: number,
-): void {
+): number {
   const steps = Math.max(1, Math.ceil(Math.abs(distance) / 0.18));
   const step = distance / steps;
   for (let i = 0; i < steps; i += 1) {
@@ -154,11 +208,12 @@ function moveAlongAxis(
     if (hasBodyCollision(world, nextX, motion.y, nextZ)) {
       if (axis === "x") motion.velocityX = 0;
       else motion.velocityZ = 0;
-      return;
+      return obstructionTop(world, nextX, motion.y, nextZ);
     }
     motion.x = nextX;
     motion.z = nextZ;
   }
+  return Infinity;
 }
 
 export function updatePlayerMotion(
@@ -173,23 +228,43 @@ export function updatePlayerMotion(
   // Hold still until the chunk underfoot has streamed in, instead of falling through the void.
   if (!isChunkLoadedAt(world, motion.x, motion.z)) return;
   const swimming = isInWater(world, motion);
+  const feetY = motion.y - PLAYER_EYE_HEIGHT;
 
   const inputLength = Math.hypot(input.forward, input.side);
   const divisor = inputLength > 1 ? inputLength : 1;
   const forward = input.forward / divisor;
   const side = input.side / divisor;
-  const speed = swimming ? SWIM_SPEED : input.sprint ? SPRINT_SPEED : WALK_SPEED;
+  const speed = motion.flying
+    ? input.sprint ? FLY_SPRINT_SPEED : FLY_SPEED
+    : swimming ? SWIM_SPEED : input.sprint ? SPRINT_SPEED : WALK_SPEED;
   const desiredX = (-Math.sin(yaw) * forward + Math.cos(yaw) * side) * speed;
   const desiredZ = (-Math.cos(yaw) * forward - Math.sin(yaw) * side) * speed;
   const hasInput = inputLength > 0.001;
-  const horizontalResponse = motion.grounded
-    ? hasInput ? 23 : 16
-    : hasInput ? 7 : 1.5;
+  const horizontalResponse = motion.flying
+    ? 12
+    : motion.grounded
+      ? hasInput ? 23 : 16
+      : hasInput ? 7 : 1.5;
   motion.velocityX = approach(motion.velocityX, desiredX, horizontalResponse * dt);
   motion.velocityZ = approach(motion.velocityZ, desiredZ, horizontalResponse * dt);
 
-  moveAlongAxis(world, motion, "x", motion.velocityX * dt);
-  moveAlongAxis(world, motion, "z", motion.velocityZ * dt);
+  // The smaller of the two axis obstructions: Infinity means that axis is free.
+  const blockedTop = Math.min(
+    moveAlongAxis(world, motion, "x", motion.velocityX * dt),
+    moveAlongAxis(world, motion, "z", motion.velocityZ * dt),
+  );
+
+  if (motion.flying) {
+    // No gravity, no ground: Space rises, Ctrl sinks, Shift is a faster cruise.
+    const lift = (input.jump ? 1 : 0) - (input.descend ? 1 : 0);
+    motion.velocityY = approach(motion.velocityY, lift * FLY_RISE_SPEED, 40 * dt);
+    const nextY = motion.y + motion.velocityY * dt;
+    if (hasBodyCollision(world, motion.x, nextY, motion.z)) motion.velocityY = 0;
+    else motion.y = nextY;
+    motion.grounded = false;
+    motion.jumpHeld = input.jump;
+    return;
+  }
 
   if (swimming) {
     // Buoyant: Space swims up, otherwise the player drifts down slowly.
@@ -201,12 +276,25 @@ export function updatePlayerMotion(
     if (input.jump && !motion.jumpHeld && motion.grounded) {
       motion.velocityY = JUMP_SPEED;
       motion.grounded = false;
+    } else if (
+      // Autojump: walking into an obstacle too tall to step over but low
+      // enough to clear on a jump hops it for you, hands off the space bar.
+      motion.grounded &&
+      hasInput &&
+      blockedTop - feetY > STEP_HEIGHT - 0.02 &&
+      blockedTop - feetY <= AUTO_JUMP_MAX
+    ) {
+      motion.velocityY = JUMP_SPEED;
+      motion.grounded = false;
+      // Keep the push into the obstacle so the hop carries you up and over it.
+      motion.velocityX = desiredX;
+      motion.velocityZ = desiredZ;
     }
     motion.jumpHeld = input.jump;
     motion.velocityY -= GRAVITY * dt;
   }
 
-  const previousFeet = motion.y - PLAYER_EYE_HEIGHT;
+  const previousFeet = feetY;
   let nextY = motion.y + motion.velocityY * dt;
   if (
     motion.velocityY > 0 &&

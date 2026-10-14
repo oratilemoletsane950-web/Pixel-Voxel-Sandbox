@@ -45,6 +45,10 @@ export const BLOCK_TYPES = [
   "brick",
   "roof",
   "glass",
+  "door",
+  "chair",
+  "table",
+  "marble",
 ] as const;
 
 /** Scenery that is part of the world but is cleared rather than collected. */
@@ -74,7 +78,11 @@ export type TexturePattern =
   | "wheat"
   | "bedrock"
   | "bands"
-  | "snow";
+  | "snow"
+  | "door"
+  | "chair"
+  | "table"
+  | "marble";
 
 export interface BlockInfo {
   name: WorldBlockType;
@@ -158,6 +166,10 @@ const BLOCK_LIST: BlockInfo[] = [
   def("brick", "Brick", "BRK", ["#81584c", "#b47d67", "#67473d"], ["#d49c81", "#744b43", "#a66d5b"], { pattern: "bricks" }),
   def("roof", "Roof tile", "ROF", ["#46534d", "#6b7770", "#35433d"], ["#89948a", "#394741", "#66746b"], { pattern: "shingles" }),
   def("glass", "Glass", "GLS", ["#5d9997", "#b8e6d8", "#487a7d"], ["#d2f0df", "#4b8285", "#83bcb3"], { pattern: "glass", opaque: false, alpha: 0.42 }),
+  def("door", "Wooden door", "DOR", ["#79553a", "#a4774e", "#634430"], ["#d0a16d", "#79553b", "#a4774e"], { pattern: "door", solid: false }),
+  def("chair", "Chair", "CHR", ["#6f4e33", "#8d6846", "#593d28"], ["#d0a16d", "#79553b", "#a4774e"], { pattern: "chair" }),
+  def("table", "Table", "TBL", ["#8d6846", "#b58a5c", "#6b4c34"], ["#d0a16d", "#79553b", "#a4774e"], { pattern: "table" }),
+  def("marble", "Marble", "MRB", ["#dcd9cf", "#f1efe7", "#c2bfb4"], ["#f7f5ee", "#a3a199", "#d8d5cb"], { pattern: "marble" }),
   def("flower", "Wild bloom", "FLR", ["#59845b", "#7aa76a", "#507b54"], ["#f4d276", "#d8796e", "#93b56a"], { pattern: "flower", solid: false }),
   def("wheat", "Wheat", "WHT", ["#c9b24a", "#d8c35a", "#b39b3b"], ["#e8d47a", "#a68c2f", "#c9b24a"], { pattern: "wheat", solid: false }),
   def("water", "Water", "WTR", ["#246b78", "#55b5bc", "#195665"], ["#9ad7d1", "#257a88", "#61b7ba"], { pattern: "water", solid: false, opaque: false, alpha: 0.74 }),
