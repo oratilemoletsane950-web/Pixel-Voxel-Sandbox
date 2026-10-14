@@ -47,6 +47,12 @@ import {
   type PlayerMotion,
   type Position,
 } from './game/physics';
+import {
+  CRAFTING_RECIPES,
+  applyCraft,
+  canCraft,
+  type CraftRecipe,
+} from './game/crafting';
 
 const BLOCK_META = BLOCK_INFO;
 const BLOCK_COLORS = Object.fromEntries(
@@ -55,6 +61,10 @@ const BLOCK_COLORS = Object.fromEntries(
 
 /** Block-interaction reach: 4 m (8 blocks), a comfortable arm-plus-tool distance. */
 const REACH_BLOCKS = 8;
+/** Arrow-key turning speed, radians per second (about 150°/s). */
+const TURN_SPEED = 2.6;
+/** Two Space presses within this window toggle flight mode. */
+const DOUBLE_TAP_MS = 340;
 const HOTBAR_SLOTS = 10;
 const RENDER_RADIUS_KEY = 'pixel-wilds-render-radius';
 
@@ -62,6 +72,7 @@ const SETTLEMENT_KIND_LABELS: Record<SettlementKind, string> = {
   village: 'Village',
   town: 'Town',
   city: 'City',
+  kingdom: 'Kingdom',
   grove: 'Elven grove',
   hold: 'Mountain hold',
   camp: 'Orc camp',
@@ -134,7 +145,18 @@ function traceVoxelWorld(
 }
 
 const DEFAULT_INVENTORY: Inventory = Object.fromEntries(
-  BLOCK_TYPES.map((type) => [type, type.endsWith('_ore') ? 6 : type === 'glass' || type === 'brick' || type === 'roof' ? 16 : 24]),
+  BLOCK_TYPES.map((type) => [
+    type,
+    type.endsWith('_ore')
+      ? 6
+      : type === 'glass' || type === 'brick' || type === 'roof'
+        ? 16
+        : type === 'door' || type === 'marble'
+          ? 8
+          : type === 'chair' || type === 'table'
+            ? 6
+            : 24,
+  ]),
 ) as Inventory;
 
 const SAVE_KEY = 'pixel-wilds-player-v2';
@@ -261,6 +283,7 @@ function GameWorld({
   savedPosition,
   mobileMove,
   renderRadius,
+  paused,
 }: {
   world: WorldData;
   onTarget: (target: AimTarget | null) => void;
@@ -272,6 +295,8 @@ function GameWorld({
   savedPosition: Position | null;
   mobileMove: { forward: number; side: number; jump: boolean };
   renderRadius: number;
+  /** True while the workbench (or any overlay) is open: no moving or turning. */
+  paused: boolean;
 }) {
   const worldRef = useRef(world);
   worldRef.current = world;
@@ -311,6 +336,9 @@ function GameWorld({
   const target = useRef<AimTarget | null>(null);
   const aimCellKey = useRef('');
   const lastChunkKey = useRef('');
+  const lastSpaceTap = useRef(0);
+  const pausedRef = useRef(paused);
+  pausedRef.current = paused;
   const touchLook = useRef<{ pointerId: number; x: number; y: number } | null>(null);
   const callbacks = useRef({
     onTarget,
@@ -347,6 +375,18 @@ function GameWorld({
         getHotbarIndexFromCode(code) >= 0
       ) event.preventDefault();
       keyState.current[code] = true;
+      // Double-tapping Space toggles flight: tap, tap, and you are airborne.
+      if (code === 'Space' && !event.repeat && !pausedRef.current) {
+        const now = performance.now();
+        if (now - lastSpaceTap.current < DOUBLE_TAP_MS) {
+          lastSpaceTap.current = 0;
+          player.flying = !player.flying;
+          player.velocityY = 0;
+          window.dispatchEvent(new CustomEvent('pixel-wilds-fly', { detail: player.flying }));
+        } else {
+          lastSpaceTap.current = now;
+        }
+      }
       const slot = getHotbarIndexFromCode(code);
       if (slot >= 0) window.dispatchEvent(new CustomEvent('pixel-wilds-slot', { detail: slot }));
     };
@@ -387,6 +427,7 @@ function GameWorld({
       if (document.pointerLockElement !== canvas) {
         if (
           event.button === 0 &&
+          !pausedRef.current &&
           !window.matchMedia('(pointer: coarse)').matches
         ) {
           canvas.requestPointerLock?.();
@@ -442,32 +483,44 @@ function GameWorld({
   useFrame((_, delta) => {
     const dt = Math.min(delta, 0.05);
     const keys = keyState.current;
-    const forward =
-      Number(Boolean(keys.KeyW || keys.ArrowUp)) -
-      Number(Boolean(keys.KeyS || keys.ArrowDown)) +
-      mobileRef.current.forward;
-    const side =
-      Number(Boolean(keys.KeyD || keys.ArrowRight)) -
-      Number(Boolean(keys.KeyA || keys.ArrowLeft)) +
-      mobileRef.current.side;
+    const paused = pausedRef.current;
+    // Left/Right arrows turn the view while W A S D keeps walking, so you can
+    // steer without a mouse (useful when the pointer is not captured).
+    const turn = Number(Boolean(keys.ArrowLeft)) - Number(Boolean(keys.ArrowRight));
+    if (!paused && turn !== 0) yaw.current += turn * TURN_SPEED * dt;
+    const forward = paused
+      ? 0
+      : Number(Boolean(keys.KeyW || keys.ArrowUp)) -
+        Number(Boolean(keys.KeyS || keys.ArrowDown)) +
+        mobileRef.current.forward;
+    const side = paused
+      ? 0
+      : Number(Boolean(keys.KeyD)) -
+        Number(Boolean(keys.KeyA)) +
+        mobileRef.current.side;
     updatePlayerMotion(
       callbacks.current.world,
       player,
       {
         forward,
         side,
-        jump: Boolean(keys.Space || mobileRef.current.jump),
-        sprint: Boolean(keys.ShiftLeft || keys.ShiftRight),
+        jump: paused ? false : Boolean(keys.Space || mobileRef.current.jump),
+        sprint: paused ? false : Boolean(keys.ShiftLeft || keys.ShiftRight),
+        descend: paused ? false : Boolean(keys.ControlLeft || keys.ControlRight),
       },
       yaw.current,
       dt,
     );
 
     if (player.y < -40) {
+      const wasFlying = player.flying;
       Object.assign(
         player,
         createPlayerMotion(callbacks.current.world, findSpawn(callbacks.current.world)),
       );
+      if (wasFlying) {
+        window.dispatchEvent(new CustomEvent('pixel-wilds-fly', { detail: false }));
+      }
     }
     camera.rotation.set(pitch.current, yaw.current, 0, 'YXZ');
     camera.position.set(player.x, player.y, player.z);
@@ -607,6 +660,8 @@ function VoxelFallback({
   const moveRef = useRef(mobileMove);
   const targetRef = useRef<AimTarget | null>(null);
   const startedRef = useRef(started);
+  const lastSpaceTap = useRef(0);
+  const yawRef = useRef(0);
   const lastPositionSent = useRef(0);
   const lastChunkKey = useRef('');
   moveRef.current = mobileMove;
@@ -735,6 +790,17 @@ function VoxelFallback({
     const onContextMenu = (event: Event) => event.preventDefault();
     const onKeyDown = (event: KeyboardEvent) => {
       keys.current[event.code] = true;
+      if (event.code === 'Space' && !event.repeat && startedRef.current) {
+        const now = performance.now();
+        if (now - lastSpaceTap.current < DOUBLE_TAP_MS) {
+          lastSpaceTap.current = 0;
+          player.flying = !player.flying;
+          player.velocityY = 0;
+          window.dispatchEvent(new CustomEvent('pixel-wilds-fly', { detail: player.flying }));
+        } else {
+          lastSpaceTap.current = now;
+        }
+      }
       if (
         ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(event.code) ||
         getHotbarIndexFromCode(event.code) >= 0
@@ -783,13 +849,16 @@ function VoxelFallback({
       context.imageSmoothingEnabled = false;
 
       if (startedRef.current) {
+        // Arrow keys turn the walking direction; the isometric view stays put.
+        const turn = Number(Boolean(keys.current.ArrowLeft)) - Number(Boolean(keys.current.ArrowRight));
+        if (turn !== 0) yawRef.current += turn * TURN_SPEED * dt;
         const inputForward =
           Number(Boolean(keys.current.KeyW || keys.current.ArrowUp)) -
           Number(Boolean(keys.current.KeyS || keys.current.ArrowDown)) +
           moveRef.current.forward;
         const inputSide =
-          Number(Boolean(keys.current.KeyD || keys.current.ArrowRight)) -
-          Number(Boolean(keys.current.KeyA || keys.current.ArrowLeft)) +
+          Number(Boolean(keys.current.KeyD)) -
+          Number(Boolean(keys.current.KeyA)) +
           moveRef.current.side;
         updatePlayerMotion(
           latest.current.world,
@@ -799,8 +868,9 @@ function VoxelFallback({
             side: inputSide,
             jump: Boolean(keys.current.Space || moveRef.current.jump),
             sprint: Boolean(keys.current.ShiftLeft || keys.current.ShiftRight),
+            descend: Boolean(keys.current.ControlLeft || keys.current.ControlRight),
           },
-          0,
+          yawRef.current,
           dt,
         );
         const chunk = getChunkCoordinates(player.x, player.z);
@@ -923,6 +993,8 @@ function App() {
   const [target, setTarget] = useState<AimTarget | null>(null);
   const [started, setStarted] = useState(false);
   const [rulesOpen, setRulesOpen] = useState(false);
+  const [craftOpen, setCraftOpen] = useState(false);
+  const [flying, setFlying] = useState(false);
   const [saveState, setSaveState] = useState<'saved' | 'unsaved'>('saved');
   const [notice, setNotice] = useState('');
   const [mobileMove, setMobileMove] = useState({ forward: 0, side: 0, jump: false });
@@ -983,6 +1055,24 @@ function App() {
     window.clearTimeout(noticeTimeout.current);
     noticeTimeout.current = window.setTimeout(() => setNotice(''), 1300);
   }, []);
+
+  // Leaving pointer lock hands the mouse back so recipes can be clicked.
+  useEffect(() => {
+    if (!craftOpen) return;
+    if (document.pointerLockElement) document.exitPointerLock?.();
+  }, [craftOpen]);
+
+  // The game reports every flight toggle (double-tapped Space) so the HUD can
+  // show whether you are walking or flying.
+  useEffect(() => {
+    const onFly = (event: Event) => {
+      const on = Boolean((event as CustomEvent<boolean>).detail);
+      setFlying(on);
+      showNotice(on ? 'Flight on - Space rises, Ctrl sinks' : 'Back on the ground');
+    };
+    window.addEventListener('pixel-wilds-fly', onFly);
+    return () => window.removeEventListener('pixel-wilds-fly', onFly);
+  }, [showNotice]);
 
   const startFallback = useCallback(() => {
     setStarted(true);
@@ -1083,6 +1173,18 @@ function App() {
     showNotice(`${BLOCK_META[selected].label} placed`);
   }, [inventory, playerPosition, selected, setWorldEdited, showNotice]);
 
+  const craft = useCallback(
+    (recipe: CraftRecipe) => {
+      if (!canCraft(recipe, inventory)) {
+        showNotice('Not enough materials yet');
+        return;
+      }
+      setInventory((current) => applyCraft(recipe, current));
+      showNotice(`Crafted ${recipe.label}`);
+    },
+    [inventory, showNotice],
+  );
+
   const savePlayerState = useCallback((position?: Position) => {
     try {
       localStorage.setItem(SAVE_KEY, JSON.stringify({ inventory, position: position ?? playerPosition }));
@@ -1110,6 +1212,14 @@ function App() {
       });
     };
     const onPageKey = (event: KeyboardEvent) => {
+      if (event.code === 'KeyC' && !event.repeat && !event.ctrlKey && !event.metaKey) {
+        setCraftOpen((open) => !open);
+        return;
+      }
+      if (event.code === 'Escape') {
+        setCraftOpen(false);
+        return;
+      }
       const step = event.code === 'KeyE' || event.code === 'BracketRight' ? 1
         : event.code === 'KeyQ' || event.code === 'BracketLeft' ? -1 : 0;
       if (!step) return;
@@ -1198,6 +1308,7 @@ function App() {
             savedPosition={playerPosition}
             mobileMove={mobileMove}
             renderRadius={renderRadius}
+            paused={craftOpen}
           />
         </Canvas>
       )}
@@ -1215,6 +1326,12 @@ function App() {
             <i className="status-dot" />
             {saveState === 'saved' ? 'landscape saved' : 'saving landscape'}
           </div>
+          {flying && (
+            <div className="status-pill is-flying" data-testid="status-flying">
+              <i className="status-dot" />
+              flying · space up · ctrl down
+            </div>
+          )}
           <label className="distance-control" title="How far you can see">
             <span>view {Math.round(renderRadius * CHUNK_SIZE * 0.5)} m</span>
             <input
@@ -1301,8 +1418,9 @@ function App() {
           <p><b>Ground:</b> soil depends on climate: grass over dirt in temperate land, sand over sandstone in deserts, snow in the cold, mud and clay in swamps. Steep slopes show bare rock, with gravel scree below.</p>
           <p><b>Rock:</b> pink granite in the high country, pale limestone in low basins, stone elsewhere; coal and iron veins sit inside the rock, and bedrock lies at the bottom.</p>
           <p><b>Rivers &amp; lakes:</b> rivers wind through low ground with flat water, banks of sand, gravel, clay or mud, and freeze in the cold. Basins below sea level fill with water.</p>
-          <p><b>Trees:</b> oak and birch in forests, spruce in cold and high places, cactus in deserts, broad oaks in swamps.</p>
-          <p><b>Settlements:</b> sites are levelled, with streets, a plaza, houses facing the street, and walls for towns and cities.</p>
+          <p><b>Trees:</b> ten kinds with their own trunks - oaks and birches in mixed woods, pine belts with bare lower trunks, spruce in the cold, giant redwoods with 3 x 3 bases in old stands, palms leaning off beaches, willows trailing leaves in swamps, cactus in deserts.</p>
+          <p><b>Settlements:</b> villages, towns and cities on good lowland; kingdoms only on broad flat fertile plains, where a stone curtain wall with eight gate towers encloses an inner ward around the royal keep. Every house gets a door, a table and chairs.</p>
+          <p><b>Crafting:</b> press <kbd className="keycap">C</kbd> for the workbench - planks from logs, doors, chairs and tables from planks, dressed stone, marble, bricks, roof tiles and glass from what you gather. Place them anywhere you like.</p>
           <p><b>Everywhere:</b> 16×16 chunks stream in around you out to the view distance you choose; terrain comes from the seed, and your edits persist.</p>
         </aside>
 
@@ -1359,7 +1477,10 @@ function App() {
           </div>
           <div className="hint-line" data-testid="status-controls">
             <span className="hint-item"><kbd className="keycap">W</kbd><kbd className="keycap">A</kbd><kbd className="keycap">S</kbd><kbd className="keycap">D</kbd> wander</span>
-            <span className="hint-item"><kbd className="keycap">SPACE</kbd> hop / swim up</span>
+            <span className="hint-item"><kbd className="keycap">←</kbd><kbd className="keycap">→</kbd> turn</span>
+            <span className="hint-item"><kbd className="keycap">SPACE</kbd> jump · autojump on</span>
+            <span className="hint-item"><kbd className="keycap">SPACE ×2</kbd> fly</span>
+            <span className="hint-item"><kbd className="keycap">C</kbd> craft</span>
             <span className="hint-item"><kbd className="keycap">LMB</kbd> gather</span>
             <span className="hint-item"><kbd className="keycap">RMB</kbd> place</span>
             <span className="hint-item"><kbd className="keycap">SHIFT</kbd> run</span>
@@ -1368,9 +1489,58 @@ function App() {
           </div>
         </div>
 
+        <section
+          className={`craft-panel ${craftOpen ? 'open' : ''}`}
+          aria-label="Workbench"
+          aria-hidden={!craftOpen}
+          data-testid="panel-craft"
+        >
+          <header className="craft-head">
+            <div>
+              <strong>Workbench</strong>
+              <p>Spend gathered blocks on furniture and dressed stone - then place it like any block.</p>
+            </div>
+            <button type="button" aria-label="Close workbench" onClick={() => setCraftOpen(false)}>×</button>
+          </header>
+          <div className="craft-list">
+            {CRAFTING_RECIPES.map((recipe) => {
+              const afford = canCraft(recipe, inventory);
+              const [sideColor, topColor] = BLOCK_COLORS[recipe.output];
+              return (
+                <button
+                  key={recipe.id}
+                  className={`craft-row ${afford ? '' : 'is-missing'}`}
+                  type="button"
+                  disabled={!afford}
+                  data-testid={`button-craft-${recipe.id}`}
+                  onClick={() => craft(recipe)}
+                >
+                  <span
+                    className="voxel-swatch"
+                    style={{ background: `linear-gradient(135deg, ${topColor} 0 50%, ${sideColor} 50% 100%)` }}
+                    aria-hidden="true"
+                  />
+                  <span className="craft-body">
+                    <strong>{recipe.label}</strong>
+                    <em>{recipe.work}</em>
+                    <span className="craft-cost">
+                      {recipe.inputs.map((input) => (
+                        <b key={input.item} className={(inventory[input.item] ?? 0) >= input.count ? '' : 'short'}>
+                          {BLOCK_META[input.item].short} {inventory[input.item] ?? 0}/{input.count}
+                        </b>
+                      ))}
+                    </span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          <footer className="craft-foot">press C to close · mine logs, stone and clay to refill</footer>
+        </section>
+
         <div className={`toast-note ${notice ? 'show' : ''}`} role="status" data-testid="status-notice">{notice}</div>
 
-        <div className={`welcome-overlay ${started ? 'hidden' : ''}`}>
+        <div className={`welcome-overlay ${started || craftOpen ? 'hidden' : ''}`}>
           <section className="welcome-card" aria-labelledby="welcome-title">
             <div className="welcome-mark" aria-hidden="true" />
             <h1 id="welcome-title">The wild is yours.</h1>
@@ -1419,6 +1589,14 @@ function App() {
             onClick={() => { if (target) placeBlock(target.cell, target.adjacent); }}
           >
             Place
+          </button>
+          <button
+            type="button"
+            aria-label="Open workbench"
+            data-testid="button-touch-craft"
+            onClick={() => setCraftOpen((open) => !open)}
+          >
+            Craft
           </button>
         </div>
       </div>

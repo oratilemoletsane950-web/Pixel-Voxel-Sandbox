@@ -1,6 +1,6 @@
 import { ID } from "./blocks";
 import { CHUNK_SIZE, ChunkWriter, SEA_LEVEL } from "./chunk";
-import { hash2 } from "./noise";
+import { hash2, valueNoise } from "./noise";
 import type { Column, Terrain } from "./terrain";
 
 /**
@@ -9,24 +9,44 @@ import type { Column, Terrain } from "./terrain";
  * spacing natural, keeps canopies from piling up, and lets every chunk stamp
  * the part of a tree that falls inside it without asking its neighbours.
  *
- * Species follow the biome:
- *   forest  - oak, birch (and spruce where it is cool)
+ * Species follow the biome, and a slow "stand" noise makes neighbouring
+ * woods lean different ways, so you get whole birch groves, redwood stands
+ * and pine belt rather than an even mix everywhere:
+ *   forest  - oak, birch or pine belts, rare giant redwoods, spruce when cool
  *   plains  - rare lone oaks and shrubs
- *   taiga   - spruce
+ *   taiga   - spruce, with taller pine stands
  *   tundra  - sparse stunted spruce
- *   swamp   - broad low oaks
+ *   swamp   - willows and broad low oaks
  *   desert  - cactus
+ *   beach   - leaning palms
  *   mountain slopes - spruce, thinning out with height
+ *
+ * Trunk sizes (blocks; 1 block = 0.5 m), from shortest to longest:
+ *   shrub 1 · cactus 4-8 · swamp oak 8-11 · oak 11-17 · willow 9-13,
+ *   birch 13-19 · palm 12-20 · pine 18-29 · spruce 15-24 · redwood 44-63
+ * Redwoods are also the only trunk with a 3 x 3 base.
  */
 
 const CELL = 7;
 const MARGIN = 9;
 
-type Species = "oak" | "birch" | "spruce" | "cactus" | "shrub" | "swamp_oak";
+type Species =
+  | "oak"
+  | "birch"
+  | "spruce"
+  | "pine"
+  | "redwood"
+  | "palm"
+  | "willow"
+  | "cactus"
+  | "shrub"
+  | "swamp_oak";
 
 function pickSpecies(column: Column, x: number, z: number, seed: number): Species | null {
   const roll = hash2(x, z, seed + 2807);
   const pick = hash2(x, z, seed + 2809);
+  // Which wood dominates this patch of country (0 = birch grove, 1 = conifers).
+  const stand = valueNoise(x, z, 14, seed + 2813);
   const top = column.top;
   const growsOnSoil =
     top === ID.grass || top === ID.moss || top === ID.mud || top === ID.snow || top === ID.dirt;
@@ -35,18 +55,26 @@ function pickSpecies(column: Column, x: number, z: number, seed: number): Specie
     case "forest":
       if (!growsOnSoil || roll > 0.82) return null;
       if (column.temperature < 0.45 && pick > 0.5) return "spruce";
-      return pick < 0.3 ? "birch" : "oak";
+      if (stand < 0.3) return pick < 0.25 ? "oak" : "birch";
+      if (stand > 0.74) return pick < 0.3 ? "redwood" : pick < 0.62 ? "pine" : "oak";
+      if (pick < 0.28) return "pine";
+      if (pick < 0.45) return "birch";
+      return "oak";
+    case "beach":
+      return top === ID.sand && roll < 0.3 ? "palm" : null;
     case "plains":
       if (!growsOnSoil) return null;
       if (roll < 0.05) return "oak";
       if (roll < 0.14) return "shrub";
       return null;
     case "taiga":
-      return growsOnSoil && roll < 0.7 ? "spruce" : null;
+      if (!growsOnSoil || roll >= 0.7) return null;
+      return stand > 0.62 && pick < 0.7 ? "pine" : "spruce";
     case "tundra":
       return growsOnSoil && roll < 0.06 ? "spruce" : null;
     case "swamp":
-      return growsOnSoil && roll < 0.4 ? "swamp_oak" : null;
+      if (!growsOnSoil || roll >= 0.4) return null;
+      return pick < 0.4 ? "willow" : "swamp_oak";
     case "desert":
       return top === ID.sand && roll < 0.07 ? "cactus" : null;
     case "mountain": {
@@ -138,6 +166,105 @@ function stampSpruce(writer: ChunkWriter, x: number, y0: number, z: number, seed
   }
 }
 
+function stampPine(writer: ChunkWriter, x: number, y0: number, z: number, seed: number): void {
+  const size = hash2(x, z, seed + 3821);
+  const trunk = 18 + Math.floor(size * 12);
+  const top = y0 + trunk;
+  for (let y = y0 + 1; y <= top; y += 1) writer.set(x, y, z, ID.spruce_wood);
+  // Narrow and bare-bottomed: foliage only starts a third of the way up,
+  // in alternating whorls, so the long trunk stays the point of a pine.
+  const start = y0 + Math.floor(trunk / 3);
+  const maxRadius = trunk >= 26 ? 3 : 2;
+  const height = top + 2 - start;
+  for (let y = start; y <= top + 2; y += 1) {
+    const layer = y - start;
+    let radius = Math.round((maxRadius * (top + 2 - y)) / height);
+    if (layer % 2 === 1 && radius > 1) radius -= 1;
+    if (radius <= 0 && y < top + 2) radius = 1;
+    for (let dx = -radius; dx <= radius; dx += 1) {
+      for (let dz = -radius; dz <= radius; dz += 1) {
+        if (dx * dx + dz * dz > radius * radius + (radius > 2 ? 1 : 0)) continue;
+        if (dx === 0 && dz === 0 && y <= top) continue;
+        writer.setIfAir(x + dx, y, z + dz, ID.spruce_leaves);
+      }
+    }
+  }
+}
+
+/**
+ * The giant of the woods: 22-31 m of trunk with a 3 x 3 buttressed base that
+ * tapers to a single column, and a crown held high above the canopy.
+ */
+function stampRedwood(writer: ChunkWriter, x: number, y0: number, z: number, seed: number): void {
+  const size = hash2(x, z, seed + 3811);
+  const trunk = 44 + Math.floor(size * 20);
+  const baseHeight = 10 + Math.floor(size * 6);
+  for (let y = y0 + 1; y <= y0 + trunk; y += 1) {
+    const radius = y <= y0 + baseHeight ? 1 : 0;
+    for (let dx = -radius; dx <= radius; dx += 1) {
+      for (let dz = -radius; dz <= radius; dz += 1) {
+        writer.set(x + dx, y, z + dz, ID.wood);
+      }
+    }
+  }
+  for (const [dx, dz] of [[2, 0], [-2, 0], [0, 2], [0, -2]] as const) {
+    if (hash2(x + dx, z + dz, seed + 3813) > 0.35) writer.set(x + dx, y0 + 1, z + dz, ID.wood);
+  }
+  const limbDir = Math.floor(hash2(x, z, seed + 3817) * 4);
+  const [lx, lz] = [[1, 0], [-1, 0], [0, 1], [0, -1]][limbDir];
+  writer.set(x + lx * 2, y0 + Math.floor(trunk * 0.72), z + lz * 2, ID.wood);
+  leafBlob(writer, x, y0 + trunk - 5, z, 5.2, 5.6, ID.leaves, seed, 0.16);
+  leafBlob(writer, x, y0 + trunk + 1, z, 3.4, 2.6, ID.leaves, seed + 3, 0.14);
+}
+
+/** A coastal palm: a thin trunk that leans storey by storey under a frond crown. */
+function stampPalm(writer: ChunkWriter, x: number, y0: number, z: number, seed: number): void {
+  const size = hash2(x, z, seed + 3823);
+  const trunk = 12 + Math.floor(size * 8);
+  const dir = Math.floor(hash2(x, z, seed + 3825) * 4);
+  const [dx, dz] = [[1, 0], [-1, 0], [0, 1], [0, -1]][dir];
+  let lean = 0;
+  for (let y = y0 + 1; y <= y0 + trunk; y += 1) {
+    lean = Math.floor(((y - y0) * 3) / trunk);
+    writer.set(x + dx * lean, y, z + dz * lean, ID.wood);
+  }
+  const topX = x + dx * lean;
+  const topZ = z + dz * lean;
+  const topY = y0 + trunk;
+  leafBlob(writer, topX, topY + 1, topZ, 3.4, 1.5, ID.leaves, seed, 0.1);
+  for (const [fx, fz] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]]) {
+    leafBlob(writer, topX + fx * 3, topY, topZ + fz * 3, 1.9, 1, ID.leaves, seed + 7, 0.12);
+  }
+  writer.set(topX, topY + 2, topZ, ID.leaves);
+}
+
+/** A swamp willow: squat, wide, with curtains of foliage hanging to the ground. */
+function stampWillow(writer: ChunkWriter, x: number, y0: number, z: number, seed: number): void {
+  const size = hash2(x, z, seed + 3827);
+  const trunk = 9 + Math.floor(size * 5);
+  const radius = 5.4 + (size > 0.6 ? 1.4 : 0);
+  for (let y = y0 + 1; y <= y0 + trunk; y += 1) writer.set(x, y, z, ID.wood);
+  for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+    if (hash2(x + dx, z + dz, seed + 3829) > 0.4) {
+      writer.set(x + dx, y0 + trunk - 1, z + dz, ID.wood);
+      writer.set(x + dx * 2, y0 + trunk - 2, z + dz * 2, ID.wood);
+    }
+  }
+  leafBlob(writer, x, y0 + trunk + 1, z, radius, 3.4, ID.leaves, seed, 0.12);
+  const reach = Math.ceil(radius);
+  for (let dx = -reach; dx <= reach; dx += 1) {
+    for (let dz = -reach; dz <= reach; dz += 1) {
+      const dist = Math.hypot(dx, dz);
+      if (dist < radius - 1.4 || dist > radius + 0.6) continue;
+      if (hash2(x + dx, z + dz, seed + 3833) < 0.45) continue;
+      const drop = 2 + Math.floor(hash2(x + dx * 3, z + dz * 3, seed + 3839) * 5);
+      for (let d = 1; d <= drop; d += 1) {
+        writer.setIfAir(x + dx, y0 + trunk + 1 - d, z + dz, ID.leaves);
+      }
+    }
+  }
+}
+
 function stampCactus(writer: ChunkWriter, x: number, y0: number, z: number, seed: number): void {
   const height = 4 + Math.floor(hash2(x, z, seed + 3803) * 5);
   for (let y = y0 + 1; y <= y0 + height; y += 1) writer.set(x, y, z, ID.cactus);
@@ -180,6 +307,10 @@ export function placeVegetation(writer: ChunkWriter, terrain: Terrain, seed: num
         case "swamp_oak": stampOak(writer, x, y0, z, seed, true); break;
         case "birch": stampBirch(writer, x, y0, z, seed); break;
         case "spruce": stampSpruce(writer, x, y0, z, seed, column.biome === "tundra"); break;
+        case "pine": stampPine(writer, x, y0, z, seed); break;
+        case "redwood": stampRedwood(writer, x, y0, z, seed); break;
+        case "palm": stampPalm(writer, x, y0, z, seed); break;
+        case "willow": stampWillow(writer, x, y0, z, seed); break;
         case "cactus": stampCactus(writer, x, y0, z, seed); break;
         case "shrub": stampShrub(writer, x, y0, z, seed); break;
       }
