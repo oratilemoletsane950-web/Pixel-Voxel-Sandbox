@@ -24,6 +24,8 @@ function FactionBatch({
   const dummy = useMemo(() => new THREE.Object3D(), []);
   const clock = useRef(0);
   const updateElapsed = useRef(0);
+  // Designed at ~1.8 units tall; people are 2 m (4 blocks) tall in a 0.5 m-per-block world.
+  const NPC_SCALE = 2.05;
   const heightScale = faction === "dwarves" ? 0.78 : faction === "elves" ? 1.08 : 1;
   const widthScale = faction === "orcs" ? 1.2 : faction === "dwarves" ? 1.12 : 1;
 
@@ -46,9 +48,9 @@ function FactionBatch({
         rotationZ = 0,
       ) => {
         if (!mesh) return;
-        dummy.position.set(person.x, person.y + y * heightScale + bob, person.z + zOffset);
+        dummy.position.set(person.x, person.y + (y * heightScale + bob) * NPC_SCALE, person.z + zOffset * NPC_SCALE);
         dummy.rotation.set(0, person.phase + turn, rotationZ);
-        dummy.scale.set(scaleX * widthScale, scaleY * heightScale, scaleZ * widthScale);
+        dummy.scale.set(scaleX * widthScale * NPC_SCALE, scaleY * heightScale * NPC_SCALE, scaleZ * widthScale * NPC_SCALE);
         dummy.updateMatrix();
         mesh.setMatrixAt(index, dummy.matrix);
       };

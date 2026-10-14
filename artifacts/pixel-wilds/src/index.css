@@ -177,3 +177,34 @@ button:focus-visible { outline: 3px solid #f08a58; outline-offset: 3px; }
  .hint-line { font-size:8px; }
 }
 @media (prefers-reduced-motion: reduce) { *,*::before,*::after { animation-duration:.01ms!important;transition-duration:.01ms!important; } }
+
+/* View-distance slider and paged hotbar */
+.distance-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(26, 38, 32, 0.62);
+  color: #f2ecd6;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  pointer-events: auto;
+}
+.distance-control input[type='range'] {
+  width: 84px;
+  accent-color: #e9b85d;
+}
+.hotbar-page {
+  align-self: stretch;
+  min-width: 38px;
+  border: 0;
+  border-radius: 10px;
+  background: rgba(26, 38, 32, 0.62);
+  color: #f2ecd6;
+  font-size: 11px;
+  cursor: pointer;
+  pointer-events: auto;
+}
+.hotbar-page:hover { background: rgba(60, 80, 66, 0.8); }

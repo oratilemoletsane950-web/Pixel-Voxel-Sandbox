@@ -1,8 +1,11 @@
+import { ID } from "./blocks";
 import {
   MAX_BUILD_HEIGHT,
   PLAYER_EYE_HEIGHT,
   PLAYER_HEIGHT,
-  getBlock,
+  getBlockId,
+  isChunkLoadedAt,
+  isSolidAt,
   type WorldData,
 } from "./world";
 
@@ -27,12 +30,33 @@ export interface MovementInput {
   sprint: boolean;
 }
 
-const PLAYER_RADIUS = 0.28;
-const STEP_HEIGHT = 0.62;
-const GRAVITY = 20;
-const JUMP_SPEED = 7.2;
-const WALK_SPEED = 5.2;
-const SPRINT_SPEED = 7.1;
+/*
+ * Real-world tuning at 0.5 m per block (so 1 m/s = 2 blocks/s, g = 19.6 blocks/s^2):
+ *  - the 2 m player is 4 blocks tall and 0.8 blocks (0.4 m) wide;
+ *  - a brisk walk of 2.3 m/s is 4.6 blocks/s, a jog of 4 m/s is 8 blocks/s;
+ *  - a standing jump of about 0.6 m clears one block but not two;
+ *  - the player steps up one block (0.5 m) without jumping, like a kerb or stair.
+ */
+export const PLAYER_RADIUS = 0.4;
+const STEP_HEIGHT = 1.05;
+const GRAVITY = 19.6;
+const JUMP_SPEED = 6.9;
+const WALK_SPEED = 4.6;
+const SPRINT_SPEED = 8;
+const SWIM_SPEED = 2.8;
+const SWIM_UP_SPEED = 4;
+const WATER_GRAVITY = 5;
+const WATER_SINK_LIMIT = 3.2;
+
+/** True when the player's hips are below a water surface, so they swim instead of walk. */
+export function isInWater(world: WorldData, motion: Position): boolean {
+  const feet = motion.y - PLAYER_EYE_HEIGHT;
+  return getBlockId(world, Math.floor(motion.x), Math.floor(feet + 1.2), Math.floor(motion.z)) === ID.water;
+}
+
+export function isEyeUnderwater(world: WorldData, motion: Position): boolean {
+  return getBlockId(world, Math.floor(motion.x), Math.floor(motion.y), Math.floor(motion.z)) === ID.water;
+}
 
 export function createPlayerMotion(world: WorldData, position: Position): PlayerMotion {
   const motion: PlayerMotion = {
@@ -70,7 +94,7 @@ function findFloor(
     const blockX = Math.floor(sampleX);
     const blockZ = Math.floor(sampleZ);
     for (let y = firstY; y >= 0; y -= 1) {
-      if (!getBlock(world, blockX, y, blockZ)) continue;
+      if (!isSolidAt(world, blockX, y, blockZ)) continue;
       const surface = y + 1;
       if (surface > highestSurface + 0.001) continue;
       if (highest === null || surface > highest) highest = surface;
@@ -91,7 +115,7 @@ function hasBodyCollision(world: WorldData, x: number, eyeY: number, z: number):
     const blockX = Math.floor(sampleX);
     const blockZ = Math.floor(sampleZ);
     for (let y = firstY; y <= lastY; y += 1) {
-      if (getBlock(world, blockX, y, blockZ)) return true;
+      if (isSolidAt(world, blockX, y, blockZ)) return true;
     }
   }
   return false;
@@ -146,12 +170,15 @@ export function updatePlayerMotion(
 ): void {
   const dt = Math.max(0, Math.min(deltaSeconds, 0.05));
   if (!dt) return;
+  // Hold still until the chunk underfoot has streamed in, instead of falling through the void.
+  if (!isChunkLoadedAt(world, motion.x, motion.z)) return;
+  const swimming = isInWater(world, motion);
 
   const inputLength = Math.hypot(input.forward, input.side);
   const divisor = inputLength > 1 ? inputLength : 1;
   const forward = input.forward / divisor;
   const side = input.side / divisor;
-  const speed = input.sprint ? SPRINT_SPEED : WALK_SPEED;
+  const speed = swimming ? SWIM_SPEED : input.sprint ? SPRINT_SPEED : WALK_SPEED;
   const desiredX = (-Math.sin(yaw) * forward + Math.cos(yaw) * side) * speed;
   const desiredZ = (-Math.cos(yaw) * forward - Math.sin(yaw) * side) * speed;
   const hasInput = inputLength > 0.001;
@@ -164,12 +191,20 @@ export function updatePlayerMotion(
   moveAlongAxis(world, motion, "x", motion.velocityX * dt);
   moveAlongAxis(world, motion, "z", motion.velocityZ * dt);
 
-  if (input.jump && !motion.jumpHeld && motion.grounded) {
-    motion.velocityY = JUMP_SPEED;
-    motion.grounded = false;
+  if (swimming) {
+    // Buoyant: Space swims up, otherwise the player drifts down slowly.
+    if (input.jump) motion.velocityY = approach(motion.velocityY, SWIM_UP_SPEED, 18 * dt);
+    else motion.velocityY = Math.max(-WATER_SINK_LIMIT, motion.velocityY - WATER_GRAVITY * dt);
+    motion.velocityY *= 1 - Math.min(1, 1.5 * dt);
+    motion.jumpHeld = input.jump;
+  } else {
+    if (input.jump && !motion.jumpHeld && motion.grounded) {
+      motion.velocityY = JUMP_SPEED;
+      motion.grounded = false;
+    }
+    motion.jumpHeld = input.jump;
+    motion.velocityY -= GRAVITY * dt;
   }
-  motion.jumpHeld = input.jump;
-  motion.velocityY -= GRAVITY * dt;
 
   const previousFeet = motion.y - PLAYER_EYE_HEIGHT;
   let nextY = motion.y + motion.velocityY * dt;

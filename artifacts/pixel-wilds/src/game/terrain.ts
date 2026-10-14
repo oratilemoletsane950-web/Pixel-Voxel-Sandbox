@@ -1,0 +1,391 @@
+import { ID } from "./blocks";
+import { MAX_BUILD_HEIGHT, SEA_LEVEL } from "./chunk";
+import { clamp01, columnKey, hash2, lerp, smoothstep, valueNoise as vn } from "./noise";
+
+/**
+ * Terrain model (1 block = 0.5 m).
+ *
+ *  - Elevation is built from broad landforms (a few hundred blocks wide), a
+ *    ridged mountain mask, and fine relief of a few blocks.
+ *  - Rivers follow a warped iso-line of low-frequency noise. Their water level
+ *    is flat across the channel and follows the smoothed land surface along
+ *    it, they only run through low ground, and they carve a valley with banks.
+ *  - Anything below SEA_LEVEL fills with water, which gives lakes and seas.
+ *  - Temperature falls with altitude and moisture varies regionally; those
+ *    pick the biome, which then picks the surface and the soil layers.
+ */
+
+export type Biome =
+  | "ocean"
+  | "river"
+  | "beach"
+  | "desert"
+  | "plains"
+  | "forest"
+  | "taiga"
+  | "tundra"
+  | "swamp"
+  | "mountain";
+
+export interface HeightRecord {
+  /** y of the top solid block. */
+  ground: number;
+  /** y of the water surface in this column, or 0 if dry. */
+  water: number;
+  /** Blocks to the nearest river centre line (Infinity when far from any river). */
+  riverDist: number;
+  riverHalfWidth: number;
+  /** Smoothed elevation without fine relief. */
+  broad: number;
+  mountain: number;
+  /** Settlement terraforming weight, 0 (natural) to 1 (fully levelled). */
+  flat: number;
+}
+
+export interface Column extends HeightRecord {
+  biome: Biome;
+  /** Block id of the surface. */
+  top: number;
+  /** Block id of the soil under it, and how many blocks deep. */
+  soil: number;
+  soilDepth: number;
+  /** Optional sedimentary band under the soil (sandstone under desert sand). */
+  mid: number;
+  midDepth: number;
+  /** Bedrock-type for everything below. */
+  rock: number;
+  slope: number;
+  temperature: number;
+  moisture: number;
+  frozen: boolean;
+}
+
+export type SettlementHook = (
+  x: number,
+  z: number,
+  natural: HeightRecord,
+) => { ground: number; water: number; flat: number } | null;
+
+const MAX_CACHE = 60000;
+
+interface RiverHit {
+  dist: number;
+  half: number;
+  bank: number;
+  depth: number;
+  ratio: number;
+}
+
+export class Terrain {
+  private naturalCache = new Map<number, HeightRecord>();
+  private heightCache = new Map<number, HeightRecord>();
+  private columnCache = new Map<number, Column>();
+  hook: SettlementHook | null = null;
+
+  constructor(readonly seed: number) {}
+
+  /* ---------------------------------------------------------------- */
+  /* Natural height (no settlements)                                   */
+  /* ---------------------------------------------------------------- */
+
+  natural(x: number, z: number): HeightRecord {
+    const key = columnKey(x, z);
+    const cached = this.naturalCache.get(key);
+    if (cached) return cached;
+    const record = this.computeNatural(x, z);
+    if (this.naturalCache.size >= MAX_CACHE) this.naturalCache.clear();
+    this.naturalCache.set(key, record);
+    return record;
+  }
+
+  private riverField(x: number, z: number, net: number): number {
+    const s = this.seed + net * 977;
+    const wx = x + (vn(x, z, 70, s + 1021) - 0.5) * 36;
+    const wz = z + (vn(x + 500, z - 300, 70, s + 1031) - 0.5) * 36;
+    const wide = net === 0;
+    return (
+      0.6 * vn(wx + 140, wz - 90, wide ? 300 : 150, s + 1001) +
+      0.28 * vn(wx - 37, wz + 120, wide ? 120 : 64, s + 1007) +
+      0.12 * vn(wx + 11, wz + 5, wide ? 48 : 26, s + 1013)
+    );
+  }
+
+  private riverHit(x: number, z: number, net: number, broad: number): RiverHit | null {
+    const n0 = this.riverField(x, z, net);
+    const offset = Math.abs(n0 - 0.5);
+    if (offset > 0.12) return null;
+    const gx = (this.riverField(x + 3, z, net) - n0) / 3;
+    const gz = (this.riverField(x, z + 3, net) - n0) / 3;
+    const gradient = Math.max(Math.hypot(gx, gz), 0.0012);
+    const dist = offset / gradient;
+
+    // Rivers are widest and deepest on low ground and thin out into streams
+    // and then disappear as the land climbs.
+    const low = 1 - smoothstep((broad - SEA_LEVEL) / 60);
+    const fade = 1 - smoothstep((broad - 68) / 16);
+    const wide = net === 0;
+    // A regional wetness mask leaves some areas river-free (drier plains,
+    // building land) and confines tributaries to the wettest regions.
+    const wet = vn(x + 90, z - 210, 520, this.seed + 1111);
+    const mask = smoothstep((wet - (wide ? 0.5 : 0.62)) / 0.12);
+    const half = (wide ? 1.6 + 6 * low : 1 + 2.6 * low) * fade * mask;
+    if (half < 0.6) return null;
+    const bank = 4 + half * 0.9;
+    if (dist >= half + bank) return null;
+    const depth = wide ? 2 + Math.round(3 * low) : 1 + Math.round(1.5 * low);
+    return { dist, half, bank, depth, ratio: dist / (half + bank) };
+  }
+
+  private computeNatural(x: number, z: number): HeightRecord {
+    const s = this.seed;
+    const lowland = 0.56 * vn(x, z, 240, s) + 0.44 * vn(x, z, 96, s + 91);
+    const continental = vn(x + 300, z - 150, 700, s + 17);
+    const mountainField = vn(x + 226, z - 134, 420, s + 503);
+    const mountain = smoothstep((mountainField - 0.58) / 0.3);
+    const ridge = 1 - Math.abs(2 * vn(x - 164, z + 86, 150, s + 509) - 1);
+    const rise = Math.pow(mountain, 1.25) * (22 + ridge * 80);
+    const broad = 24 + lowland * 48 + (continental - 0.5) * 20 + rise;
+    const fine = (0.6 * vn(x, z, 36, s + 177) + 0.4 * vn(x, z, 14, s + 251) - 0.5) * 10;
+    const rough = (vn(x, z, 20, s + 311) - 0.5) * 16 * mountain;
+    let natural = Math.round(broad + fine * (1 - 0.4 * mountain) + rough);
+    natural = Math.max(4, Math.min(MAX_BUILD_HEIGHT - 28, natural));
+
+    let ground = natural;
+    let water = natural < SEA_LEVEL ? SEA_LEVEL : 0;
+    let riverDist = Infinity;
+    let riverHalf = 0;
+
+    if (broad > SEA_LEVEL + 1 && broad < 86) {
+      let best: RiverHit | null = null;
+      for (let net = 0; net < 2; net += 1) {
+        const hit = this.riverHit(x, z, net, broad);
+        if (hit && (!best || hit.ratio < best.ratio)) best = hit;
+      }
+      if (best) {
+        riverDist = best.dist;
+        riverHalf = best.half;
+        const level = Math.max(SEA_LEVEL, Math.floor(broad) - 3);
+        if (best.dist <= best.half) {
+          const t = best.dist / best.half;
+          const bed = Math.round(level - best.depth * (1 - t * t));
+          ground = Math.min(natural, bed);
+          water = ground < level ? level : 0;
+        } else {
+          // Valley bank: ease from a rim one block above the water to natural ground.
+          const t = smoothstep((best.dist - best.half) / best.bank);
+          ground = Math.round(lerp(level + 1, natural, t));
+          water = ground < SEA_LEVEL ? SEA_LEVEL : 0;
+        }
+      }
+    }
+
+    return { ground, water, riverDist, riverHalfWidth: riverHalf, broad, mountain, flat: 0 };
+  }
+
+  /* ---------------------------------------------------------------- */
+  /* Final height (natural + settlement terraforming)                  */
+  /* ---------------------------------------------------------------- */
+
+  height(x: number, z: number): HeightRecord {
+    const key = columnKey(x, z);
+    const cached = this.heightCache.get(key);
+    if (cached) return cached;
+    const natural = this.natural(x, z);
+    let record = natural;
+    if (this.hook) {
+      const adjusted = this.hook(x, z, natural);
+      if (adjusted) record = { ...natural, ...adjusted };
+    }
+    if (this.heightCache.size >= MAX_CACHE) this.heightCache.clear();
+    this.heightCache.set(key, record);
+    return record;
+  }
+
+  /* ---------------------------------------------------------------- */
+  /* Climate and full column description                               */
+  /* ---------------------------------------------------------------- */
+
+  climate(x: number, z: number, ground: number): { temperature: number; moisture: number } {
+    const s = this.seed;
+    const base = 0.3 + 0.6 * (0.7 * vn(x - 31, z + 89, 500, s + 22) + 0.3 * vn(x + 9, z - 4, 170, s + 23));
+    // Air cools with altitude (the "lapse rate"), so high ground gets cold.
+    const temperature = base - Math.max(0, ground - SEA_LEVEL) / 170;
+    const moisture = 0.7 * vn(x + 70, z - 46, 300, s + 7) + 0.3 * vn(x - 5, z + 60, 110, s + 8);
+    return { temperature, moisture };
+  }
+
+  column(x: number, z: number): Column {
+    const key = columnKey(x, z);
+    const cached = this.columnCache.get(key);
+    if (cached) return cached;
+    const column = this.computeColumn(x, z);
+    if (this.columnCache.size >= MAX_CACHE) this.columnCache.clear();
+    this.columnCache.set(key, column);
+    return column;
+  }
+
+  private computeColumn(x: number, z: number): Column {
+    const s = this.seed;
+    const rec = this.height(x, z);
+    const { ground, water } = rec;
+    const east = this.height(x + 1, z);
+    const west = this.height(x - 1, z);
+    const south = this.height(x, z + 1);
+    const north = this.height(x, z - 1);
+    const slope = Math.max(
+      Math.abs(east.ground - ground),
+      Math.abs(west.ground - ground),
+      Math.abs(south.ground - ground),
+      Math.abs(north.ground - ground),
+    );
+    const neighbourWater = east.water > east.ground || west.water > west.ground ||
+      south.water > south.ground || north.water > north.ground;
+
+    const { temperature, moisture } = this.climate(x, z, ground);
+    const elev = ground - SEA_LEVEL;
+    const patch = vn(x - 91, z + 44, 9, s + 613);
+    const sediment = vn(x + 17, z - 23, 18, s + 611);
+    const geology = vn(x + 51, z + 12, 160, s + 211);
+    const roll = hash2(x, z, s + 617);
+
+    // Bedrock type: pink granite in the high country, pale limestone in
+    // low basins, plain stone elsewhere.
+    let rock: number = ID.stone;
+    if (rec.mountain > 0.3 || elev > 55 || geology > 0.72) rock = ID.granite;
+    else if (geology < 0.3 && elev < 50) rock = ID.limestone;
+
+    const frozen = temperature < 0.22;
+    const dryDesert = temperature > 0.62 && moisture < 0.46;
+    const forestiness = 0.6 * moisture + 0.4 * vn(x - 200, z + 61, 90, s + 701);
+
+    const column: Column = {
+      ...rec,
+      biome: "plains",
+      top: ID.grass,
+      soil: ID.dirt,
+      soilDepth: 3,
+      mid: 0,
+      midDepth: 0,
+      rock,
+      slope,
+      temperature,
+      moisture,
+      frozen,
+    };
+
+    /* ---- Underwater: river beds and lake / sea floors ---- */
+    if (water > ground) {
+      const depth = water - ground;
+      const inChannel = rec.riverDist < rec.riverHalfWidth + 1;
+      if (inChannel && water > SEA_LEVEL) {
+        column.biome = "river";
+        column.top = rec.riverHalfWidth > 4.5 ? ID.sand : ID.gravel;
+        if (sediment > 0.68) column.top = ID.clay;
+        column.soil = column.top === ID.clay ? ID.clay : ID.sand;
+        column.soilDepth = 2;
+      } else {
+        column.biome = "ocean";
+        if (depth <= 3) column.top = frozen ? ID.gravel : ID.sand;
+        else if (depth <= 10) column.top = sediment > 0.55 ? ID.clay : sediment < 0.25 ? ID.gravel : ID.sand;
+        else column.top = sediment > 0.4 ? ID.clay : ID.gravel;
+        column.soil = column.top === ID.clay ? ID.clay : ID.sand;
+        column.soilDepth = 3;
+      }
+      return column;
+    }
+
+    /* ---- Shores and river banks ---- */
+    const bankDist = rec.riverDist - rec.riverHalfWidth;
+    const riverBank = rec.riverDist < Infinity && bankDist < 2.5 && ground <= SEA_LEVEL + 12;
+    const lakeShore = ground <= SEA_LEVEL + 4 && (neighbourWater || ground <= SEA_LEVEL + 1);
+    const swampy = moisture > 0.58 && ground <= SEA_LEVEL + 6 && temperature > 0.3;
+
+    if (riverBank || lakeShore) {
+      column.biome = riverBank && !lakeShore ? "river" : "beach";
+      if (swampy) {
+        column.top = patch > 0.35 ? ID.mud : ID.clay;
+        column.soil = ID.mud;
+        column.soilDepth = 2;
+        column.biome = "swamp";
+      } else if (riverBank && rec.riverHalfWidth <= 4.5) {
+        column.top = patch > 0.62 ? ID.clay : patch < 0.28 ? ID.mud : ID.gravel;
+        column.soil = ID.gravel;
+        column.soilDepth = 2;
+      } else if (frozen || sediment < 0.22) {
+        column.top = ID.gravel;
+        column.soil = ID.gravel;
+        column.soilDepth = 2;
+      } else {
+        column.top = patch > 0.78 ? ID.clay : ID.sand;
+        column.soil = ID.sand;
+        column.soilDepth = 3;
+      }
+      if (slope >= 3) {
+        column.top = rock;
+        column.soilDepth = 0;
+      }
+      return column;
+    }
+
+    /* ---- Steep ground exposes rock ---- */
+    if (slope >= 3 || (slope >= 2 && elev > 40)) {
+      column.biome = elev > 20 ? "mountain" : "plains";
+      column.top = rock;
+      column.soil = rock;
+      column.soilDepth = 0;
+      if (frozen && slope < 4) column.top = ID.snow;
+      return column;
+    }
+    if (slope === 2) {
+      column.top = patch > 0.5 ? ID.gravel : ID.cobblestone;
+      column.soil = ID.dirt;
+      column.soilDepth = 2;
+      column.biome = elev > 20 ? "mountain" : "plains";
+      return column;
+    }
+
+    /* ---- Climate-driven surface ---- */
+    if (frozen) {
+      column.biome = "tundra";
+      column.top = ID.snow;
+      column.soil = ID.dirt;
+      column.soilDepth = 3;
+    } else if (temperature < 0.4) {
+      column.biome = "taiga";
+      column.top = temperature < 0.3 && patch > 0.6 ? ID.snow : patch < 0.16 ? ID.moss : ID.grass;
+    } else if (dryDesert) {
+      column.biome = "desert";
+      column.top = ID.sand;
+      column.soil = ID.sand;
+      column.soilDepth = 4;
+      column.mid = ID.sandstone;
+      column.midDepth = 8;
+      if (roll < 0.015) column.top = ID.gravel;
+    } else if (swampy) {
+      column.biome = "swamp";
+      column.top = patch > 0.45 ? ID.mud : ID.grass;
+      column.soil = ID.mud;
+      column.soilDepth = 2;
+    } else if (forestiness > 0.52 && moisture > 0.42) {
+      column.biome = "forest";
+      column.top = patch < 0.1 ? ID.moss : ID.grass;
+    } else {
+      column.biome = "plains";
+      column.top = ID.grass;
+    }
+
+    // High ground thins out: grass gives way to bare rock and scree.
+    if (elev > 50 && column.biome !== "desert") {
+      const rockiness = clamp01((elev - 50) / 45);
+      if (patch < rockiness * 0.9 + (roll - 0.5) * 0.15) {
+        column.top = roll > 0.7 ? ID.gravel : rock;
+        column.soil = rock;
+        column.soilDepth = 0;
+        column.biome = "mountain";
+      } else if (elev > 60) {
+        column.biome = "mountain";
+      }
+    }
+    return column;
+  }
+}

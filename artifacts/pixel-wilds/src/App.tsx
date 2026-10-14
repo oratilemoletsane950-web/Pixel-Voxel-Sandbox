@@ -1,23 +1,25 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import HumanoidBatches from './components/HumanoidBatches';
 import {
   BLOCK_TYPES,
-  CHUNK_LOAD_RADIUS,
-  MAX_BUILD_HEIGHT,
+  DEFAULT_RENDER_RADIUS,
+  MAX_RENDER_RADIUS,
+  MIN_RENDER_RADIUS,
   PLAYER_EYE_HEIGHT,
   PLAYER_HEIGHT,
-  WORLD_BLOCK_TYPES,
   blockKey,
   createWorld,
   ensureChunks,
+  findSpawnPoint,
+  getBiomeAt,
   getBlock,
   getChunkCoordinates,
   getLoadedBlockCount,
   getLoadedChunkCount,
-  getTerrainSiteInfo,
-  getVisibleBlocks,
+  getSettlementsNear,
+  getVisibleBlocksNear,
   loadWorld,
   saveWorld,
   setBlock,
@@ -26,58 +28,35 @@ import {
   type WorldBlockType,
   type WorldData,
 } from './game/world';
+import { BLOCK_INFO } from './game/blocks';
+import { CHUNK_SIZE, MAX_BUILD_HEIGHT, chunkKey, type Chunk } from './game/chunk';
+import { buildChunkMesh, type MeshArrays } from './game/mesher';
+import { createAtlasTexture } from './game/textures';
 import {
   FACTION_COLORS,
   FACTION_LABELS,
   FACTION_SKIN_COLORS,
-  getNearbySettlements,
   type Humanoid,
   type SettlementKind,
 } from './game/settlements';
 import {
+  PLAYER_RADIUS,
   createPlayerMotion,
+  isEyeUnderwater,
   updatePlayerMotion,
   type PlayerMotion,
   type Position,
 } from './game/physics';
 
-const BLOCK_META: Record<WorldBlockType, { label: string; short: string }> = {
-  grass: { label: 'Grass', short: 'GRS' },
-  dirt: { label: 'Dirt', short: 'DRT' },
-  stone: { label: 'Stone', short: 'STN' },
-  sand: { label: 'Sand', short: 'SND' },
-  wood: { label: 'Wood', short: 'WOD' },
-  leaves: { label: 'Leaves', short: 'LVF' },
-  gravel: { label: 'Gravel', short: 'GRV' },
-  clay: { label: 'Clay', short: 'CLY' },
-  snow: { label: 'Snow', short: 'SNW' },
-  cobblestone: { label: 'Cobble', short: 'CBL' },
-  flower: { label: 'Wild bloom', short: 'FLR' },
-  water: { label: 'River water', short: 'WTR' },
-  planks: { label: 'Planks', short: 'PLK' },
-  brick: { label: 'Brick', short: 'BRK' },
-  roof: { label: 'Roof', short: 'ROF' },
-  glass: { label: 'Glass', short: 'GLS' },
-};
+const BLOCK_META = BLOCK_INFO;
+const BLOCK_COLORS = Object.fromEntries(
+  Object.values(BLOCK_INFO).map((info) => [info.name, info.colors]),
+) as Record<WorldBlockType, [string, string, string]>;
 
-const BLOCK_COLORS: Record<WorldBlockType, [string, string, string]> = {
-  grass: ['#788d53', '#829e5b', '#bc8459'],
-  dirt: ['#9b6b48', '#ad7950', '#ad7950'],
-  stone: ['#82877c', '#9b9d8b', '#777c73'],
-  sand: ['#d1b870', '#e3cb83', '#c3a965'],
-  wood: ['#956044', '#bd8150', '#80513e'],
-  leaves: ['#4c7957', '#6f9b61', '#416b50'],
-  gravel: ['#8a8578', '#b7ad98', '#706d63'],
-  clay: ['#a66f65', '#ce9480', '#8c5d59'],
-  snow: ['#aabac2', '#eef0dc', '#869da6'],
-  cobblestone: ['#686f6b', '#93968a', '#5a625f'],
-  flower: ['#59845b', '#7aa76a', '#507b54'],
-  water: ['#246b78', '#55b5bc', '#195665'],
-  planks: ['#8d6846', '#c09866', '#70513b'],
-  brick: ['#81584c', '#b47d67', '#67473d'],
-  roof: ['#46534d', '#6b7770', '#35433d'],
-  glass: ['#5d9997', '#b8e6d8', '#487a7d'],
-};
+/** Block-interaction reach: 4 m (8 blocks), a comfortable arm-plus-tool distance. */
+const REACH_BLOCKS = 8;
+const HOTBAR_SLOTS = 10;
+const RENDER_RADIUS_KEY = 'pixel-wilds-render-radius';
 
 const SETTLEMENT_KIND_LABELS: Record<SettlementKind, string> = {
   village: 'Village',
@@ -119,9 +98,9 @@ function traceVoxelWorld(
     : Infinity;
   let previous: { x: number; y: number; z: number } | null = null;
 
-  for (let step = 0; step < 48; step += 1) {
+  for (let step = 0; step < 64; step += 1) {
     const type = getBlock(world, x, y, z);
-    if (type) {
+    if (type && type !== 'water') {
       const dominant = Math.max(
         Math.abs(direction.x),
         Math.abs(direction.y),
@@ -154,20 +133,11 @@ function traceVoxelWorld(
   return null;
 }
 
-const DEFAULT_INVENTORY: Inventory = {
-  grass: 24,
-  dirt: 32,
-  stone: 18,
-  sand: 12,
-  wood: 14,
-  leaves: 12,
-  gravel: 16,
-  clay: 12,
-  snow: 10,
-  cobblestone: 16,
-};
+const DEFAULT_INVENTORY: Inventory = Object.fromEntries(
+  BLOCK_TYPES.map((type) => [type, type.endsWith('_ore') ? 6 : type === 'glass' || type === 'brick' || type === 'roof' ? 16 : 24]),
+) as Inventory;
 
-const SAVE_KEY = 'pixel-wilds-player-v1';
+const SAVE_KEY = 'pixel-wilds-player-v2';
 
 function readPlayerSave() {
   try {
@@ -201,39 +171,16 @@ function readPlayerSave() {
 function initialWorld(position: Position | null = null): WorldData {
   const x = position?.x ?? 0;
   const z = position?.z ?? 0;
+  // A small area loads immediately; the rest streams in a few chunks at a time.
   try {
-    return loadWorld(x, z) ?? createWorld(undefined, x, z);
+    return loadWorld(x, z, 5);
   } catch {
-    return createWorld(undefined, x, z);
+    return createWorld(undefined, x, z, 5);
   }
 }
 
 function findSpawn(world: WorldData): Position {
-  let best: { x: number; z: number; y: number; score: number } | null = null;
-  for (let x = -5; x <= 5; x += 1) {
-    for (let z = -5; z <= 5; z += 1) {
-      let top = -Infinity;
-      let topType: WorldBlockType | null = null;
-      for (let y = MAX_BUILD_HEIGHT; y >= 0; y -= 1) {
-        const type = getBlock(world, x, y, z);
-        if (type) {
-          top = y;
-          topType = type;
-          break;
-        }
-      }
-      if (topType !== 'grass' && topType !== 'sand') continue;
-      if (getBlock(world, x, top + 1, z) || getBlock(world, x, top + 2, z)) continue;
-      const score = Math.abs(x) + Math.abs(z) + Math.abs(top) * 0.05;
-      if (!best || score < best.score) best = { x, z, y: top, score };
-    }
-  }
-  if (best) return {
-    x: best.x + 0.5,
-    y: best.y + 1 + PLAYER_EYE_HEIGHT,
-    z: best.z + 0.5,
-  };
-  return { x: 0.5, y: 6, z: 0.5 };
+  return findSpawnPoint(world);
 }
 
 function getHotbarIndexFromCode(code: string): number {
@@ -242,138 +189,65 @@ function getHotbarIndexFromCode(code: string): number {
   return -1;
 }
 
-function pixelTexture(type: WorldBlockType, face: number) {
-  const [side, top, base] = BLOCK_COLORS[type];
-  const canvas = document.createElement('canvas');
-  canvas.width = 16;
-  canvas.height = 16;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return null;
-  const isTop = face === 2;
-  ctx.fillStyle = isTop ? top : side;
-  ctx.fillRect(0, 0, 16, 16);
-  if (type === 'grass' && face !== 2) {
-    ctx.fillStyle = '#a77750';
-    ctx.fillRect(0, 4, 16, 12);
-    ctx.fillStyle = '#6e9c59';
-    ctx.fillRect(0, 0, 16, 4);
-    ctx.fillRect(0, 3, 6, 2);
-    ctx.fillRect(9, 2, 7, 2);
-  }
-  if (type === 'wood') {
-    ctx.fillStyle = isTop ? '#d09a62' : '#744938';
-    if (isTop) {
-      ctx.fillRect(2, 2, 12, 12);
-      ctx.fillStyle = '#a66a47';
-      ctx.fillRect(5, 5, 6, 6);
-      ctx.fillStyle = '#dda96b';
-      ctx.fillRect(7, 7, 2, 2);
-    } else {
-      ctx.fillRect(3, 0, 2, 16);
-      ctx.fillRect(11, 0, 2, 16);
-      ctx.fillStyle = '#d09a62';
-      ctx.fillRect(6, 1, 2, 7);
-      ctx.fillRect(8, 10, 2, 5);
-    }
-  }
-  if (type === 'flower' && isTop) {
-    ctx.fillStyle = '#93b56a';
-    ctx.fillRect(0, 0, 16, 16);
-    ctx.fillStyle = '#f4d276';
-    ctx.fillRect(6, 3, 4, 4);
-    ctx.fillStyle = '#d8796e';
-    ctx.fillRect(5, 2, 2, 2);
-    ctx.fillRect(9, 2, 2, 2);
-    ctx.fillRect(5, 6, 2, 2);
-    ctx.fillRect(9, 6, 2, 2);
-  }
-  const colors = type === 'stone' || type === 'cobblestone'
-    ? ['#c0bca1', '#626e69', '#9e9f90']
-    : type === 'sand' || type === 'snow'
-      ? ['#f0d993', '#b99d61', '#e2c77e']
-      : type === 'gravel'
-        ? ['#b7ad98', '#706d63', '#8a8578']
-        : type === 'clay'
-          ? ['#ce9480', '#8c5d59', '#a66f65']
-          : type === 'water'
-            ? ['#9ad7d1', '#257a88', '#61b7ba']
-            : type === 'planks'
-              ? ['#d0a16d', '#79553b', '#a4774e']
-              : type === 'brick'
-                ? ['#d49c81', '#744b43', '#a66d5b']
-                : type === 'roof'
-                  ? ['#89948a', '#394741', '#66746b']
-                  : type === 'glass'
-                    ? ['#d2f0df', '#4b8285', '#83bcb3']
-                    : type === 'leaves'
-                      ? ['#91b66a', '#416c50', '#6d985d']
-                      : ['#d3a16c', '#644a3c', base];
-  let seed = type.split('').reduce((total, char) => total + char.charCodeAt(0), 0) + face * 31;
-  const random = () => {
-    seed = (seed * 9301 + 49297) % 233280;
-    return seed / 233280;
-  };
-  for (let i = 0; i < 31; i += 1) {
-    const x = Math.floor(random() * 16);
-    const y = Math.floor(random() * 16);
-    if (type === 'grass' && face !== 2 && y < 5) continue;
-    ctx.fillStyle = colors[Math.floor(random() * colors.length)];
-    ctx.globalAlpha = 0.35 + random() * 0.35;
-    ctx.fillRect(x, y, random() > 0.72 ? 2 : 1, random() > 0.8 ? 2 : 1);
-  }
-  ctx.globalAlpha = 1;
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.magFilter = THREE.NearestFilter;
-  texture.minFilter = THREE.NearestFilter;
-  texture.generateMipmaps = false;
-  texture.colorSpace = THREE.SRGBColorSpace;
-  texture.needsUpdate = true;
-  return texture;
+function toGeometry(mesh: MeshArrays | null): THREE.BufferGeometry | null {
+  if (!mesh) return null;
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(mesh.positions, 3));
+  geometry.setAttribute('normal', new THREE.BufferAttribute(mesh.normals, 3));
+  geometry.setAttribute('uv', new THREE.BufferAttribute(mesh.uvs, 2));
+  if (mesh.colors) geometry.setAttribute('color', new THREE.BufferAttribute(mesh.colors, 4));
+  geometry.setIndex(new THREE.BufferAttribute(mesh.indices, 1));
+  geometry.computeBoundingSphere();
+  return geometry;
 }
 
-const textureCache = new Map<string, THREE.CanvasTexture | null>();
-
-function getMaterials(type: WorldBlockType) {
-  const isWater = type === 'water';
-  return [0, 1, 2, 3, 4, 5].map((face) => {
-    const key = `${type}-${face}`;
-    if (!textureCache.has(key)) textureCache.set(key, pixelTexture(type, face));
-    return new THREE.MeshLambertMaterial({
-      map: textureCache.get(key),
-      color: '#fffaf0',
-      transparent: isWater,
-      opacity: isWater ? 0.78 : 1,
-      depthWrite: !isWater,
-      side: isWater ? THREE.DoubleSide : THREE.FrontSide,
-    });
-  });
+interface ChunkMaterials {
+  opaque: THREE.Material;
+  clear: THREE.Material;
 }
 
-function VoxelBatch({ type, cells }: { type: WorldBlockType; cells: BlockCell[] }) {
-  const meshRef = useRef<THREE.InstancedMesh>(null);
-  const materials = useMemo(() => getMaterials(type), [type]);
-  const dummy = useMemo(() => new THREE.Object3D(), []);
-  useLayoutEffect(() => {
-    const mesh = meshRef.current;
-    if (!mesh) return;
-    cells.forEach((cell, index) => {
-      dummy.position.set(cell.x + 0.5, cell.y + 0.5, cell.z + 0.5);
-      dummy.updateMatrix();
-      mesh.setMatrixAt(index, dummy.matrix);
+/**
+ * One chunk = at most two meshes (solid and see-through). It only rebuilds when
+ * its own blocks, or a neighbour's border blocks, change (`signature`).
+ */
+const ChunkMesh = memo(function ChunkMesh({
+  chunk,
+  signature,
+  worldRef,
+  materials,
+}: {
+  chunk: Chunk;
+  signature: string;
+  worldRef: { current: WorldData };
+  materials: ChunkMaterials;
+}) {
+  const geometries = useMemo(() => {
+    const chunks = worldRef.current.chunks;
+    const data = buildChunkMesh(chunk, {
+      px: chunks[chunkKey(chunk.cx + 1, chunk.cz)],
+      nx: chunks[chunkKey(chunk.cx - 1, chunk.cz)],
+      pz: chunks[chunkKey(chunk.cx, chunk.cz + 1)],
+      nz: chunks[chunkKey(chunk.cx, chunk.cz - 1)],
     });
-    mesh.instanceMatrix.needsUpdate = true;
-    mesh.computeBoundingSphere();
-  }, [cells, dummy]);
+    return { opaque: toGeometry(data.opaque), clear: toGeometry(data.transparent) };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chunk, signature]);
+  useEffect(() => () => {
+    geometries.opaque?.dispose();
+    geometries.clear?.dispose();
+  }, [geometries]);
   return (
-    <instancedMesh
-      ref={meshRef}
-      args={[undefined, undefined, cells.length]}
-      castShadow={false}
-      material={materials}
-    >
-      <boxGeometry args={[1, 1, 1]} />
-    </instancedMesh>
+    <group position={[chunk.cx * CHUNK_SIZE, 0, chunk.cz * CHUNK_SIZE]}>
+      {geometries.opaque && <mesh geometry={geometries.opaque} material={materials.opaque} />}
+      {geometries.clear && <mesh geometry={geometries.clear} material={materials.clear} renderOrder={1} />}
+    </group>
   );
+});
+
+function chunkSignature(world: WorldData, chunk: Chunk): string {
+  const { chunks } = world;
+  const v = (cx: number, cz: number) => chunks[chunkKey(cx, cz)]?.version ?? -1;
+  return `${chunk.version}|${v(chunk.cx + 1, chunk.cz)}|${v(chunk.cx - 1, chunk.cz)}|${v(chunk.cx, chunk.cz + 1)}|${v(chunk.cx, chunk.cz - 1)}`;
 }
 
 function GameWorld({
@@ -386,6 +260,7 @@ function GameWorld({
   inhabitants,
   savedPosition,
   mobileMove,
+  renderRadius,
 }: {
   world: WorldData;
   onTarget: (target: AimTarget | null) => void;
@@ -396,16 +271,37 @@ function GameWorld({
   inhabitants: Humanoid[];
   savedPosition: Position | null;
   mobileMove: { forward: number; side: number; jump: boolean };
+  renderRadius: number;
 }) {
-  const visible = useMemo(() => getVisibleBlocks(world), [world]);
-  const cellsByType = useMemo(() => {
-    const grouped = Object.fromEntries(
-      WORLD_BLOCK_TYPES.map((type) => [type, [] as BlockCell[]]),
-    ) as Record<WorldBlockType, BlockCell[]>;
-    for (const cell of visible) grouped[cell.type].push(cell);
-    return grouped;
-  }, [visible]);
+  const worldRef = useRef(world);
+  worldRef.current = world;
+  const materials = useMemo<ChunkMaterials>(() => {
+    const map = createAtlasTexture();
+    return {
+      opaque: new THREE.MeshLambertMaterial({ map }),
+      clear: new THREE.MeshLambertMaterial({
+        map,
+        transparent: true,
+        vertexColors: true,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      }),
+    };
+  }, []);
+  const chunkList = useMemo(
+    () => Object.values(world.chunks).map((chunk) => ({ chunk, signature: chunkSignature(world, chunk) })),
+    [world],
+  );
   const { camera, gl } = useThree();
+  const fogRef = useRef<THREE.Fog>(null);
+  const backgroundRef = useRef<THREE.Color>(null);
+  const sunRef = useRef<THREE.Mesh>(null);
+  const viewDistance = renderRadius * CHUNK_SIZE;
+  useEffect(() => {
+    const perspective = camera as THREE.PerspectiveCamera;
+    perspective.far = viewDistance + 3 * CHUNK_SIZE;
+    perspective.updateProjectionMatrix();
+  }, [camera, viewDistance]);
   const yaw = useRef(0);
   const pitch = useRef(-0.17);
   const [player] = useState<PlayerMotion>(() =>
@@ -452,10 +348,7 @@ function GameWorld({
       ) event.preventDefault();
       keyState.current[code] = true;
       const slot = getHotbarIndexFromCode(code);
-      if (slot >= 0) {
-        const type = BLOCK_TYPES[slot];
-        if (type) window.dispatchEvent(new CustomEvent('pixel-wilds-select', { detail: type }));
-      }
+      if (slot >= 0) window.dispatchEvent(new CustomEvent('pixel-wilds-slot', { detail: slot }));
     };
     const onKeyUp = (event: KeyboardEvent) => {
       keyState.current[event.code] = false;
@@ -570,7 +463,7 @@ function GameWorld({
       dt,
     );
 
-    if (player.y < -12) {
+    if (player.y < -40) {
       Object.assign(
         player,
         createPlayerMotion(callbacks.current.world, findSpawn(callbacks.current.world)),
@@ -578,6 +471,28 @@ function GameWorld({
     }
     camera.rotation.set(pitch.current, yaw.current, 0, 'YXZ');
     camera.position.set(player.x, player.y, player.z);
+
+    // Fog hides the edge of the loaded world; underwater it closes in and turns blue.
+    const underwater = isEyeUnderwater(callbacks.current.world, player);
+    const fog = fogRef.current;
+    if (fog) {
+      fog.color.set(underwater ? '#2a6f86' : '#b7ddd0');
+      fog.near = underwater ? 1 : viewDistance * 0.55;
+      fog.far = underwater ? 34 : viewDistance - 6;
+    }
+    backgroundRef.current?.set(underwater ? '#2a6f86' : '#a9d9d1');
+    const sun = sunRef.current;
+    if (sun) {
+      const sunDistance = viewDistance * 0.9;
+      sun.position.set(
+        camera.position.x + sunDistance * 0.5,
+        camera.position.y + sunDistance * 0.55,
+        camera.position.z - sunDistance * 0.62,
+      );
+      sun.lookAt(camera.position);
+      sun.scale.setScalar(sunDistance * 0.075);
+    }
+
     const chunk = getChunkCoordinates(player.x, player.z);
     const chunkKeyNow = `${chunk.x},${chunk.z}`;
     if (chunkKeyNow !== lastChunkKey.current) {
@@ -598,7 +513,7 @@ function GameWorld({
         callbacks.current.world,
         camera.position,
         direction,
-        6.2,
+        REACH_BLOCKS,
       );
       if (nextTarget) {
         target.current = nextTarget;
@@ -619,25 +534,31 @@ function GameWorld({
 
   return (
     <>
-      <color attach="background" args={['#a9d9d1']} />
-      <fog attach="fog" args={['#b7ddd0', 30, 70]} />
+      <color ref={backgroundRef} attach="background" args={['#a9d9d1']} />
+      <fog ref={fogRef} attach="fog" args={['#b7ddd0', viewDistance * 0.55, viewDistance - 6]} />
       <hemisphereLight args={['#f9e9ba', '#567558', 1.45]} />
       <directionalLight
         position={[-8, 15, 7]}
         intensity={2.05}
         color="#ffe3a4"
       />
-      <mesh position={[14, 13, -24]} rotation={[0.15, 0, 0]}>
-        <boxGeometry args={[3.2, 3.2, 0.25]} />
-        <meshBasicMaterial color="#f1b76b" />
+      <mesh ref={sunRef}>
+        <boxGeometry args={[1, 1, 0.08]} />
+        <meshBasicMaterial color="#f1b76b" fog={false} />
       </mesh>
-      {WORLD_BLOCK_TYPES.map((type) => (
-        <VoxelBatch key={type} type={type} cells={cellsByType[type]} />
+      {chunkList.map(({ chunk, signature }) => (
+        <ChunkMesh
+          key={`${chunk.cx},${chunk.cz}`}
+          chunk={chunk}
+          signature={signature}
+          worldRef={worldRef}
+          materials={materials}
+        />
       ))}
       <HumanoidBatches inhabitants={inhabitants} />
       {target.current && (
         <mesh position={[target.current.cell.x + 0.5, target.current.cell.y + 0.5, target.current.cell.z + 0.5]}>
-          <boxGeometry args={[1.012, 1.012, 1.012]} />
+          <boxGeometry args={[1.02, 1.02, 1.02]} />
           <meshBasicMaterial color="#fff0a3" wireframe transparent opacity={0.9} />
         </mesh>
       )}
@@ -693,9 +614,10 @@ function VoxelFallback({
 
   const ordered = useMemo(
     () =>
-      getVisibleBlocks(world).sort(
+      getVisibleBlocksNear(world, player.x, player.z, 34).sort(
         (a, b) => a.x + a.z + a.y - (b.x + b.z + b.y),
       ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [world],
   );
   const latest = useRef({
@@ -820,10 +742,7 @@ function VoxelFallback({
         event.preventDefault();
       }
       const index = getHotbarIndexFromCode(event.code);
-      if (index >= 0) {
-        const type = BLOCK_TYPES[index];
-        if (type) window.dispatchEvent(new CustomEvent('pixel-wilds-select', { detail: type }));
-      }
+      if (index >= 0) window.dispatchEvent(new CustomEvent('pixel-wilds-slot', { detail: index }));
     };
     const onKeyUp = (event: KeyboardEvent) => {
       keys.current[event.code] = false;
@@ -1009,17 +928,27 @@ function App() {
   const [mobileMove, setMobileMove] = useState({ forward: 0, side: 0, jump: false });
   const [supportsWebGL, setSupportsWebGL] = useState<boolean | null>(null);
   const noticeTimeout = useRef<number | undefined>(undefined);
+  const [renderRadius, setRenderRadius] = useState<number>(() => {
+    const saved = Number(localStorage.getItem(RENDER_RADIUS_KEY));
+    return Number.isInteger(saved) && saved >= MIN_RENDER_RADIUS && saved <= MAX_RENDER_RADIUS
+      ? saved
+      : DEFAULT_RENDER_RADIUS;
+  });
+  const streamCenter = useRef(getChunkCoordinates(savedPlayer?.position?.x ?? 0, savedPlayer?.position?.z ?? 0));
   const selected = BLOCK_TYPES[selectedIndex] ?? 'grass';
+  const hotbarPage = Math.floor(selectedIndex / HOTBAR_SLOTS);
+  const hotbarPages = Math.ceil(BLOCK_TYPES.length / HOTBAR_SLOTS);
   const nearbySettlements = useMemo(
     () =>
-      getNearbySettlements(
+      getSettlementsNear(
         world.seed,
         playerPosition?.x ?? 0.5,
         playerPosition?.z ?? 0.5,
-        48,
-        getTerrainSiteInfo,
+        90,
       ),
-    [world.seed, playerPosition],
+    // Settlements are cached per region, so only the rounded position matters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [world.seed, Math.floor((playerPosition?.x ?? 0) / 16), Math.floor((playerPosition?.z ?? 0) / 16)],
   );
   const inhabitants = useMemo(
     () =>
@@ -1029,7 +958,7 @@ function App() {
           Math.hypot(
             person.x - (playerPosition?.x ?? 0.5),
             person.z - (playerPosition?.z ?? 0.5),
-          ) < 48,
+          ) < 96,
         ),
     [nearbySettlements, playerPosition],
   );
@@ -1040,7 +969,7 @@ function App() {
       nearestSettlement.z - (playerPosition?.z ?? 0.5),
     )
     : Infinity;
-  const visibleSettlement = settlementDistance <= 42 ? nearestSettlement : null;
+  const visibleSettlement = nearestSettlement && settlementDistance <= nearestSettlement.radius + 16 ? nearestSettlement : null;
 
   useEffect(() => {
     const probe = document.createElement('canvas');
@@ -1059,12 +988,35 @@ function App() {
     setStarted(true);
   }, []);
 
+  // The player's chunk is only recorded here; a timer then generates a few missing
+  // chunks per tick (nearest first), so walking never causes one big stall.
   const streamChunks = useCallback((chunkX: number, chunkZ: number) => {
-    const next = ensureChunks(worldRef.current, chunkX, chunkZ, CHUNK_LOAD_RADIUS);
-    if (next === worldRef.current) return;
-    worldRef.current = next;
-    setWorld(next);
+    streamCenter.current = { x: chunkX, z: chunkZ };
   }, []);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      const next = ensureChunks(
+        worldRef.current,
+        streamCenter.current.x,
+        streamCenter.current.z,
+        renderRadius,
+        3,
+      );
+      if (next === worldRef.current) return;
+      worldRef.current = next;
+      setWorld(next);
+    }, 40);
+    return () => window.clearInterval(timer);
+  }, [renderRadius]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(RENDER_RADIUS_KEY, String(renderRadius));
+    } catch {
+      // Not being able to remember the view distance is harmless.
+    }
+  }, [renderRadius]);
 
   const setWorldEdited = useCallback((edit: (current: WorldData) => WorldData) => {
     const next = edit(worldRef.current);
@@ -1084,6 +1036,10 @@ function App() {
     const current = worldRef.current;
     const found = getBlock(current, cell.x, cell.y, cell.z);
     if (!found) return;
+    if (BLOCK_INFO[found].unbreakable) {
+      showNotice('Bedrock will not budge');
+      return;
+    }
     setWorldEdited((latestWorld) => setBlock(latestWorld, cell.x, cell.y, cell.z, null));
     if (BLOCK_TYPES.includes(found as BlockType)) {
       const item = found as BlockType;
@@ -1104,14 +1060,15 @@ function App() {
       showNotice(`Out of ${BLOCK_META[selected].label.toLowerCase()}`);
       return;
     }
-    if (getBlock(worldRef.current, adjacent.x, adjacent.y, adjacent.z)) return;
+    const occupant = getBlock(worldRef.current, adjacent.x, adjacent.y, adjacent.z);
+    if (occupant && occupant !== 'water') return;
     const feetY = (playerPosition?.y ?? 4) - PLAYER_EYE_HEIGHT;
     const headY = feetY + PLAYER_HEIGHT;
     const overlapsPlayer =
-      adjacent.x < (playerPosition?.x ?? 0.5) + 0.28 &&
-      adjacent.x + 1 > (playerPosition?.x ?? 0.5) - 0.28 &&
-      adjacent.z < (playerPosition?.z ?? 0.5) + 0.28 &&
-      adjacent.z + 1 > (playerPosition?.z ?? 0.5) - 0.28 &&
+      adjacent.x < (playerPosition?.x ?? 0.5) + PLAYER_RADIUS &&
+      adjacent.x + 1 > (playerPosition?.x ?? 0.5) - PLAYER_RADIUS &&
+      adjacent.z < (playerPosition?.z ?? 0.5) + PLAYER_RADIUS &&
+      adjacent.z + 1 > (playerPosition?.z ?? 0.5) - PLAYER_RADIUS &&
       adjacent.y < headY &&
       adjacent.y + 1 > feetY;
     if (overlapsPlayer) {
@@ -1144,18 +1101,40 @@ function App() {
       const direction = (event as CustomEvent<number>).detail;
       setSelectedIndex((current) => (current + direction + BLOCK_TYPES.length) % BLOCK_TYPES.length);
     };
+    // Number keys pick a slot on the current hotbar page; Q / E (or [ ]) flip pages.
+    const onSlot = (event: Event) => {
+      const slot = (event as CustomEvent<number>).detail;
+      setSelectedIndex((current) => {
+        const index = Math.floor(current / HOTBAR_SLOTS) * HOTBAR_SLOTS + slot;
+        return index < BLOCK_TYPES.length ? index : current;
+      });
+    };
+    const onPageKey = (event: KeyboardEvent) => {
+      const step = event.code === 'KeyE' || event.code === 'BracketRight' ? 1
+        : event.code === 'KeyQ' || event.code === 'BracketLeft' ? -1 : 0;
+      if (!step) return;
+      setSelectedIndex((current) => {
+        const pages = Math.ceil(BLOCK_TYPES.length / HOTBAR_SLOTS);
+        const page = (Math.floor(current / HOTBAR_SLOTS) + step + pages) % pages;
+        return Math.min(BLOCK_TYPES.length - 1, page * HOTBAR_SLOTS + (current % HOTBAR_SLOTS));
+      });
+    };
     const onPointerChange = () => {
       const locked = document.pointerLockElement !== null;
       setStarted(locked);
     };
     window.addEventListener('pixel-wilds-select', onSelect);
     window.addEventListener('pixel-wilds-cycle', onCycle);
+    window.addEventListener('pixel-wilds-slot', onSlot);
+    window.addEventListener('keydown', onPageKey);
     document.addEventListener('pointerlockchange', onPointerChange);
     const saveOnExit = () => savePlayerState();
     window.addEventListener('beforeunload', saveOnExit);
     return () => {
       window.removeEventListener('pixel-wilds-select', onSelect);
       window.removeEventListener('pixel-wilds-cycle', onCycle);
+      window.removeEventListener('pixel-wilds-slot', onSlot);
+      window.removeEventListener('keydown', onPageKey);
       document.removeEventListener('pointerlockchange', onPointerChange);
       window.removeEventListener('beforeunload', saveOnExit);
     };
@@ -1174,6 +1153,7 @@ function App() {
 
   const loadedBlockCount = useMemo(() => getLoadedBlockCount(world), [world]);
   const loadedChunkCount = useMemo(() => getLoadedChunkCount(world), [world]);
+  const biome = playerPosition ? getBiomeAt(world.seed, playerPosition.x, playerPosition.z) : null;
   const coordinates = playerPosition
     ? `${Math.floor(playerPosition.x)} · ${Math.floor(playerPosition.y)} · ${Math.floor(playerPosition.z)}`
     : 'ROAM FREE';
@@ -1198,7 +1178,7 @@ function App() {
         <Canvas
           className="game-canvas"
           dpr={[1, 1.35]}
-          camera={{ position: [0.5, 5, 0.5], fov: 74, near: 0.08, far: 100 }}
+          camera={{ position: [0.5, 60, 0.5], fov: 74, near: 0.1, far: 400 }}
           gl={{ antialias: false, powerPreference: 'high-performance' }}
           onCreated={({ gl }) => {
             gl.setPixelRatio(Math.min(window.devicePixelRatio, 1.6));
@@ -1217,6 +1197,7 @@ function App() {
             inhabitants={inhabitants}
             savedPosition={playerPosition}
             mobileMove={mobileMove}
+            renderRadius={renderRadius}
           />
         </Canvas>
       )}
@@ -1234,6 +1215,18 @@ function App() {
             <i className="status-dot" />
             {saveState === 'saved' ? 'landscape saved' : 'saving landscape'}
           </div>
+          <label className="distance-control" title="How far you can see">
+            <span>view {Math.round(renderRadius * CHUNK_SIZE * 0.5)} m</span>
+            <input
+              type="range"
+              min={MIN_RENDER_RADIUS}
+              max={MAX_RENDER_RADIUS}
+              value={renderRadius}
+              aria-label="View distance"
+              data-testid="slider-view-distance"
+              onChange={(event) => setRenderRadius(Number(event.target.value))}
+            />
+          </label>
           <button
             className="icon-button"
             type="button"
@@ -1304,12 +1297,13 @@ function App() {
               ×
             </button>
           </div>
-          <p><b>Ground:</b> grass covers two dirt layers, then stone; dry regions use sand with gravel patches.</p>
-          <p><b>Mountains:</b> broad ridges rise from lowlands; cold high ground gets snow and exposed cobblestone.</p>
-          <p><b>Rivers:</b> seeded winding channels carve valleys, with gravel and sand beneath blue water.</p>
-          <p><b>Wetlands:</b> low, damp ground forms clay banks; forests grow wood trunks and leaf crowns, 3–8 blocks tall.</p>
-          <p><b>Settlements:</b> villages, towns, cities, groves, holds, camps, towers, and lodges have matching folk and materials.</p>
-          <p><b>Everywhere:</b> 16×16 chunks stream in a 5×5 area around you; seed-based terrain and your edits persist as chunks unload.</p>
+          <p><b>Scale:</b> every block is 0.5 m. You are 2 m (4 blocks) tall, doors are 5 blocks high, and a step up is one block.</p>
+          <p><b>Ground:</b> soil depends on climate: grass over dirt in temperate land, sand over sandstone in deserts, snow in the cold, mud and clay in swamps. Steep slopes show bare rock, with gravel scree below.</p>
+          <p><b>Rock:</b> pink granite in the high country, pale limestone in low basins, stone elsewhere; coal and iron veins sit inside the rock, and bedrock lies at the bottom.</p>
+          <p><b>Rivers &amp; lakes:</b> rivers wind through low ground with flat water, banks of sand, gravel, clay or mud, and freeze in the cold. Basins below sea level fill with water.</p>
+          <p><b>Trees:</b> oak and birch in forests, spruce in cold and high places, cactus in deserts, broad oaks in swamps.</p>
+          <p><b>Settlements:</b> sites are levelled, with streets, a plaza, houses facing the street, and walls for towns and cities.</p>
+          <p><b>Everywhere:</b> 16×16 chunks stream in around you out to the view distance you choose; terrain comes from the seed, and your edits persist.</p>
         </aside>
 
         <div className={`crosshair ${target ? 'crosshair-active' : ''}`} data-testid="status-crosshair" aria-label={target ? `Aiming at ${target.cell.type}` : 'Aim crosshair'}>
@@ -1318,41 +1312,59 @@ function App() {
 
         <div className="bottom-left">
           <div className="readout" data-testid="status-coordinates">
-            FIELD POSITION
+            FIELD POSITION{biome ? ` · ${biome.toUpperCase()}` : ''}
             <strong>{coordinates}</strong>
           </div>
           <div className="readout" data-testid="status-block-count">
             CHUNKS LOADED
-            <strong>{loadedChunkCount} · {loadedBlockCount.toLocaleString()} blocks</strong>
+            <strong>{loadedChunkCount} · {loadedBlockCount.toLocaleString()} blocks · {Math.round(renderRadius * CHUNK_SIZE * 0.5)} m view</strong>
           </div>
         </div>
 
         <div className="bottom-hud">
           <div className="hotbar" role="toolbar" aria-label="Block selection" data-testid="hotbar">
-            {BLOCK_TYPES.map((type, index) => (
-              <button
-                key={type}
-                className={`hotbar-slot ${selected === type ? 'selected' : ''}`}
-                type="button"
-                aria-label={`Select ${BLOCK_META[type].label}, ${inventory[type]} available`}
-                aria-pressed={selected === type}
-                data-testid={`button-hotbar-${type}`}
-                onClick={() => setSelectedIndex(index)}
-              >
-                <span className="slot-number">{index === 9 ? '0' : index + 1}</span>
-                <span className={`voxel-swatch swatch-${type}`} aria-hidden="true" />
-                <span className="slot-label">{BLOCK_META[type].label}</span>
-                <span className="slot-count" data-testid={`count-${type}`}>{inventory[type]}</span>
-              </button>
-            ))}
+            {BLOCK_TYPES.slice(hotbarPage * HOTBAR_SLOTS, (hotbarPage + 1) * HOTBAR_SLOTS).map((type, slot) => {
+              const index = hotbarPage * HOTBAR_SLOTS + slot;
+              const [sideColor, topColor] = BLOCK_COLORS[type];
+              return (
+                <button
+                  key={type}
+                  className={`hotbar-slot ${selected === type ? 'selected' : ''}`}
+                  type="button"
+                  aria-label={`Select ${BLOCK_META[type].label}, ${inventory[type]} available`}
+                  aria-pressed={selected === type}
+                  data-testid={`button-hotbar-${type}`}
+                  onClick={() => setSelectedIndex(index)}
+                >
+                  <span className="slot-number">{slot === 9 ? '0' : slot + 1}</span>
+                  <span
+                    className="voxel-swatch"
+                    style={{ background: `linear-gradient(135deg, ${topColor} 0 50%, ${sideColor} 50% 100%)` }}
+                    aria-hidden="true"
+                  />
+                  <span className="slot-label">{BLOCK_META[type].label}</span>
+                  <span className="slot-count" data-testid={`count-${type}`}>{inventory[type]}</span>
+                </button>
+              );
+            })}
+            <button
+              className="hotbar-page"
+              type="button"
+              aria-label="Next block page"
+              data-testid="button-hotbar-page"
+              onClick={() => setSelectedIndex(((hotbarPage + 1) % hotbarPages) * HOTBAR_SLOTS)}
+            >
+              {hotbarPage + 1}/{hotbarPages}
+            </button>
           </div>
           <div className="hint-line" data-testid="status-controls">
             <span className="hint-item"><kbd className="keycap">W</kbd><kbd className="keycap">A</kbd><kbd className="keycap">S</kbd><kbd className="keycap">D</kbd> wander</span>
-            <span className="hint-item"><kbd className="keycap">SPACE</kbd> hop</span>
+            <span className="hint-item"><kbd className="keycap">SPACE</kbd> hop / swim up</span>
             <span className="hint-item"><kbd className="keycap">LMB</kbd> gather</span>
             <span className="hint-item"><kbd className="keycap">RMB</kbd> place</span>
             <span className="hint-item"><kbd className="keycap">SHIFT</kbd> run</span>
             <span className="hint-item"><kbd className="keycap">1–9 / 0</kbd> choose</span>
+            <span className="hint-item"><kbd className="keycap">Q</kbd><kbd className="keycap">E</kbd> block page</span>
           </div>
         </div>
 
