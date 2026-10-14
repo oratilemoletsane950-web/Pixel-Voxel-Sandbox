@@ -178,7 +178,8 @@ function generateChunk(terrain: Terrain, cx: number, cz: number): Chunk {
       }
       if (column.water > ground) {
         for (let y = ground + 1; y <= column.water; y += 1) {
-          blocks[base + y] = column.frozen && y === column.water ? ID.ice : ID.water;
+          // Surface water freezes in cold climates (colder than taiga).
+          blocks[base + y] = column.temperature < 0.36 && y === column.water ? ID.ice : ID.water;
         }
       } else if (hasFlower(column, x, z, seed)) {
         blocks[base + ground + 1] = ID.flower;
