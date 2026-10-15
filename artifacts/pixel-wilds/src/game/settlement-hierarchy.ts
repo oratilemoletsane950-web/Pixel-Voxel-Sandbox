@@ -1,11 +1,12 @@
 /**
  * Hierarchical settlement planning foundation.
  *
- * This module deliberately produces lightweight, deterministic settlement
- * metadata only. It does NOT stamp blocks or choose terrain sites yet; that
- * integration belongs in the world/terrain streaming layer. Keeping hierarchy
- * planning separate lets the game enforce the requested counts before any
- * expensive geometry is rendered.
+ * This module produces lightweight, deterministic settlement metadata.
+ * The chunk stamper consumes a subset of these nodes for houses, town/city
+ * civic structures, roads and castle wards. Coordinates are still planning
+ * hints: this module does not validate strategic sites or guarantee that every
+ * planned structure can be stamped on the terrain. Keeping hierarchy planning
+ * separate lets the game validate counts before expensive geometry is rendered.
  */
 
 export type SettlementLevel = "kingdom" | "city" | "town" | "village" | "castle" | "house";
@@ -72,9 +73,10 @@ function generatedName(seed: number, key: number, level: SettlementLevel): strin
  * - 5-8 villages per town
  * - 20-30 houses per village
  *
- * Coordinates are deterministic planning hints, not terrain-validated
- * placements. The terrain-aware placement pass must resolve conflicts,
- * paths, slopes and water before these are rendered.
+ * Coordinates are deterministic planning hints, not fully terrain-validated
+ * placements. The current stamper checks local terrain for houses and major
+ * structures, but a complete strategic placement pass must still resolve
+ * cross-footprint conflicts, slopes, water and connected layout spacing.
  */
 export function createHierarchyPlan(seed: number, options: HierarchyOptions = {}): HierarchyPlan {
   const originX = options.originX ?? 0;
