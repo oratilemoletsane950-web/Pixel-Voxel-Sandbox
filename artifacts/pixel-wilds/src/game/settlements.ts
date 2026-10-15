@@ -1,6 +1,7 @@
 import { ID } from "./blocks";
 import {
   accentBlock,
+  applyVictorianFacade,
   blueprintById,
   pickFrom,
   rosterPool,
@@ -177,8 +178,7 @@ interface Farm {
 
 interface Garden {
   x: number;
-  z: number;
-  w: number;
+  z: number;  w: number;
   d: number;
 }
 
@@ -357,8 +357,7 @@ function scoreSite(
   z: number,
 ): { score: number; baseY: number } {
   const half = spec.half;
-  // Probe the whole footprint (centre, half-way ring, and the edge/corners of the square).
-  // Anything wet in there rejects the site; the outer apron may be wet.
+  // Probe the whole footprint (centre, half-way ring, and the edge/corners of the square).  // Anything wet in there rejects the site; the outer apron may be wet.
   const probes: Array<[number, number]> = [[0, 0]];
   for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]]) {
     probes.push([dx * half * 0.5, dz * half * 0.5]);
@@ -518,7 +517,7 @@ function layoutHuman(settlement: Settlement, spec: KindSpec, regionX: number, re
 
   const make = (bp: Blueprint, x: number, z: number, facing: Facing, extra?: Partial<Building>): Building => {
     const palette = tierPalette(tier, bp.style);
-    return {
+    return applyVictorianFacade({
       x,
       z,
       w: bp.w,
@@ -537,13 +536,12 @@ function layoutHuman(settlement: Settlement, spec: KindSpec, regionX: number, re
       blueprint: bp.id,
       accent: accentBlock(bp.accent),
       open: !!bp.open,
-      turret: bp.turret ?? 0,
-      spire: !!bp.spire,
+      turret: bp.turret ?? 0,      spire: !!bp.spire,
       forge: !!bp.forge,
       passage: bp.passage,
       furniture: bp.furniture,
       ...extra,
-    };
+    }, bp.facadeVariant, bp.windowCount, bp.corniceBlock, bp.gableTrim, bp.hasDormers, bp.bayWindowWidth);
   };
   const commit = (bp: Blueprint, x: number, z: number, facing: Facing, m = 2, extra?: Partial<Building>): void => {
     if (!fits(x, z, bp.w, bp.d, m)) return;
@@ -717,7 +715,6 @@ function layoutHuman(settlement: Settlement, spec: KindSpec, regionX: number, re
       }
     }
   }
-
   /* ---- block cottages between the streets, each with a path ---- */
   const quadPool = rosterPool(tier, "quad");
   const quadStart = tier === "kingdom" ? 24 : 20;
@@ -897,8 +894,7 @@ function layoutFaction(settlement: Settlement, spec: KindSpec, regionX: number, 
     facing: Facing,
     index: number,
     big = false,
-  ): Building => ({
-    x,
+  ): Building => ({    x,
     z,
     w,
     d,
@@ -1077,8 +1073,7 @@ function makeSettlement(terrain: Terrain, seed: number, regionX: number, regionZ
       const z = centerZ + offsetZ;
       const result = scoreSite(faction, spec, terrain, x, z);
       if (!best || result.score > best.score) best = { x, z, ...result };
-    }
-  }
+    }  }
   if (!best || best.score < 2.2) return null;
 
   const id = `${seed}:${regionX}:${regionZ}`;
@@ -1257,8 +1252,7 @@ function stampStall(writer: ChunkWriter, b: Building, ground: number): void {
   // Counter along the open side, with a gap to walk in.
   const counter = (dx: number, dz: number): void => {
     if (Math.abs(dx) > hx - 1 || Math.abs(dz) > hz - 1) return;
-    if ((b.facing === 0 || b.facing === 2) && Math.abs(dx) < 2) return;
-    if ((b.facing === 1 || b.facing === 3) && Math.abs(dz) < 2) return;
+    if ((b.facing === 0 || b.facing === 2) && Math.abs(dx) < 2) return;    if ((b.facing === 1 || b.facing === 3) && Math.abs(dz) < 2) return;
     writer.set(b.x + dx, ground + 1, b.z + dz, ID.table);
   };
   if (b.facing === 0) for (let dx = -hx + 1; dx <= hx - 1; dx += 1) counter(dx, hz - 1);
@@ -1334,6 +1328,65 @@ function stampBuilding(writer: ChunkWriter, b: Building, ground: number): void {
         const windowColumn = a >= 2 && a <= wallLength - 2 && (a % 4 === 2 || a % 4 === 3);
         if (b.glazed && !corner && windowRow && windowColumn && !(onDoorWall && a <= 2)) block = ID.glass;
         writer.set(x, y, z, block);
+      }
+    }
+  }
+
+  // Victorian bay windows project one block from the front facade. The
+  // glass is kept at eye level on each storey, with a sill and lintel.
+  if (b.bayWindowWidth && b.bayWindowWidth > 0) {
+    const width = Math.min(Math.floor(b.bayWindowWidth), Math.max(1, Math.floor((b.facing === 0 || b.facing === 2 ? hx : hz) - 1)));
+    for (let offset = -width; offset <= width; offset += 1) {
+      for (let storey = 0; storey < b.stories; storey += 1) {
+        const y0 = ground + storey * 6 + 2;
+        for (let dy = 0; dy <= 2; dy += 1) {
+          let x = b.x;
+          let z = b.z;
+          if (b.facing === 0) { x += offset; z += hz + 1; }
+          else if (b.facing === 2) { x += offset; z -= hz + 1; }
+          else if (b.facing === 1) { x += hx + 1; z += offset; }
+          else { x -= hx + 1; z += offset; }
+          if (!writer.inside(x, z)) continue;
+          const edge = Math.abs(offset) === width;
+          writer.set(x, y0 + dy, z, dy === 0 || dy === 2 ? (b.accent || b.frameBlock) : edge ? b.frameBlock : ID.glass);
+        }
+      }
+    }
+  }
+
+  // Dormer windows sit on the two roof slopes of Victorian mansard/gable roofs.
+  if (b.hasDormers && (b.roof === "gable" || b.roof === "mansard" || b.roof === "hip")) {
+    const positions = ridgeAlongX
+      ? [-Math.floor(hx / 2), Math.floor(hx / 2)]
+      : [-Math.floor(hz / 2), Math.floor(hz / 2)];
+    for (const offset of positions) {
+      const x = ridgeAlongX ? b.x + offset : b.x;
+      const z = ridgeAlongX ? b.z : b.z + offset;
+      const y = top + 2;
+      if (!writer.inside(x, z)) continue;
+      writer.set(x, y, z, b.frameBlock);
+      writer.set(x, y + 1, z, ID.glass);
+      writer.set(x, y + 2, z, b.frameBlock);
+    }
+  }
+
+  // Decorative gable trim follows the ridge ends; the accent block is used
+  // where available, otherwise the facade frame material keeps it coherent.
+  if (b.gableTrim && b.roof === "gable") {
+    const trim = b.accent || b.frameBlock;
+    if (ridgeAlongX) {
+      for (let dz = -hz; dz <= hz; dz += 1) {
+        const y = top + (hz - Math.abs(dz)) + 1;
+        for (const x of [b.x - hx, b.x + hx]) {
+          if (writer.inside(x, b.z + dz)) writer.set(x, y, b.z + dz, trim);
+        }
+      }
+    } else {
+      for (let dx = -hx; dx <= hx; dx += 1) {
+        const y = top + (hx - Math.abs(dx)) + 1;
+        for (const z of [b.z - hz, b.z + hz]) {
+          if (writer.inside(b.x + dx, z)) writer.set(b.x + dx, y, z, trim);
+        }
       }
     }
   }
@@ -1437,8 +1490,7 @@ function stampBuilding(writer: ChunkWriter, b: Building, ground: number): void {
     const px = ridgeAlongX ? b.x + hx + 1 : b.x;
     const pz = ridgeAlongX ? b.z : b.z + hz + 1;
     const ridge = b.roof === "gable" ? top + (ridgeAlongX ? rz : rx) : top + 5;
-    for (let y = ground + 1; y <= ridge + 2; y += 1) writer.set(px, y, pz, b.chimney);
-  }
+    for (let y = ground + 1; y <= ridge + 2; y += 1) writer.set(px, y, pz, b.chimney);  }
 
   // Roof-top turrets: the watchtower's lookout, the keep's and palace's corner
   // turrets, the mage tower's spire room. Each gets a small pyramid and finial.
@@ -1617,8 +1669,7 @@ function stampGarden(writer: ChunkWriter, g: Garden, ground: number, seed: numbe
       const dist = Math.max(Math.abs(dx), Math.abs(dz));
       const doorway = Math.abs(dx) <= 1 || Math.abs(dz) <= 1;
       if (dist === hx && !doorway) {
-        writer.set(x, ground + 1, z, ID.leaves);
-        if (Math.abs(dx) === hx && Math.abs(dz) === hz) writer.set(x, ground + 2, z, ID.leaves);
+        writer.set(x, ground + 1, z, ID.leaves);        if (Math.abs(dx) === hx && Math.abs(dz) === hz) writer.set(x, ground + 2, z, ID.leaves);
       } else if (dist === hx - 2) {
         writer.set(x, ground, z, ID.path);
       } else if (dist < hx - 2 && hash2(x, z, seed + 4441) < 0.14) {
@@ -1797,8 +1848,7 @@ export function stampSettlements(writer: ChunkWriter, terrain: Terrain, seed: nu
       const x0 = Math.min(path.x0, path.x1);
       const x1 = Math.max(path.x0, path.x1);
       const z0 = Math.min(path.z0, path.z1);
-      const z1 = Math.max(path.z0, path.z1);
-      if (!writer.overlaps(x0, z0, x1, z1)) continue;
+      const z1 = Math.max(path.z0, path.z1);      if (!writer.overlaps(x0, z0, x1, z1)) continue;
       for (let x = Math.max(x0, startX); x <= Math.min(x1, endX); x += 1) {
         for (let z = Math.max(z0, startZ); z <= Math.min(z1, endZ); z += 1) {
           writer.set(x, ground, z, ID.path);
