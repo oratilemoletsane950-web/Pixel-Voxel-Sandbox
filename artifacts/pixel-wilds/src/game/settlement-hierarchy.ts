@@ -136,11 +136,19 @@ export function createHierarchyPlan(seed: number, options: HierarchyOptions = {}
           { houseCountMin: 20, houseCountMax: 30, index: vi + 1 });
 
         const houseCount = intBetween(seed, 900 + ci * 1000 + ti * 100 + vi, 20, 30);
+        // A compact deterministic grid gives the block stamper usable house
+        // footprints instead of overlapping random points in the village.
+        const columns = Math.ceil(Math.sqrt(houseCount));
+        const rows = Math.ceil(houseCount / columns);
         for (let hi = 0; hi < houseCount; hi += 1) {
-          const houseAngle = hash(seed, 10000 + ci * 10000 + ti * 1000 + vi * 100 + hi) * Math.PI * 2;
-          const houseRadius = 10 + Math.sqrt(hash(seed, 20000 + ci * 10000 + ti * 1000 + vi * 100 + hi)) * 42;
+          const col = hi % columns;
+          const row = Math.floor(hi / columns);
+          const jitterX = (hash(seed, 10000 + ci * 10000 + ti * 1000 + vi * 100 + hi) - 0.5) * 2;
+          const jitterZ = (hash(seed, 20000 + ci * 10000 + ti * 1000 + vi * 100 + hi) - 0.5) * 2;
+          const houseX = village.x + (col - (columns - 1) / 2) * 10 + jitterX;
+          const houseZ = village.z + (row - (rows - 1) / 2) * 10 + jitterZ;
           add(`${villageId}-house-${hi + 1}`, generatedName(seed, 30000 + ci * 10000 + ti * 1000 + vi * 100 + hi, "house"),
-            "house", villageId, village.x + Math.cos(houseAngle) * houseRadius, village.z + Math.sin(houseAngle) * houseRadius,
+            "house", villageId, houseX, houseZ,
             { archetypeIndex: intBetween(seed, 40000 + ci * 10000 + ti * 1000 + vi * 100 + hi, 0, 4) });
         }
       }
