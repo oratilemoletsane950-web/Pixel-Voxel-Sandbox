@@ -2006,8 +2006,13 @@ export function resolveHierarchyPlan(source: HierarchyPlan, terrain: Terrain): H
     return result;
   };
   const assess = (x: number, z: number, halfW: number, halfD: number, maxSpread: number, maxHeight: number) => {
-    const samples = [terrain.natural(x, z), terrain.natural(x - halfW, z - halfD), terrain.natural(x + halfW, z - halfD),
-      terrain.natural(x - halfW, z + halfD), terrain.natural(x + halfW, z + halfD)];
+    const samples = [
+      terrain.natural(x, z),
+      terrain.natural(x - halfW, z - halfD), terrain.natural(x + halfW, z - halfD),
+      terrain.natural(x - halfW, z + halfD), terrain.natural(x + halfW, z + halfD),
+      terrain.natural(x - halfW, z), terrain.natural(x + halfW, z),
+      terrain.natural(x, z - halfD), terrain.natural(x, z + halfD),
+    ];
     if (samples.some((sample) => sample.water > 0 || sample.riverDist < sample.riverHalfWidth + 3)) return null;
     const heights = samples.map((sample) => sample.ground);
     const spread = Math.max(...heights) - Math.min(...heights);
@@ -2149,7 +2154,7 @@ function stampHierarchyHouseNodes(writer: ChunkWriter, terrain: Terrain, seed: n
           // Only bridge mapped river channels, never sea or lake water.
           if (!riverCrossing) continue;
           const bridgeY = sample.water;
-          if (bridgeY <= SEA_LEVEL || bridgeY + 3 >= 192) continue;
+          if (bridgeY < SEA_LEVEL || bridgeY + 3 >= 192) continue;
           writer.set(x, bridgeY, z, ID.dark_planks);
           writer.set(x, bridgeY + 1, z, 0);
           writer.set(x, bridgeY + 2, z, 0);
