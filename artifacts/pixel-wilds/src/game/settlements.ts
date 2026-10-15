@@ -2071,6 +2071,76 @@ function stampHierarchyHouseNodes(writer: ChunkWriter, terrain: Terrain, seed: n
     }
   };
 
+  const stampTownFortifications = (x: number, z: number, ground: number): void => {
+    const radius = 48;
+    const wallHeight = 8;
+    stampRingWithGates(x, z, radius, ground, wallHeight, ID.stone_bricks, 2);
+
+    // Four corner towers rise above the curtain wall. Their hollow centres and
+    // narrow arrow slits keep them readable as towers rather than solid pillars.
+    const stampTower = (cx: number, cz: number, half: number, height: number): void => {
+      const minX = Math.max(cx - half, chunkMinX);
+      const maxX = Math.min(cx + half, chunkMaxX);
+      const minZ = Math.max(cz - half, chunkMinZ);
+      const maxZ = Math.min(cz + half, chunkMaxZ);
+      if (minX > maxX || minZ > maxZ) return;
+      for (let px = minX; px <= maxX; px += 1) {
+        for (let pz = minZ; pz <= maxZ; pz += 1) {
+          const dx = Math.abs(px - cx);
+          const dz = Math.abs(pz - cz);
+          const edge = Math.max(dx, dz) === half;
+          if (!edge) continue;
+          for (let y = ground; y < ground + height; y += 1) {
+            const slit = y === ground + 4 && ((dx === half && dz === 0) || (dz === half && dx === 0));
+            if (!slit) writer.set(px, y, pz, ID.stone_bricks);
+          }
+          if (px === cx && pz === cz) {
+            writer.set(px, ground + height, pz, ID.dark_planks);
+          }
+        }
+      }
+      // Alternating merlons on the tower roofline.
+      const top = ground + height;
+      for (let offset = -half; offset <= half; offset += 2) {
+        for (const [px, pz] of [[cx + offset, cz - half], [cx + offset, cz + half],
+          [cx - half, cz + offset], [cx + half, cz + offset]] as const) {
+          if (px >= chunkMinX && px <= chunkMaxX && pz >= chunkMinZ && pz <= chunkMaxZ) {
+            writer.set(px, top, pz, ID.stone_bricks);
+            writer.set(px, top + 1, pz, ID.stone_bricks);
+          }
+        }
+      }
+    };
+
+    for (const dx of [-radius, radius]) {
+      for (const dz of [-radius, radius]) stampTower(x + dx, z + dz, 4, 12);
+    }
+
+    // Paired gate towers flank each open cardinal entrance. A lintel spans
+    // above head height so the gate reads as a gatehouse while remaining walkable.
+    for (const [gx, gz, horizontal] of [
+      [x, z - radius, true], [x, z + radius, true],
+      [x - radius, z, false], [x + radius, z, false],
+    ] as const) {
+      for (const side of [-1, 1]) {
+        const tx = gx + (horizontal ? side * 6 : 0);
+        const tz = gz + (horizontal ? 0 : side * 6);
+        stampTower(tx, tz, 3, 11);
+      }
+      if (horizontal) {
+        for (let px = Math.max(x - 2, chunkMinX); px <= Math.min(x + 2, chunkMaxX); px += 1) {
+          if (gz < chunkMinZ || gz > chunkMaxZ) continue;
+          for (let y = ground + 7; y <= ground + 8; y += 1) writer.set(px, y, gz, ID.stone_bricks);
+        }
+      } else {
+        for (let pz = Math.max(z - 2, chunkMinZ); pz <= Math.min(z + 2, chunkMaxZ); pz += 1) {
+          if (gx < chunkMinX || gx > chunkMaxX) continue;
+          for (let y = ground + 7; y <= ground + 8; y += 1) writer.set(gx, y, pz, ID.stone_bricks);
+        }
+      }
+    }
+  };
+
   for (const node of nodes) {
     const x = Math.round(node.x);
     const z = Math.round(node.z);
@@ -2123,8 +2193,8 @@ function stampHierarchyHouseNodes(writer: ChunkWriter, terrain: Terrain, seed: n
       const ground = sortedHeights[Math.floor(sortedHeights.length / 2)];
       if (ground <= SEA_LEVEL + 2 || ground + 24 >= 192) continue;
 
-      // Defensive timber curtain with four deliberately open gates.
-      stampRingWithGates(x, z, 48, ground, 7, ID.dark_planks, 2);
+      // Stone curtain wall with crenellated corner towers and four open gatehouses.
+      stampTownFortifications(x, z, ground);
       const plazaRadius = 11;
       for (let px = Math.max(x - plazaRadius, chunkMinX); px <= Math.min(x + plazaRadius, chunkMaxX); px += 1) {
         for (let pz = Math.max(z - plazaRadius, chunkMinZ); pz <= Math.min(z + plazaRadius, chunkMaxZ); pz += 1) {
