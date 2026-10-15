@@ -11,6 +11,9 @@
 
 export type SettlementLevel = "kingdom" | "city" | "town" | "village" | "castle" | "house";
 export type CastleWardKind = "outer" | "inner" | "keep";
+export type CastleArchetype = "hilltop" | "concentric" | "riverside" | "palace-fortress";
+
+const CASTLE_ARCHETYPES: readonly CastleArchetype[] = ["hilltop", "concentric", "riverside", "palace-fortress"];
 
 export interface SettlementNode {
   id: string;
@@ -173,7 +176,12 @@ export function createHierarchyPlan(seed: number, options: HierarchyOptions = {}
   if (options.includeCapitalCastle !== false) {
     const castleId = `${kingdomId}-capital-castle`;
     // Offset the capital castle from the kingdom centre to avoid occupying the legacy palace/plaza.
-    add(castleId, generatedName(seed, 999, "castle"), "castle", kingdomId, originX + 220, originZ + 180, { capital: true });
+    const castleArchetype = CASTLE_ARCHETYPES[Math.floor(hash(seed, 9991) * CASTLE_ARCHETYPES.length)];
+    add(castleId, generatedName(seed, 999, "castle"), "castle", kingdomId,
+      originX + 220, originZ + 180, {
+        capital: true, archetype: castleArchetype,
+        archetypeIndex: CASTLE_ARCHETYPES.indexOf(castleArchetype), strategicRadius: 88,
+      });
     castleWards[castleId] = ["outer", "inner", "keep"];
   }
 
@@ -267,6 +275,7 @@ export function validateHierarchyPlan(plan: HierarchyPlan): string[] {
       if (houses < 20 || houses > 30) errors.push(`${node.id}: expected 20-30 houses, got ${houses}.`);
     } else if (node.level === "castle") {
       const wards = plan.castleWards[node.id] ?? [];
+      if (!CASTLE_ARCHETYPES.includes(node.metadata.archetype as CastleArchetype)) errors.push(`${node.id}: unknown castle archetype.`);
       for (const ward of ["outer", "inner", "keep"] as const) {
         if (!wards.includes(ward)) errors.push(`${node.id}: castle must declare the ${ward} ward.`);
       }

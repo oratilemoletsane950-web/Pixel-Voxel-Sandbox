@@ -1,6 +1,6 @@
 # Procedural Settlement System — Implementation Status
 
-Branch: `feature/world-scale-mountains-trees`
+Branch: `main`
 
 ## What has been implemented in this tranche
 
@@ -69,12 +69,12 @@ The hierarchy planner is connected to chunk stamping for residential `house` nod
 7. Add automated geometry/placement checks for overlaps, blocked doors, unsupported roofs and inaccessible interiors.
 
 ### P3 — Castle construction
-1. Add multiple castle archetypes: hill castle, concentric castle, riverside fortress and royal palace-fortress.
-2. Place sites using terrain elevation, slope, nearby water, road/river crossings and strategic importance.
-3. Generate outer perimeter, gatehouses, towers, outer ward, inner ward and keep in a valid connected sequence.
-4. Allocate ward-specific facilities: stables, stores, workshops, barracks, well/cistern, great hall, chapel and protected residential rooms.
-5. Check path connectivity through gates and between wards; avoid walls blocking the only route.
-6. Scale fortification dimensions to castle type and available terrain.
+1. **Implemented in this pass:** four seeded castle archetypes — hilltop, concentric fortress, riverside fortress and palace-fortress — with distinct wall rings, heights, towers, moat use, keep footprints and materials.
+2. **Partially implemented:** a deterministic terrain-aware search scores candidate sites by water/river clearance, footprint elevation spread, elevation and archetype-specific strategic preference. It searches near the planned capital castle and falls back to the anchor only when no suitable candidate is found.
+3. **Partially implemented:** outer walls, optional inner wards, keep and towers are chunk-clipped and deterministic. Ward-specific facilities, connected internal roads, river-crossing/gate orientation and full footprint reservation still need work.
+4. Add ward-specific facilities: stables, stores, workshops, barracks, well/cistern, great hall, chapel and protected residential rooms.
+5. Validate path connectivity through gates and between wards; avoid walls blocking the only route.
+6. Continue testing terrain placement across more seeds and visually inspect in-game geometry.
 
 ### P4 — Physical scale and terrain
 1. Current code documents **1 block = 0.5 m** and a 4-block player height, which already corresponds to a 2 m player. Preserve that relationship unless the actual player collider proves otherwise.
@@ -100,6 +100,13 @@ The hierarchy planner is connected to chunk stamping for residential `house` nod
 3. Add preview smoke tests and verify a new game spawns in a kingdom.
 4. Profile chunk generation time and memory at village, town, city and kingdom scales.
 5. Document the seed, hierarchy data model, rendering pipeline, known limits and exact commands to run tests.
+
+## Castle variety and strategic placement
+
+- Added deterministic archetype selection for the capital castle: hilltop, concentric, riverside or palace-fortress.
+- The chunk stamper scores nearby terrain candidates and stamps type-specific wall/ward dimensions, keep massing, tower patterns and moat features. Candidate evaluation is skipped in chunks too far from the castle search area.
+- Automated tests check that archetype metadata is valid, deterministic for each seed, and varied across a representative seed set.
+- Strategic placement is a bounded local heuristic, not a global fortress/road/settlement reservation solver; live visual playtesting has not been performed.
 
 ## Automated checks added in the current follow-up
 
