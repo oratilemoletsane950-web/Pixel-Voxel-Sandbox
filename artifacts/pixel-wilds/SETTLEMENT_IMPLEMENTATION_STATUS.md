@@ -9,7 +9,8 @@ Branch: `feature/settlement-hierarchy-foundation`
 - Added a lazily built 256-block spatial bucket index so bounds queries inspect nearby candidates instead of scanning every node in the full hierarchy for each query.
 - Hardened bounds queries to reject non-finite values, inverted ranges and negative margins; results are sorted deterministically so chunk consumers do not depend on bucket traversal order.
 - Strengthened `validateHierarchyPlan()` to detect duplicate IDs, invalid parent/child links, incorrect parent tiers, missing town features, missing castle wards, non-finite coordinates and parent cycles.
-- **Not yet live:** no existing chunk or settlement renderer imports the streaming utility yet. Spatial queries return planning coordinates only; they do not validate terrain or stamp structures.
+- Live vertical slice added: the chunk settlement stamper queries nearby hierarchy nodes and converts `house` nodes into actual block-stamped residential buildings using the existing building stamper. The placement pass rejects wet, river-adjacent, steep and out-of-range sites. House coordinates now use compact deterministic grids within each village rather than overlapping random points.
+- Still incomplete: hierarchy towns, cities, town squares, town halls, walls and castle wards are not yet rendered from their own nodes. The legacy settlement generator still runs alongside this hierarchy-house pass, so this is a partial integration rather than a full replacement. Spatial query coordinates are not a complete terrain-aware strategic layout.
 
 ### Starting kingdom and spawn preference
 - Reserved procedural region `(0, 0)` for a human kingdom rather than relying on a rare random kingdom roll.
@@ -33,12 +34,12 @@ Added `src/game/settlement-hierarchy.ts`.
 - Includes `validateHierarchyPlan()` to check required counts and parent references.
 
 ### Important limitation
-The hierarchy planner is still a **planning/data foundation only**. It is not yet connected to the settlement layout/stamping pipeline or used to render its city -> town -> village -> house relationships. The separate starting-kingdom preference is wired into existing procedural settlement selection, but it does not make the hierarchy planner itself live. Planned hierarchy coordinates remain hints, not terrain-validated final positions. The full in-game hierarchy must not be described as finished yet.
+The hierarchy planner is now connected to chunk stamping for residential `house` nodes, but the whole hierarchy is not yet live. Hierarchy houses use terrain checks before stamping; city/town/village footprints and their roads, squares, halls, walls and castle wards still need a unified terrain-aware layout. The separate legacy settlement generator remains active. The full in-game hierarchy must not be described as finished yet.
 
 ## Work remaining, in priority order
 
 ### P0 — Integrate and prove the smallest vertical slice
-1. **Next:** integrate `hierarchyPlanFor()` and `hierarchyNodesInBounds()` into the settlement/chunk pipeline.
+1. **Next:** make hierarchy town, city and castle nodes drive their own actual settlement layouts, then remove or reconcile overlapping legacy settlement generation.
 2. Add a terrain-aware placement pass that validates land, water, slope, spacing and footprint conflicts.
 3. Connect village nodes to actual building blueprints and guarantee 20–30 residential homes per village, counting houses separately from barns, stalls and civic buildings.
 4. Wire hierarchy nodes into real settlement blueprints and chunk stamping; prove one kingdom -> city -> town -> village vertical slice before enabling full counts.
