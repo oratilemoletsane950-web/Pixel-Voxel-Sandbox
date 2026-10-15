@@ -60,7 +60,7 @@ const BLOCK_COLORS = Object.fromEntries(
 const REACH_BLOCKS = 8;
 /** Arrow-key turning speed, radians per second (about 150°/s). */
 const TURN_SPEED = 2.6;
-/** Two Space presses within this window toggle flight mode. */
+/** Two quick taps trigger a movement action (Space = flight, W = forward sprint). */
 const DOUBLE_TAP_MS = 340;
 const HOTBAR_SLOTS = 10;
 const RENDER_RADIUS_KEY = 'pixel-wilds-render-radius';
@@ -383,6 +383,8 @@ function GameWorld({
   const aimCellKey = useRef('');
   const lastChunkKey = useRef('');
   const lastSpaceTap = useRef(0);
+  const lastWTap = useRef(0);
+  const forwardBoost = useRef(false);
   const pausedRef = useRef(paused);
   pausedRef.current = paused;
   const touchLook = useRef<{ pointerId: number; x: number; y: number } | null>(null);
@@ -419,6 +421,11 @@ function GameWorld({
         getHotbarIndexFromCode(code) >= 0
       ) event.preventDefault();
       keyState.current[code] = true;
+      if (code === 'KeyW' && !event.repeat && !pausedRef.current) {
+        const now = performance.now();
+        if (now - lastWTap.current <= DOUBLE_TAP_MS && lastWTap.current > 0) forwardBoost.current = true;
+        lastWTap.current = now;
+      }
       // Double-tapping Space toggles flight: tap, tap, and you are airborne.
       if (code === 'Space' && !event.repeat && !pausedRef.current) {
         const now = performance.now();
@@ -436,6 +443,7 @@ function GameWorld({
     };
     const onKeyUp = (event: KeyboardEvent) => {
       keyState.current[event.code] = false;
+      if (event.code === 'KeyW') { forwardBoost.current = false; lastWTap.current = 0; }
     };
     const onMouseMove = (event: MouseEvent) => {
       if (document.pointerLockElement !== canvas) return;
@@ -491,6 +499,8 @@ function GameWorld({
     };
     const onBlur = () => {
       keyState.current = {};
+      forwardBoost.current = false;
+      lastWTap.current = 0;
     };
     window.addEventListener('keydown', onKeyDown, { passive: false });
     window.addEventListener('keyup', onKeyUp);
@@ -549,7 +559,7 @@ function GameWorld({
         forward,
         side,
         jump: paused ? false : Boolean(keys.Space || mobileRef.current.jump),
-        sprint: paused ? false : Boolean(keys.ShiftLeft || keys.ShiftRight),
+        sprint: paused ? false : Boolean(keys.ShiftLeft || keys.ShiftRight || (forwardBoost.current && keys.KeyW)),
         descend: paused ? false : Boolean(keys.ControlLeft || keys.ControlRight),
       },
       yaw.current,
@@ -702,6 +712,8 @@ function VoxelFallback({
   const targetRef = useRef<AimTarget | null>(null);
   const startedRef = useRef(started);
   const lastSpaceTap = useRef(0);
+  const lastWTap = useRef(0);
+  const forwardBoost = useRef(false);
   const yawRef = useRef(0);
   const lastPositionSent = useRef(0);
   const lastChunkKey = useRef('');
@@ -829,6 +841,11 @@ function VoxelFallback({
     const onContextMenu = (event: Event) => event.preventDefault();
     const onKeyDown = (event: KeyboardEvent) => {
       keys.current[event.code] = true;
+      if (event.code === 'KeyW' && !event.repeat && startedRef.current) {
+        const now = performance.now();
+        if (now - lastWTap.current <= DOUBLE_TAP_MS && lastWTap.current > 0) forwardBoost.current = true;
+        lastWTap.current = now;
+      }
       if (event.code === 'Space' && !event.repeat && startedRef.current) {
         const now = performance.now();
         if (now - lastSpaceTap.current < DOUBLE_TAP_MS) {
@@ -851,9 +868,12 @@ function VoxelFallback({
     };
     const onKeyUp = (event: KeyboardEvent) => {
       keys.current[event.code] = false;
+      if (event.code === 'KeyW') { forwardBoost.current = false; lastWTap.current = 0; }
     };
     const onBlur = () => {
       keys.current = {};
+      forwardBoost.current = false;
+      lastWTap.current = 0;
     };
     const onWheel = (event: WheelEvent) => {
       event.preventDefault();
@@ -906,7 +926,7 @@ function VoxelFallback({
             forward: inputForward,
             side: inputSide,
             jump: Boolean(keys.current.Space || moveRef.current.jump),
-            sprint: Boolean(keys.current.ShiftLeft || keys.current.ShiftRight),
+            sprint: Boolean(keys.current.ShiftLeft || keys.current.ShiftRight || (forwardBoost.current && keys.current.KeyW)),
             descend: Boolean(keys.current.ControlLeft || keys.current.ControlRight),
           },
           yawRef.current,
