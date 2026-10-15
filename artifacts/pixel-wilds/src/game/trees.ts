@@ -1,5 +1,5 @@
 import { ID } from "./blocks";
-import { CHUNK_SIZE, ChunkWriter, SEA_LEVEL } from "./chunk";
+import { CHUNK_SIZE, ChunkWriter, MAX_BUILD_HEIGHT, SEA_LEVEL } from "./chunk";
 import { hash2, valueNoise } from "./noise";
 import type { Column, Terrain } from "./terrain";
 
@@ -117,7 +117,7 @@ export function leafBlob(
 
 function stampOak(writer: ChunkWriter, x: number, y0: number, z: number, seed: number, swamp: boolean): void {
   const size = hash2(x, z, seed + 3791);
-  const trunk = swamp ? 8 + Math.floor(size * 4) : 11 + Math.floor(size * 7);
+  const trunk = Math.min(MAX_BUILD_HEIGHT - y0 - 7, swamp ? 9 + Math.floor(size * 4) : 13 + Math.floor(size * 8));
   const radius = swamp ? 5.4 : 4 + (size > 0.6 ? 1 : 0.4);
   for (let y = y0 + 1; y <= y0 + trunk; y += 1) writer.set(x, y, z, ID.wood);
   // Root flare and a couple of limbs for a less pole-like trunk.
@@ -137,14 +137,14 @@ function stampOak(writer: ChunkWriter, x: number, y0: number, z: number, seed: n
 
 function stampBirch(writer: ChunkWriter, x: number, y0: number, z: number, seed: number): void {
   const size = hash2(x, z, seed + 3793);
-  const trunk = 13 + Math.floor(size * 7);
+  const trunk = Math.min(MAX_BUILD_HEIGHT - y0 - 7, 16 + Math.floor(size * 8));
   for (let y = y0 + 1; y <= y0 + trunk; y += 1) writer.set(x, y, z, ID.birch_wood);
   leafBlob(writer, x, y0 + trunk - 2, z, 3.1, 4.6, ID.birch_leaves, seed, 0.12);
 }
 
 function stampSpruce(writer: ChunkWriter, x: number, y0: number, z: number, seed: number, small: boolean): void {
   const size = hash2(x, z, seed + 3797);
-  const trunk = small ? 9 + Math.floor(size * 4) : 15 + Math.floor(size * 10);
+  const trunk = Math.min(MAX_BUILD_HEIGHT - y0 - 3, small ? 10 + Math.floor(size * 4) : 18 + Math.floor(size * 11));
   const top = y0 + trunk;
   const maxRadius = small ? 2 : trunk >= 19 ? 4 : 3;
   for (let y = y0 + 1; y <= top; y += 1) writer.set(x, y, z, ID.spruce_wood);
@@ -168,7 +168,7 @@ function stampSpruce(writer: ChunkWriter, x: number, y0: number, z: number, seed
 
 function stampPine(writer: ChunkWriter, x: number, y0: number, z: number, seed: number): void {
   const size = hash2(x, z, seed + 3821);
-  const trunk = 18 + Math.floor(size * 12);
+  const trunk = Math.min(MAX_BUILD_HEIGHT - y0 - 3, 22 + Math.floor(size * 13));
   const top = y0 + trunk;
   for (let y = y0 + 1; y <= top; y += 1) writer.set(x, y, z, ID.spruce_wood);
   // Narrow and bare-bottomed: foliage only starts a third of the way up,
@@ -197,7 +197,7 @@ function stampPine(writer: ChunkWriter, x: number, y0: number, z: number, seed: 
  */
 function stampRedwood(writer: ChunkWriter, x: number, y0: number, z: number, seed: number): void {
   const size = hash2(x, z, seed + 3811);
-  const trunk = 44 + Math.floor(size * 20);
+  const trunk = Math.min(MAX_BUILD_HEIGHT - y0 - 10, 52 + Math.floor(size * 20));
   const baseHeight = 10 + Math.floor(size * 6);
   for (let y = y0 + 1; y <= y0 + trunk; y += 1) {
     const radius = y <= y0 + baseHeight ? 1 : 0;
@@ -220,7 +220,7 @@ function stampRedwood(writer: ChunkWriter, x: number, y0: number, z: number, see
 /** A coastal palm: a thin trunk that leans storey by storey under a frond crown. */
 function stampPalm(writer: ChunkWriter, x: number, y0: number, z: number, seed: number): void {
   const size = hash2(x, z, seed + 3823);
-  const trunk = 12 + Math.floor(size * 8);
+  const trunk = Math.min(MAX_BUILD_HEIGHT - y0 - 5, 14 + Math.floor(size * 9));
   const dir = Math.floor(hash2(x, z, seed + 3825) * 4);
   const [dx, dz] = [[1, 0], [-1, 0], [0, 1], [0, -1]][dir];
   let lean = 0;
@@ -241,7 +241,7 @@ function stampPalm(writer: ChunkWriter, x: number, y0: number, z: number, seed: 
 /** A swamp willow: squat, wide, with curtains of foliage hanging to the ground. */
 function stampWillow(writer: ChunkWriter, x: number, y0: number, z: number, seed: number): void {
   const size = hash2(x, z, seed + 3827);
-  const trunk = 9 + Math.floor(size * 5);
+  const trunk = Math.min(MAX_BUILD_HEIGHT - y0 - 6, 11 + Math.floor(size * 6));
   const radius = 5.4 + (size > 0.6 ? 1.4 : 0);
   for (let y = y0 + 1; y <= y0 + trunk; y += 1) writer.set(x, y, z, ID.wood);
   for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
