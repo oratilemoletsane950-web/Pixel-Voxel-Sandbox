@@ -10,6 +10,7 @@
 import { ID } from "./src/game/blocks";
 import { CHUNK_SIZE, WORLD_HEIGHT, chunkIndex } from "./src/game/chunk";
 import {
+  MAX_BUILD_HEIGHT,
   createWorld,
   ensureChunks,
   findSpawnPoint,
@@ -218,7 +219,7 @@ function run(motion: ReturnType<typeof createMotion>, input: Input, frames: numb
       k.towers.length >= 12,
       `towers=${k.towers.length}`,
     );
-    check("kingdom: enough residents", k.inhabitants.length >= 12, `n=${k.inhabitants.length}`);
+    check("no mobs: settlements spawn no inhabitants", k.inhabitants.length === 0, `n=${k.inhabitants.length}`);
   }
 
   function generateAround(x: number, z: number, radiusChunks: number): typeof world {
@@ -249,6 +250,30 @@ function run(motion: ReturnType<typeof createMotion>, input: Input, frames: numb
 
   const village = getSettlementsNear(seed, 0, 0, 900).find((s) => s.kind === "village");
   check("settlements: found a village to stamp", village !== null);
+
+  // A fresh world must open at a human settlement: one has to exist within
+  // the HUD's search radius of the origin, and findSpawnPoint must return a
+  // spot near it (with its chunks loaded) rather than the old origin fallback.
+  const humanKinds = ["village", "town", "city", "kingdom"];
+  const spawnTarget = getSettlementsNear(seed, 0, 0, 640).find((s) => humanKinds.includes(s.kind));
+  check("spawn: a village/town/city/kingdom lies within 640 blocks of origin", spawnTarget !== undefined);
+  if (spawnTarget) {
+    // Mirror initialWorld: generate the settlement's chunks, then spawn there.
+    const targetChunk = getChunkCoordinates(spawnTarget.x, spawnTarget.z);
+    let spawnWorld = createWorld(seed, spawnTarget.x, spawnTarget.z, 7);
+    spawnWorld = ensureChunks(spawnWorld, targetChunk.x, targetChunk.z, 7, 400);
+    const spot = findSpawnPoint(spawnWorld, spawnTarget.x, spawnTarget.z);
+    const dist = Math.hypot(spot.x - spawnTarget.x, spot.z - spawnTarget.z);
+    check(
+      `spawn: spawn point lands by the settlement (dist ${dist.toFixed(0)} <= 140)`,
+      dist <= 140 && spot.y < MAX_BUILD_HEIGHT,
+      `dist=${dist.toFixed(1)} y=${spot.y}`,
+    );
+    check(
+      "spawn: no mobs anywhere in a settlement",
+      spawnTarget.inhabitants.length === 0,
+    );
+  }
   if (village) {
     const vc = getChunkCoordinates(village.x, village.z);
     const w = generateAround(village.x, village.z, 3);

@@ -65,6 +65,10 @@ export type SettlementKind =
   | "tower"
   | "lodge";
 
+/**
+ * Kept for compatibility, but settlements no longer spawn any: the game is
+ * architecture-only by design, with no NPC mobs walking around.
+ */
 export interface Humanoid {
   id: string;
   name: string;
@@ -192,16 +196,6 @@ const MAX_HALF = 64;
 const MAX_REGION_CACHE = 128;
 const regionCache = new Map<string, Settlement | null>();
 
-const firstNames = [
-  "Ari", "Bram", "Cora", "Dain", "Edda", "Fen", "Galen", "Halla",
-  "Ivo", "Jori", "Kiva", "Lio", "Mara", "Neri", "Orin", "Pella",
-  "Quin", "Runa", "Sella", "Tarin", "Una", "Venn", "Willa", "Yara",
-];
-const familyNames = [
-  "Ashdown", "Birch", "Cinder", "Dale", "Ember", "Frost", "Greenbank",
-  "Hill", "Ironvale", "Juniper", "Kettle", "Longstep", "Moss", "North",
-  "Oakenshade", "Pine", "Quickwater", "Ridge", "Stonebrook", "Thorn",
-];
 const nameStarts = [
   "Amber", "Bracken", "Clover", "Dawn", "Fern", "Gold", "Heather",
   "Juniper", "Moss", "Oaken", "River", "Silver", "Thistle", "Willow",
@@ -222,17 +216,6 @@ function chooseFaction(roll: number): SettlementFaction {
   if (roll < 0.82) return "orcs";
   if (roll < 0.92) return "mages";
   return "wardens";
-}
-
-function rolesFor(faction: SettlementFaction): string[] {
-  switch (faction) {
-    case "freefolk": return ["farmer", "trader", "miller", "craftsperson", "town guard"];
-    case "elves": return ["ranger", "herbalist", "storykeeper", "bow scout"];
-    case "dwarves": return ["smith", "stonewright", "delver", "hold guard"];
-    case "orcs": return ["scout", "clan keeper", "tracker", "warrior"];
-    case "mages": return ["wizard", "apprentice", "lorekeeper", "healer"];
-    case "wardens": return ["beast tracker", "herbalist", "trail guide", "monster hunter"];
-  }
 }
 
 interface KindSpec {
@@ -676,31 +659,8 @@ function makeSettlement(terrain: Terrain, seed: number, regionX: number, regionZ
   };
   layout(settlement, spec, regionX, regionZ, seed);
 
-  // Residents stand on the streets, clear of the plaza centrepiece.
-  const roles = rolesFor(faction);
-  for (let index = 0; index < spec.population; index += 1) {
-    const onXStreet = hash2(index, regionX + regionZ, seed + 8353) > 0.5;
-    let along = Math.round((hash2(index + regionX, regionZ, seed + 8363) - 0.5) * 2 * (spec.half - 10));
-    // Kingdom residents keep to the outer ward, clear of the keep walls.
-    const minOffset = spec.kind === "kingdom" ? 18 : 8;
-    if (Math.abs(along) < minOffset) along = along < 0 ? -minOffset : minOffset;
-    const lateral = Math.round((hash2(index, regionZ, seed + 8367) - 0.5) * 3);
-    const x = best.x + (onXStreet ? along : lateral);
-    const z = best.z + (onXStreet ? lateral : along);
-    settlement.inhabitants.push({
-      id: `${id}:${index}`,
-      name: `${pick(firstNames, hash2(index, regionX, seed + 8377))} ${pick(
-        familyNames,
-        hash2(regionZ, index, seed + 8389),
-      )}`,
-      faction,
-      role: roles[index % roles.length],
-      x: x + 0.5,
-      y: best.baseY + 1,
-      z: z + 0.5,
-      phase: hash2(index, regionX + regionZ, seed + 8399) * Math.PI * 2,
-    });
-  }
+  // Settlements are architecture only - no residents, no mobs. What you get
+  // is the streets, the buildings, the furniture inside them, and the walls.
   return settlement;
 }
 
