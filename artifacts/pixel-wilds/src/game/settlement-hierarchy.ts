@@ -95,7 +95,19 @@ export function createHierarchyPlan(seed: number, options: HierarchyOptions = {}
     z: number,
     metadata: SettlementNode["metadata"] = {},
   ): SettlementNode => {
-    const node: SettlementNode = { id, name, level, parentId, x: Math.round(x), z: Math.round(z), children: [], metadata };
+    const roundedX = Math.round(x);
+    const roundedZ = Math.round(z);
+    // Avoid negative zero in serialized plans and coordinate comparisons.
+    const node: SettlementNode = {
+      id,
+      name,
+      level,
+      parentId,
+      x: Object.is(roundedX, -0) ? 0 : roundedX,
+      z: Object.is(roundedZ, -0) ? 0 : roundedZ,
+      children: [],
+      metadata,
+    };
     nodes.push(node);
     nodeById.set(id, node);
     childrenByParent[id] = node.children;
