@@ -143,12 +143,12 @@ export class Terrain {
     const mountainField = vn(x + 226, z - 134, 420, s + 503);
     const mountain = smoothstep((mountainField - 0.58) / 0.3);
     const ridge = 1 - Math.abs(2 * vn(x - 164, z + 86, 150, s + 509) - 1);
-    const rise = Math.pow(mountain, 1.25) * (22 + ridge * 80);
+    const rise = Math.pow(mountain, 1.4) * (34 + Math.pow(ridge, 0.72) * 104);
     const broad = 24 + lowland * 48 + (continental - 0.5) * 20 + rise;
     const fine = (0.6 * vn(x, z, 36, s + 177) + 0.4 * vn(x, z, 14, s + 251) - 0.5) * 10;
-    const rough = (vn(x, z, 20, s + 311) - 0.5) * 16 * mountain;
+    const rough = (vn(x, z, 20, s + 311) - 0.5) * 21 * mountain;
     let natural = Math.round(broad + fine * (1 - 0.4 * mountain) + rough);
-    natural = Math.max(4, Math.min(MAX_BUILD_HEIGHT - 28, natural));
+    natural = Math.max(4, Math.min(MAX_BUILD_HEIGHT - 24, natural));
 
     let ground = natural;
     let water = natural < SEA_LEVEL ? SEA_LEVEL : 0;
