@@ -2184,7 +2184,63 @@ function stampHierarchyHouseNodes(writer: ChunkWriter, terrain: Terrain, seed: n
         if (village?.level === "village") stampRoad(x, z, Math.round(village.x), Math.round(village.z), 3);
       }
 
-      // Resolve unsuitable planned sites by searching deterministic nearby candidates.
+      const samples = [terrain.natural(x, z), terrain.natural(x - 7, z - 6),
+        terrain.natural(x + 7, z - 6), terrain.natural(x - 7, z + 6), terrain.natural(x + 7, z + 6)];
+      if (samples.some((sample) => sample.water > 0 || sample.riverDist < sample.riverHalfWidth + 3)) continue;
+      const heights = samples.map((sample) => sample.ground);
+      if (Math.max(...heights) - Math.min(...heights) > 3) continue;
+      const sortedHeights = [...heights].sort((a, b) => a - b);
+      const ground = sortedHeights[Math.floor(sortedHeights.length / 2)];
+      if (ground <= SEA_LEVEL + 2 || ground + 24 >= 192) continue;
+
+      // Stone curtain wall with crenellated corner towers and four open gatehouses.
+      stampTownFortifications(x, z, ground);
+      const plazaRadius = 11;
+      for (let px = Math.max(x - plazaRadius, chunkMinX); px <= Math.min(x + plazaRadius, chunkMaxX); px += 1) {
+        for (let pz = Math.max(z - plazaRadius, chunkMinZ); pz <= Math.min(z + plazaRadius, chunkMaxZ); pz += 1) {
+          if (Math.abs(px - x) <= 8 && Math.abs(pz - z) <= 7) continue;
+          writer.set(px, ground, pz, ID.stone_bricks);
+          writer.set(px, ground + 1, pz, 0);
+        }
+      }
+      const hall: Building = {
+        x, z, w: 15, d: 13, wall: 12, stories: 2, facing: 0, roof: "hip",
+        wallBlock: ID.cobblestone, frameBlock: ID.dark_planks, roofBlock: ID.roof,
+        floorBlock: ID.stone_bricks, foundation: ID.stone_bricks, chimney: ID.cobblestone,
+        glazed: true, blueprint: "hierarchy-town-hall", accent: ID.dark_planks,
+        open: false, turret: 0, spire: false, forge: false, furniture: 2,
+      };
+      stampBuilding(writer, hall, ground);
+      continue;
+    }
+
+    if (node.level === "castle") {
+      const sample = terrain.natural(x, z);
+      if (sample.water > 0 || sample.riverDist < sample.riverHalfWidth + 4 ||
+          sample.ground <= SEA_LEVEL + 3 || sample.ground + 40 >= 192) continue;
+      // Three concentric wards: outer bailey, inner ward and keep enclosure.
+      stampRingWithGates(x, z, 56, sample.ground, 10, ID.stone_bricks, 3);
+      stampRingWithGates(x, z, 38, sample.ground + 2, 9, ID.stone_bricks, 2);
+      stampRingWithGates(x, z, 20, sample.ground + 4, 8, ID.stone_bricks, 2);
+      const keep: Building = {
+        x, z, w: 17, d: 17, wall: 24, stories: 4, facing: 0, roof: "hip",
+        wallBlock: ID.stone_bricks, frameBlock: ID.dark_planks, roofBlock: ID.roof,
+        floorBlock: ID.stone_bricks, foundation: ID.stone_bricks, chimney: ID.cobblestone,
+        glazed: true, blueprint: "hierarchy-castle-keep", accent: ID.dark_planks,
+        open: false, turret: 4, spire: false, forge: false, furniture: 2,
+      };
+      stampBuilding(writer, keep, sample.ground + 4);
+      continue;
+    }
+
+    if (node.level !== "house") continue;
+    const archetype = Math.max(0, Math.min(4, Math.floor(Number(node.metadata.archetypeIndex) || 0)));
+    const blueprintIds = ["simple_home", "farmers_cottage", "fishermans_hut", "woodcutters_cabin", "bakers_house"] as const;
+    const bp = blueprintById("village", blueprintIds[archetype]);
+    const size = bp.w;
+    const depth = bp.d;
+    const stories = bp.stories;
+    // Resolve unsuitable planned sites by searching deterministic nearby candidates.
     // Each node picks the same site in every chunk, preserving seamless boundaries.
     const halfW = Math.ceil(size / 2);
     const halfD = Math.ceil(depth / 2);
@@ -2220,16 +2276,14 @@ function stampHierarchyHouseNodes(writer: ChunkWriter, terrain: Terrain, seed: n
       if (ground <= SEA_LEVEL + 2 || ground + stories * 6 + 8 >= 192) continue;
 
       const score = spread * 10 + Math.hypot(offsetX, offsetZ);
-      if (!bestFallback || score < bestFallback.score) {
-        bestFallback = { x: siteX, z: siteZ, ground, score };
-      }
+      if (!bestFallback || score < bestFallback.score) bestFallback = { x: siteX, z: siteZ, ground, score };
       if (!overlapsHouse && spread <= 4) {
         chosen = { x: siteX, z: siteZ, ground };
         break;
       }
     }
-    // If strict flat sites are unavailable, prefer the least-steep dry candidate.
-    // A dry, above-sea-level fallback is preferable to silently dropping a home.
+    // If strict flat sites are unavailable, prefer the least-steep dry candidate
+    // rather than silently dropping a home.
     if (!chosen && bestFallback) {
       chosen = { x: bestFallback.x, z: bestFallback.z, ground: bestFallback.ground };
     }
@@ -2237,6 +2291,7 @@ function stampHierarchyHouseNodes(writer: ChunkWriter, terrain: Terrain, seed: n
     const siteX = chosen.x;
     const siteZ = chosen.z;
     const ground = chosen.ground;
+    // The final site may shift into a neighbouring chunk, so check overlap only now.
     if (siteX + halfW < chunkMinX || siteX - halfW > chunkMaxX ||
         siteZ + halfD < chunkMinZ || siteZ - halfD > chunkMaxZ) continue;
 
