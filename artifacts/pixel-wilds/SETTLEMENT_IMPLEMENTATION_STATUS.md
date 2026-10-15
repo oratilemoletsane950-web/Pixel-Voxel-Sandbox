@@ -1,6 +1,6 @@
 # Procedural Settlement System — Implementation Status
 
-Branch: `feature/hierarchy-house-blueprints`
+Branch: `main`
 
 ## What has been implemented in this tranche
 
