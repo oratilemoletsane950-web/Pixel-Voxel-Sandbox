@@ -23,6 +23,8 @@ test("hierarchy counts and links are valid for representative seeds", () => {
     assert.ok(houses.length >= villages.length * 20 && houses.length <= villages.length * 30);
     assert.equal(castles.length, 1);
     assert.deepEqual(plan.castleWards[castles[0].id], ["outer", "inner", "keep"]);
+    assert.ok(["hilltop", "concentric", "riverside", "palace-fortress"].includes(String(castles[0].metadata.archetype)));
+    assert.ok(Number(castles[0].metadata.strategicRadius) >= 64);
   }
 });
 
@@ -69,4 +71,20 @@ test("city, town, and village centres retain minimum separation", () => {
       }
     }
   }
+});
+
+test("castle archetypes vary by seed and remain deterministic", () => {
+  const archetypes = new Set<string>();
+  for (const seed of [0, 1, 2, 3, 4, 5, 42, 2026, 9999]) {
+    const first = createHierarchyPlan(seed);
+    const second = createHierarchyPlan(seed);
+    const castle = first.nodes.find((node) => node.level === "castle");
+    const repeated = second.nodes.find((node) => node.level === "castle");
+    assert.ok(castle);
+    assert.equal(castle.metadata.archetype, repeated?.metadata.archetype);
+    assert.equal(castle.x, repeated?.x);
+    assert.equal(castle.z, repeated?.z);
+    archetypes.add(String(castle.metadata.archetype));
+  }
+  assert.ok(archetypes.size >= 3, `expected varied castle designs, got ${[...archetypes].join(", ")}`);
 });
