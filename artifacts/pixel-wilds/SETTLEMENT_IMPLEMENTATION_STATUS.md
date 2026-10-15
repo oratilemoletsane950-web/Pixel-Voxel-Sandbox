@@ -4,10 +4,11 @@ Branch: `feature/settlement-hierarchy-foundation`
 
 ## What has been implemented in this tranche
 
-### Streaming foundation added
-- Added `src/game/hierarchy-streaming.ts` with a bounded four-plan LRU cache keyed by seed and origin, plus a world-space bounds query to limit future hierarchy work to the chunks that need it.
-- This prevents the expensive full hierarchy plan from being rebuilt for every streamed chunk once the runtime generator is connected.
-- **Not yet live:** no existing chunk or settlement renderer imports this module yet. The bounds query currently filters the plan node list and is a correctness-first foundation, not a spatial index; optimize it after the rendering bridge is working.
+### Streaming and validation foundation added
+- Added `src/game/hierarchy-streaming.ts` with a bounded four-plan LRU cache keyed by seed and origin.
+- Added a lazily built 256-block spatial bucket index so bounds queries inspect nearby candidates instead of scanning every node in the full hierarchy for each query.
+- Strengthened `validateHierarchyPlan()` to detect duplicate IDs, invalid parent/child links, incorrect parent tiers, missing town features and missing castle wards.
+- **Not yet live:** no existing chunk or settlement renderer imports the streaming utility yet. Spatial queries return planning coordinates only; they do not validate terrain or stamp structures.
 
 ### Starting kingdom and spawn preference
 - Reserved procedural region `(0, 0)` for a human kingdom rather than relying on a rare random kingdom roll.
@@ -36,13 +37,12 @@ The hierarchy planner is still a **planning/data foundation only**. It is not ye
 ## Work remaining, in priority order
 
 ### P0 — Integrate and prove the smallest vertical slice
-1. Inspect current settlement cache and chunk-stamping entry points in `src/game/settlements.ts`.
-2. Add a hierarchy cache keyed by world seed and kingdom/region ID; avoid rebuilding thousands of nodes for every chunk request.
-3. Add a terrain-aware placement pass that validates land, water, slope, spacing and footprint conflicts.
-4. Connect village nodes to actual building blueprints and guarantee 20–30 residential homes per village, counting houses separately from barns, stalls and civic buildings.
-5. Wire hierarchy nodes into real settlement blueprints and chunk stamping; prove one kingdom -> city -> town -> village vertical slice before enabling full counts.
-6. Verify the starting-kingdom path with a new world and representative seeds.
-7. Run `npm run typecheck` and `npm run build`; fix all errors before merging.
+1. **Next:** integrate `hierarchyPlanFor()` and `hierarchyNodesInBounds()` into the settlement/chunk pipeline.
+2. Add a terrain-aware placement pass that validates land, water, slope, spacing and footprint conflicts.
+3. Connect village nodes to actual building blueprints and guarantee 20–30 residential homes per village, counting houses separately from barns, stalls and civic buildings.
+4. Wire hierarchy nodes into real settlement blueprints and chunk stamping; prove one kingdom -> city -> town -> village vertical slice before enabling full counts.
+5. Verify the starting-kingdom path with a new world and representative seeds.
+6. Run `npm run typecheck` and `npm run build`; fix all errors before merging.
 
 ### P1 — Correct hierarchy and civic architecture in the renderer
 1. Replace the current one-settlement-per-region interpretation for human settlements with parent-child region planning.
