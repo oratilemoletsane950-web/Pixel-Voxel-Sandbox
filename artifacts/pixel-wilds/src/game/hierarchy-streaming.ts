@@ -75,6 +75,16 @@ export function hierarchyNodesInBounds(
   maxZ: number,
   margin = 0,
 ): SettlementNode[] {
+  if (![minX, minZ, maxX, maxZ, margin].every(Number.isFinite)) {
+    throw new RangeError("Hierarchy bounds and margin must be finite numbers.");
+  }
+  if (minX > maxX || minZ > maxZ) {
+    throw new RangeError("Hierarchy bounds must be ordered from minimum to maximum.");
+  }
+  if (margin < 0) {
+    throw new RangeError("Hierarchy query margin cannot be negative.");
+  }
+
   const index = indexPlan(plan);
   const firstX = Math.floor((minX - margin) / BUCKET_SIZE);
   const lastX = Math.floor((maxX + margin) / BUCKET_SIZE);
@@ -97,6 +107,8 @@ export function hierarchyNodesInBounds(
       }
     }
   }
+  // A stable order makes chunk consumers independent of bucket traversal details.
+  candidates.sort((a, b) => a.x - b.x || a.z - b.z || a.id.localeCompare(b.id));
   return candidates;
 }
 
