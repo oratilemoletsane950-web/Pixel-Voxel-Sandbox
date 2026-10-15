@@ -56,6 +56,18 @@ export interface Blueprint {
   accent?: "gold" | "marble" | "brick";
   /** Green space rather than a building (stamped by `stampGarden`). */
   garden?: boolean;
+  /** Victorian facade variant: bay window, dormer, or standard. */
+  facadeVariant?: 0 | 1 | 2;
+  /** Number of Victorian sash windows per façade side. */
+  windowCount?: number;
+  /** Decorative cornice block (gold, marble, or brick). */
+  corniceBlock?: number;
+  /** Whether the building has a decorative gable trim. */
+  gableTrim?: boolean;
+  /** Whether the building has dormer windows. */
+  hasDormers?: boolean;
+  /** Bay window width in blocks (0 = none). */
+  bayWindowWidth?: number;
 }
 
 export const HUMAN_TIERS = ["village", "town", "castle", "kingdom"] as const;
@@ -65,18 +77,18 @@ export const HUMAN_TIERS = ["village", "town", "castle", "kingdom"] as const;
 /* ------------------------------------------------------------------ */
 
 const VILLAGE: Blueprint[] = [
-  { id: "village_hall", label: "Village Hall", w: 11, d: 9, stories: 2, zone: "plaza", roof: "gable", style: "mixed", furniture: 2, chimney: true, accent: "brick" },
-  { id: "market_stall", label: "Market Stall", w: 7, d: 5, stories: 1, zone: "plaza", roof: "flat", style: "wood", furniture: 0, open: true },
-  { id: "watchtower", label: "Watchtower", w: 5, d: 5, stories: 3, zone: "tower", roof: "flat", style: "stone", furniture: 0, turret: 1 },
-  { id: "tavern", label: "Tavern", w: 13, d: 9, stories: 2, zone: "row", roof: "gable", style: "mixed", furniture: 2, chimney: true },
-  { id: "simple_home", label: "Simple Home", w: 9, d: 9, stories: 2, zone: "row", roof: "gable", style: "wood", furniture: 1, chimney: true },
-  { id: "general_store", label: "General Store", w: 9, d: 9, stories: 1, zone: "row", roof: "hip", style: "mixed", furniture: 1 },
-  { id: "farmers_cottage", label: "Farmer's Cottage", w: 9, d: 9, stories: 1, zone: "quad", roof: "gable", style: "wood", furniture: 1, chimney: true },
-  { id: "fishermans_hut", label: "Fisherman's Hut", w: 7, d: 7, stories: 1, zone: "quad", roof: "hip", style: "wood", furniture: 1 },
-  { id: "woodcutters_cabin", label: "Woodcutter's Cabin", w: 9, d: 7, stories: 1, zone: "quad", roof: "gable", style: "wood", furniture: 1, chimney: true },
-  { id: "bakers_house", label: "Baker's House", w: 9, d: 9, stories: 1, zone: "quad", roof: "gable", style: "mixed", furniture: 1, chimney: true },
-  { id: "carpenters_shop", label: "Carpenter's Shop", w: 9, d: 9, stories: 1, zone: "quad", roof: "gable", style: "wood", furniture: 1 },
-  { id: "healers_house", label: "Healer's House", w: 7, d: 9, stories: 1, zone: "quad", roof: "hip", style: "wood", furniture: 1 },
+  { id: "village_hall", label: "Village Hall", w: 11, d: 9, stories: 2, zone: "plaza", roof: "gable", style: "mixed", furniture: 2, chimney: true, accent: "brick", facadeVariant: 0, windowCount: 4, corniceBlock: ID.brick, gableTrim: true, hasDormers: false, bayWindowWidth: 0 },
+  { id: "market_stall", label: "Market Stall", w: 7, d: 5, stories: 1, zone: "plaza", roof: "flat", style: "wood", furniture: 0, open: true, facadeVariant: 0, windowCount: 0, bayWindowWidth: 0 },
+  { id: "watchtower", label: "Watchtower", w: 5, d: 5, stories: 3, zone: "tower", roof: "flat", style: "stone", furniture: 0, turret: 1, facadeVariant: 0, windowCount: 2, corniceBlock: 0, gableTrim: false, hasDormers: false, bayWindowWidth: 0 },
+  { id: "tavern", label: "Tavern", w: 13, d: 9, stories: 2, zone: "row", roof: "gable", style: "mixed", furniture: 2, chimney: true, facadeVariant: 1, windowCount: 6, corniceBlock: ID.brick, gableTrim: true, hasDormers: true, bayWindowWidth: 3 },
+  { id: "simple_home", label: "Simple Home", w: 9, d: 9, stories: 2, zone: "row", roof: "gable", style: "wood", furniture: 1, chimney: true, facadeVariant: 0, windowCount: 3, corniceBlock: ID.brick, gableTrim: true, hasDormers: false, bayWindowWidth: 0 },
+  { id: "general_store", label: "General Store", w: 9, d: 9, stories: 1, zone: "row", roof: "hip", style: "mixed", furniture: 1, facadeVariant: 2, windowCount: 4, corniceBlock: ID.marble, gableTrim: false, hasDormers: false, bayWindowWidth: 4 },
+  { id: "farmers_cottage", label: "Farmer's Cottage", w: 9, d: 9, stories: 1, zone: "quad", roof: "gable", style: "wood", furniture: 1, chimney: true, facadeVariant: 0, windowCount: 2, corniceBlock: 0, gableTrim: false, hasDormers: false, bayWindowWidth: 0 },
+  { id: "fishermans_hut", label: "Fisherman's Hut", w: 7, d: 7, stories: 1, zone: "quad", roof: "hip", style: "wood", furniture: 1, facadeVariant: 0, windowCount: 1, corniceBlock: 0, gableTrim: false, hasDormers: false, bayWindowWidth: 0 },
+  { id: "woodcutters_cabin", label: "Woodcutter's Cabin", w: 9, d: 7, stories: 1, zone: "quad", roof: "gable", style: "wood", furniture: 1, chimney: true, facadeVariant: 0, windowCount: 2, corniceBlock: ID.brick, gableTrim: true, hasDormers: false, bayWindowWidth: 0 },
+  { id: "bakers_house", label: "Baker's House", w: 9, d: 9, stories: 1, zone: "quad", roof: "gable", style: "mixed", furniture: 1, chimney: true, facadeVariant: 1, windowCount: 3, corniceBlock: ID.brick, gableTrim: true, hasDormers: false, bayWindowWidth: 2 },
+  { id: "carpenters_shop", label: "Carpenter's Shop", w: 9, d: 9, stories: 1, zone: "quad", roof: "gable", style: "wood", furniture: 1, facadeVariant: 0, windowCount: 3, corniceBlock: ID.brick, gableTrim: true, hasDormers: false, bayWindowWidth: 0 },
+  { id: "healers_house", label: "Healer's House", w: 7, d: 9, stories: 1, zone: "quad", roof: "hip", style: "wood", furniture: 1, facadeVariant: 1, windowCount: 2, corniceBlock: ID.brick, gableTrim: true, hasDormers: true, bayWindowWidth: 1 },
 ];
 
 /* ------------------------------------------------------------------ */
@@ -84,18 +96,18 @@ const VILLAGE: Blueprint[] = [
 /* ------------------------------------------------------------------ */
 
 const TOWN: Blueprint[] = [
-  { id: "town_hall", label: "Town Hall", w: 13, d: 11, stories: 3, zone: "plaza", roof: "gable", style: "stone", furniture: 2, chimney: true, turret: 1, accent: "brick" },
-  { id: "guild_hall", label: "Guild Hall", w: 15, d: 9, stories: 3, zone: "plaza", roof: "hip", style: "mixed", furniture: 2, accent: "brick" },
-  { id: "city_market", label: "City Market", w: 7, d: 5, stories: 1, zone: "plaza", roof: "flat", style: "wood", furniture: 0, open: true },
-  { id: "blacksmith", label: "Blacksmith", w: 9, d: 9, stories: 2, zone: "quad", roof: "flat", style: "stone", furniture: 0, forge: true },
-  { id: "inn", label: "Inn", w: 13, d: 11, stories: 3, zone: "row", roof: "gable", style: "mixed", furniture: 2, chimney: true },
-  { id: "townhouse", label: "Townhouse", w: 9, d: 9, stories: 3, zone: "row", roof: "mansard", style: "mixed", furniture: 1, chimney: true },
-  { id: "merchant_house", label: "Merchant House", w: 11, d: 9, stories: 3, zone: "row", roof: "hip", style: "mixed", furniture: 1, chimney: true, accent: "brick" },
-  { id: "apartments", label: "Apartments", w: 11, d: 11, stories: 4, zone: "row", roof: "flat", style: "brick", furniture: 1 },
-  { id: "library", label: "Library", w: 11, d: 9, stories: 3, zone: "quad", roof: "hip", style: "stone", furniture: 1 },
-  { id: "brewery", label: "Brewery", w: 11, d: 9, stories: 2, zone: "quad", roof: "gable", style: "mixed", furniture: 0, chimney: true },
-  { id: "tannery", label: "Tannery", w: 9, d: 9, stories: 2, zone: "quad", roof: "flat", style: "wood", furniture: 0 },
-  { id: "stonecutter", label: "Stonecutter", w: 9, d: 9, stories: 2, zone: "quad", roof: "hip", style: "stone", furniture: 0 },
+  { id: "town_hall", label: "Town Hall", w: 13, d: 11, stories: 3, zone: "plaza", roof: "mansard", style: "stone", furniture: 2, chimney: true, turret: 1, accent: "brick", facadeVariant: 2, windowCount: 8, corniceBlock: ID.marble, gableTrim: true, hasDormers: true, bayWindowWidth: 3 },
+  { id: "guild_hall", label: "Guild Hall", w: 15, d: 9, stories: 3, zone: "plaza", roof: "mansard", style: "mixed", furniture: 2, accent: "brick", facadeVariant: 2, windowCount: 6, corniceBlock: ID.marble, gableTrim: true, hasDormers: true, bayWindowWidth: 2 },
+  { id: "city_market", label: "City Market", w: 7, d: 5, stories: 1, zone: "plaza", roof: "flat", style: "wood", furniture: 0, open: true, facadeVariant: 0, windowCount: 0, corniceBlock: 0, gableTrim: false, hasDormers: false, bayWindowWidth: 0 },
+  { id: "blacksmith", label: "Blacksmith", w: 9, d: 9, stories: 2, zone: "quad", roof: "gable", style: "stone", furniture: 0, forge: true, facadeVariant: 1, windowCount: 4, corniceBlock: ID.marble, gableTrim: true, hasDormers: false, bayWindowWidth: 2 },
+  { id: "inn", label: "Inn", w: 13, d: 11, stories: 3, zone: "row", roof: "gable", style: "mixed", furniture: 2, chimney: true, facadeVariant: 2, windowCount: 8, corniceBlock: ID.marble, gableTrim: true, hasDormers: true, bayWindowWidth: 3 },
+  { id: "townhouse", label: "Townhouse", w: 9, d: 9, stories: 3, zone: "row", roof: "mansard", style: "mixed", furniture: 1, chimney: true, facadeVariant: 2, windowCount: 6, corniceBlock: ID.marble, gableTrim: true, hasDormers: true, bayWindowWidth: 3 },
+  { id: "merchant_house", label: "Merchant House", w: 11, d: 9, stories: 3, zone: "row", roof: "hip", style: "mixed", furniture: 1, chimney: true, accent: "brick", facadeVariant: 2, windowCount: 7, corniceBlock: ID.marble, gableTrim: true, hasDormers: true, bayWindowWidth: 3 },
+  { id: "apartments", label: "Apartments", w: 11, d: 11, stories: 4, zone: "row", roof: "flat", style: "brick", furniture: 1, facadeVariant: 2, windowCount: 8, corniceBlock: ID.gold, gableTrim: false, hasDormers: false, bayWindowWidth: 2 },
+  { id: "library", label: "Library", w: 11, d: 9, stories: 3, zone: "quad", roof: "hip", style: "stone", furniture: 1, facadeVariant: 2, windowCount: 6, corniceBlock: ID.marble, gableTrim: true, hasDormers: true, bayWindowWidth: 2 },
+  { id: "brewery", label: "Brewery", w: 11, d: 9, stories: 2, zone: "quad", roof: "gable", style: "mixed", furniture: 0, chimney: true, facadeVariant: 1, windowCount: 4, corniceBlock: ID.marble, gableTrim: true, hasDormers: false, bayWindowWidth: 2 },
+  { id: "tannery", label: "Tannery", w: 9, d: 9, stories: 2, zone: "quad", roof: "flat", style: "wood", furniture: 0, facadeVariant: 0, windowCount: 0, corniceBlock: 0, gableTrim: false, hasDormers: false, bayWindowWidth: 0 },
+  { id: "stonecutter", label: "Stonecutter", w: 9, d: 9, stories: 2, zone: "quad", roof: "hip", style: "stone", furniture: 0, facadeVariant: 1, windowCount: 3, corniceBlock: ID.marble, gableTrim: true, hasDormers: false, bayWindowWidth: 1 },
 ];
 
 /* ------------------------------------------------------------------ */
@@ -103,18 +115,18 @@ const TOWN: Blueprint[] = [
 /* ------------------------------------------------------------------ */
 
 const CASTLE: Blueprint[] = [
-  { id: "royal_keep", label: "Royal Keep", w: 21, d: 17, stories: 5, zone: "plaza", roof: "hip", style: "stone", furniture: 2, turret: 4, accent: "gold" },
-  { id: "gatehouse", label: "Gatehouse", w: 13, d: 9, stories: 3, zone: "plaza", roof: "flat", style: "stone", furniture: 0, accent: "marble" },
-  { id: "royal_gardens", label: "Royal Gardens", w: 17, d: 17, stories: 1, zone: "garden", roof: "flat", style: "wood", furniture: 0, garden: true },
-  { id: "barracks", label: "Barracks", w: 15, d: 9, stories: 3, zone: "row", roof: "gable", style: "stone", furniture: 2 },
-  { id: "commanders_house", label: "Commander's House", w: 13, d: 11, stories: 3, zone: "quad", roof: "hip", style: "stone", furniture: 1, chimney: true, accent: "marble" },
-  { id: "noble_house", label: "Noble House", w: 11, d: 11, stories: 3, zone: "quad", roof: "hip", style: "mixed", furniture: 1, chimney: true, accent: "marble" },
-  { id: "armoury", label: "Armoury", w: 9, d: 9, stories: 3, zone: "quad", roof: "flat", style: "stone", furniture: 0 },
-  { id: "stable", label: "Stable", w: 13, d: 9, stories: 1, zone: "quad", roof: "gable", style: "wood", furniture: 0, open: true },
-  { id: "granary", label: "Granary", w: 11, d: 9, stories: 2, zone: "quad", roof: "gable", style: "wood", furniture: 0 },
-  { id: "chapel", label: "Chapel", w: 9, d: 13, stories: 3, zone: "quad", roof: "gable", style: "stone", furniture: 1, spire: true, accent: "marble" },
-  { id: "guest_house", label: "Guest House", w: 11, d: 9, stories: 2, zone: "row", roof: "hip", style: "mixed", furniture: 1, chimney: true },
-  { id: "mage_tower", label: "Mage Tower", w: 7, d: 7, stories: 4, zone: "tower", roof: "flat", style: "brick", furniture: 1, turret: 1, accent: "marble" },
+  { id: "royal_keep", label: "Royal Keep", w: 21, d: 17, stories: 5, zone: "plaza", roof: "hip", style: "stone", furniture: 2, turret: 4, accent: "gold", facadeVariant: 2, windowCount: 12, corniceBlock: ID.gold, gableTrim: true, hasDormers: false, bayWindowWidth: 0 },
+  { id: "gatehouse", label: "Gatehouse", w: 13, d: 9, stories: 3, zone: "plaza", roof: "flat", style: "stone", furniture: 0, accent: "marble", facadeVariant: 1, windowCount: 2, corniceBlock: ID.marble, gableTrim: true, hasDormers: false, bayWindowWidth: 1 },
+  { id: "royal_gardens", label: "Royal Gardens", w: 17, d: 17, stories: 1, zone: "garden", roof: "flat", style: "wood", furniture: 0, garden: true, facadeVariant: 0, windowCount: 0, corniceBlock: 0, gableTrim: false, hasDormers: false, bayWindowWidth: 0 },
+  { id: "barracks", label: "Barracks", w: 15, d: 9, stories: 3, zone: "row", roof: "gable", style: "stone", furniture: 2, facadeVariant: 1, windowCount: 6, corniceBlock: ID.marble, gableTrim: true, hasDormers: false, bayWindowWidth: 2 },
+  { id: "commanders_house", label: "Commander's House", w: 13, d: 11, stories: 3, zone: "quad", roof: "hip", style: "stone", furniture: 1, chimney: true, accent: "marble", facadeVariant: 2, windowCount: 5, corniceBlock: ID.marble, gableTrim: true, hasDormers: true, bayWindowWidth: 2 },
+  { id: "noble_house", label: "Noble House", w: 11, d: 11, stories: 3, zone: "quad", roof: "hip", style: "mixed", furniture: 1, chimney: true, accent: "marble", facadeVariant: 2, windowCount: 5, corniceBlock: ID.marble, gableTrim: true, hasDormers: true, bayWindowWidth: 2 },
+  { id: "armoury", label: "Armoury", w: 9, d: 9, stories: 3, zone: "quad", roof: "flat", style: "stone", furniture: 0, facadeVariant: 1, windowCount: 4, corniceBlock: ID.marble, gableTrim: true, hasDormers: false, bayWindowWidth: 2 },
+  { id: "stable", label: "Stable", w: 13, d: 9, stories: 1, zone: "quad", roof: "gable", style: "wood", furniture: 0, open: true, facadeVariant: 0, windowCount: 2, corniceBlock: ID.brick, gableTrim: false, hasDormers: false, bayWindowWidth: 0 },
+  { id: "granary", label: "Granary", w: 11, d: 9, stories: 2, zone: "quad", roof: "gable", style: "wood", furniture: 0, facadeVariant: 0, windowCount: 2, corniceBlock: ID.brick, gableTrim: false, hasDormers: false, bayWindowWidth: 0 },
+  { id: "chapel", label: "Chapel", w: 9, d: 13, stories: 3, zone: "quad", roof: "gable", style: "stone", furniture: 1, spire: true, accent: "marble", facadeVariant: 2, windowCount: 8, corniceBlock: ID.gold, gableTrim: true, hasDormers: true, bayWindowWidth: 3 },
+  { id: "guest_house", label: "Guest House", w: 11, d: 9, stories: 2, zone: "row", roof: "hip", style: "mixed", furniture: 1, chimney: true, facadeVariant: 1, windowCount: 4, corniceBlock: ID.marble, gableTrim: true, hasDormers: false, bayWindowWidth: 2 },
+  { id: "mage_tower", label: "Mage Tower", w: 7, d: 7, stories: 4, zone: "tower", roof: "flat", style: "brick", furniture: 1, turret: 1, accent: "marble", facadeVariant: 1, windowCount: 3, corniceBlock: ID.gold, gableTrim: true, hasDormers: true, bayWindowWidth: 1 },
 ];
 
 /* ------------------------------------------------------------------ */
@@ -122,20 +134,20 @@ const CASTLE: Blueprint[] = [
 /* ------------------------------------------------------------------ */
 
 const KINGDOM: Blueprint[] = [
-  { id: "royal_palace", label: "Royal Palace", w: 25, d: 19, stories: 5, zone: "plaza", roof: "dome", style: "marble", furniture: 2, turret: 4, accent: "gold" },
-  { id: "gatehouse", label: "Gatehouse", w: 13, d: 9, stories: 3, zone: "plaza", roof: "flat", style: "stone", furniture: 0, accent: "gold" },
-  { id: "grand_market", label: "Grand Market Stall", w: 7, d: 5, stories: 1, zone: "plaza", roof: "flat", style: "wood", furniture: 0, open: true, accent: "gold" },
-  { id: "government", label: "Government House", w: 15, d: 11, stories: 4, zone: "quad", roof: "hip", style: "stone", furniture: 2, accent: "gold" },
-  { id: "temple", label: "Temple", w: 13, d: 13, stories: 4, zone: "quad", roof: "dome", style: "marble", furniture: 1, accent: "gold" },
-  { id: "university", label: "University", w: 15, d: 11, stories: 4, zone: "row", roof: "gable", style: "stone", furniture: 1, chimney: true },
-  { id: "harbour_master", label: "Harbour Master", w: 11, d: 9, stories: 3, zone: "quad", roof: "hip", style: "dark", furniture: 1 },
-  { id: "warehouse", label: "Warehouse", w: 11, d: 9, stories: 3, zone: "quad", roof: "flat", style: "dark", furniture: 0 },
-  { id: "trade_guild", label: "Trade Guild", w: 13, d: 9, stories: 3, zone: "quad", roof: "hip", style: "mixed", furniture: 2, accent: "brick" },
-  { id: "noble_estate", label: "Noble Estate", w: 13, d: 11, stories: 3, zone: "quad", roof: "hip", style: "marble", furniture: 1, chimney: true, accent: "gold" },
-  { id: "barracks", label: "Barracks", w: 15, d: 9, stories: 3, zone: "row", roof: "gable", style: "stone", furniture: 2 },
-  { id: "hospital", label: "Hospital", w: 11, d: 9, stories: 3, zone: "quad", roof: "gable", style: "marble", furniture: 1, accent: "marble" },
-  { id: "residential_quarter", label: "Residential Quarter", w: 11, d: 9, stories: 2, zone: "row", roof: "mansard", style: "mixed", furniture: 1, chimney: true },
-  { id: "royal_park", label: "Royal Park", w: 17, d: 17, stories: 1, zone: "garden", roof: "flat", style: "wood", furniture: 0, garden: true },
+  { id: "royal_palace", label: "Royal Palace", w: 25, d: 19, stories: 5, zone: "plaza", roof: "dome", style: "marble", furniture: 2, turret: 4, accent: "gold", facadeVariant: 2, windowCount: 20, corniceBlock: ID.gold, gableTrim: true, hasDormers: false, bayWindowWidth: 0 },
+  { id: "gatehouse", label: "Gatehouse", w: 13, d: 9, stories: 3, zone: "plaza", roof: "flat", style: "stone", furniture: 0, accent: "gold", facadeVariant: 1, windowCount: 2, corniceBlock: ID.marble, gableTrim: true, hasDormers: false, bayWindowWidth: 1 },
+  { id: "grand_market", label: "Grand Market Stall", w: 7, d: 5, stories: 1, zone: "plaza", roof: "flat", style: "wood", furniture: 0, open: true, accent: "gold", facadeVariant: 0, windowCount: 0, corniceBlock: 0, gableTrim: false, hasDormers: false, bayWindowWidth: 0 },
+  { id: "government", label: "Government House", w: 15, d: 11, stories: 4, zone: "quad", roof: "mansard", style: "stone", furniture: 2, accent: "gold", facadeVariant: 2, windowCount: 10, corniceBlock: ID.gold, gableTrim: true, hasDormers: true, bayWindowWidth: 3 },
+  { id: "temple", label: "Temple", w: 13, d: 13, stories: 4, zone: "quad", roof: "dome", style: "marble", furniture: 1, accent: "gold", facadeVariant: 2, windowCount: 12, corniceBlock: ID.gold, gableTrim: true, hasDormers: true, bayWindowWidth: 2 },
+  { id: "university", label: "University", w: 15, d: 11, stories: 4, zone: "row", roof: "gable", style: "stone", furniture: 1, chimney: true, facadeVariant: 2, windowCount: 10, corniceBlock: ID.gold, gableTrim: true, hasDormers: true, bayWindowWidth: 2 },
+  { id: "harbour_master", label: "Harbour Master", w: 11, d: 9, stories: 3, zone: "quad", roof: "hip", style: "dark", furniture: 1, facadeVariant: 1, windowCount: 3, corniceBlock: ID.marble, gableTrim: true, hasDormers: false, bayWindowWidth: 2 },
+  { id: "warehouse", label: "Warehouse", w: 11, d: 9, stories: 3, zone: "quad", roof: "flat", style: "dark", furniture: 0, facadeVariant: 0, windowCount: 0, corniceBlock: 0, gableTrim: false, hasDormers: false, bayWindowWidth: 0 },
+  { id: "trade_guild", label: "Trade Guild", w: 13, d: 9, stories: 3, zone: "quad", roof: "hip", style: "mixed", furniture: 2, accent: "brick", facadeVariant: 1, windowCount: 6, corniceBlock: ID.marble, gableTrim: true, hasDormers: false, bayWindowWidth: 2 },
+  { id: "noble_estate", label: "Noble Estate", w: 13, d: 11, stories: 3, zone: "quad", roof: "hip", style: "marble", furniture: 1, chimney: true, accent: "gold", facadeVariant: 2, windowCount: 6, corniceBlock: ID.gold, gableTrim: true, hasDormers: true, bayWindowWidth: 2 },
+  { id: "barracks", label: "Barracks", w: 15, d: 9, stories: 3, zone: "row", roof: "gable", style: "stone", furniture: 2, facadeVariant: 1, windowCount: 8, corniceBlock: ID.gold, gableTrim: true, hasDormers: true, bayWindowWidth: 3 },
+  { id: "hospital", label: "Hospital", w: 11, d: 9, stories: 3, zone: "quad", roof: "gable", style: "marble", furniture: 1, accent: "marble", facadeVariant: 2, windowCount: 6, corniceBlock: ID.gold, gableTrim: true, hasDormers: true, bayWindowWidth: 2 },
+  { id: "residential_quarter", label: "Residential Quarter", w: 11, d: 9, stories: 2, zone: "row", roof: "mansard", style: "mixed", furniture: 1, chimney: true, facadeVariant: 1, windowCount: 4, corniceBlock: ID.marble, gableTrim: true, hasDormers: true, bayWindowWidth: 2 },
+  { id: "royal_park", label: "Royal Park", w: 17, d: 17, stories: 1, zone: "garden", roof: "flat", style: "wood", furniture: 0, garden: true, facadeVariant: 0, windowCount: 0, corniceBlock: 0, gableTrim: false, hasDormers: false, bayWindowWidth: 0 },
 ];
 
 export const ROSTERS: Record<HumanTier, Blueprint[]> = {
@@ -219,4 +231,36 @@ export function accentBlock(accent: Blueprint["accent"]): number {
   if (accent === "marble") return ID.marble;
   if (accent === "brick") return ID.brick;
   return 0;
+}
+
+/** Apply Victorian facade details to a building's style. */
+function applyVictorianFacade(
+  b: import("./settlements").Building,
+  facadeVariant: Blueprint["facadeVariant"],
+  windowCount?: number,
+  corniceBlock?: number,
+  gableTrim?: boolean,
+  hasDormers?: boolean,
+  bayWindowWidth?: number,
+): import("./settlements").Building {
+  const result = { ...b };
+  if (facadeVariant === 1) {
+    // Add bay window on the front façade
+    result.bayWindowWidth = bayWindowWidth || 3;
+  } else if (facadeVariant === 2) {
+    // Full Victorian: bay windows + dormers + cornice
+    result.bayWindowWidth = bayWindowWidth || 3;
+    result.hasDormers = hasDormers !== undefined ? hasDormers : true;
+    if (corniceBlock !== undefined) {
+      // Map the block ID to an accent value for the Building interface
+      if (corniceBlock === ID.gold) result.accent = ID.gold;
+      else if (corniceBlock === ID.marble) result.accent = ID.marble;
+      else if (corniceBlock === ID.brick) result.accent = ID.brick;
+      else result.accent = corniceBlock;
+    }
+    result.gableTrim = gableTrim !== undefined ? gableTrim : true;
+  }
+  // Window count is informational - the generator uses it for placement
+  if (windowCount !== undefined) result.windowCount = windowCount;
+  return result;
 }
