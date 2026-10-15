@@ -1,6 +1,6 @@
 # Procedural Settlement System — Implementation Status
 
-Branch: `feature/settlement-hierarchy-completion`
+Branch: `feature/detailed-town-fortifications`
 
 ## What has been implemented in this tranche
 
@@ -10,7 +10,7 @@ Branch: `feature/settlement-hierarchy-completion`
 - Hardened bounds queries to reject non-finite values, inverted ranges and negative margins; results are sorted deterministically so chunk consumers do not depend on bucket traversal order.
 - Strengthened `validateHierarchyPlan()` to detect duplicate IDs, invalid parent/child links, incorrect parent tiers, missing town features, missing castle wards, non-finite coordinates and parent cycles.
 - Live vertical slice added: the chunk settlement stamper queries nearby hierarchy nodes and converts `house` nodes into actual block-stamped residential buildings using the existing building stamper. The placement pass rejects wet, river-adjacent, steep and out-of-range sites. House coordinates now use compact deterministic grids within each village rather than overlapping random points.
-- Town civic-centre slice added: hierarchy `town` nodes stamp a two-storey stone town hall, paved plaza and four open defensive gates in a timber curtain wall. Town placement checks water, river clearance, slope and vertical bounds.
+- Town civic-centre slice added: hierarchy `town` nodes stamp a two-storey stone town hall, paved plaza and four open defensive gates. The follow-up fortification pass upgrades the hierarchy town boundary to a stone curtain wall with crenellated corner towers, paired gate towers and elevated lintels while preserving walk-through entrances. Town placement checks water, river clearance, slope and vertical bounds.
 - City-level structures added: hierarchy `city` nodes stamp a three-storey civic hall and plaza; roads connect city centres to their child towns, and town centres to their child villages. Roads are chunk-clipped and sampled against water/river terrain.
 - Castle ward slice added: the hierarchy capital castle is offset from the kingdom centre and stamps three concentric gated stone enclosures plus a four-storey keep.
 - Legacy overlap mitigation added: non-kingdom legacy settlements are skipped when their footprint intersects hierarchy-owned town, village, city, castle or house sites; the starting legacy kingdom is preserved.
@@ -43,7 +43,7 @@ The hierarchy planner is connected to chunk stamping for residential `house` nod
 ## Work remaining, in priority order
 
 ### P0 — Integrate and prove the smallest vertical slice
-1. **Next:** validate and refine hierarchy footprint spacing, replace simple town palisades with detailed gates/towers, and finish reconciling legacy and hierarchy layouts.
+1. **In progress:** detailed hierarchy town gatehouses and towers have been added; next validate/refine footprint spacing and finish reconciling legacy and hierarchy layouts. Geometry still requires visual preview verification.
 2. Add a terrain-aware placement pass that validates land, water, slope, spacing and footprint conflicts.
 3. Connect village nodes to actual building blueprints and guarantee 20–30 residential homes per village, counting houses separately from barns, stalls and civic buildings.
 4. Wire hierarchy nodes into real settlement blueprints and chunk stamping; prove one kingdom -> city -> town -> village vertical slice before enabling full counts.
