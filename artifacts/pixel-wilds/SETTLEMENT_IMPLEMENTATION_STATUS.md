@@ -1,6 +1,6 @@
 # Procedural Settlement System — Implementation Status
 
-Branch: `feature/on-demand-world-spawn-safety`
+Branch: `main`
 
 ## What has been implemented in this tranche
 
