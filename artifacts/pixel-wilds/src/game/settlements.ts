@@ -1080,13 +1080,19 @@ function layout(settlement: Settlement, spec: KindSpec, regionX: number, regionZ
 /* ------------------------------------------------------------------ */
 
 function makeSettlement(terrain: Terrain, seed: number, regionX: number, regionZ: number): Settlement | null {
-  if (hash2(regionX, regionZ, seed + 8201) < 0.3) return null;
+  // Region (0, 0) is the guaranteed starting realm. The search below looks
+  // farther for a valid plain so a new player starts inside a real stamped
+  // kingdom instead of relying on a rare random roll near the world origin.
+  const startingKingdom = regionX === 0 && regionZ === 0;
+  if (!startingKingdom && hash2(regionX, regionZ, seed + 8201) < 0.3) return null;
 
-  const faction = chooseFaction(hash2(regionX, regionZ, seed + 8219));
+  const faction = startingKingdom ? "freefolk" : chooseFaction(hash2(regionX, regionZ, seed + 8219));
   const tier = hash2(regionX, regionZ, seed + 8291);
-  // Kingdoms are deliberately rare and only freefolk land;
-  // `scoreSite` then insists the ground is a broad, flat, fertile plain.
-  const kingdom = faction === "freefolk" && hash2(regionX, regionZ, seed + 8293) > 0.94 && tier > 0.35;
+  // Kingdoms are rare in the wider world, but the origin region is reserved
+  // for the starting kingdom. Every candidate still has to pass scoreSite's
+  // water, slope, elevation and climate checks.
+  const kingdom = startingKingdom ||
+    (faction === "freefolk" && hash2(regionX, regionZ, seed + 8293) > 0.94 && tier > 0.35);
   const spec = kindFor(faction, tier, kingdom);
   const centerX = regionX * REGION_SIZE + REGION_SIZE / 2 +
     Math.floor((hash2(regionX, regionZ, seed + 8231) - 0.5) * REGION_SIZE * 0.42);
@@ -1094,13 +1100,19 @@ function makeSettlement(terrain: Terrain, seed: number, regionX: number, regionZ
     Math.floor((hash2(regionX, regionZ, seed + 8243) - 0.5) * REGION_SIZE * 0.42);
 
   let best: { x: number; z: number; score: number; baseY: number } | null = null;
-  for (const offsetX of [-72, -48, -24, 0, 24, 48, 72]) {
-    for (const offsetZ of [-72, -48, -24, 0, 24, 48, 72]) {
+  // The starting kingdom searches a larger deterministic area for a valid
+  // plain. Other regions retain the lighter local site search for streaming.
+  const offsets = startingKingdom
+    ? Array.from({ length: 21 }, (_, i) => (i - 10) * 24)
+    : [-72, -48, -24, 0, 24, 48, 72];
+  for (const offsetX of offsets) {
+    for (const offsetZ of offsets) {
       const x = centerX + offsetX;
       const z = centerZ + offsetZ;
       const result = scoreSite(faction, spec, terrain, x, z);
       if (!best || result.score > best.score) best = { x, z, ...result };
-    }  }
+    }
+  }
   if (!best || best.score < 2.2) return null;
 
   const id = `${seed}:${regionX}:${regionZ}`;
