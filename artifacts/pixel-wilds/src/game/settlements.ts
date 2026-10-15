@@ -2168,6 +2168,10 @@ function stampHierarchyHouseNodes(writer: ChunkWriter, terrain: Terrain, seed: n
     const size = archetype === 0 ? 7 : archetype === 1 ? 9 : archetype === 2 ? 9 : archetype === 3 ? 11 : 7;
     const depth = archetype === 2 ? 11 : archetype === 3 ? 9 : size;
     const stories = archetype === 3 ? 2 : archetype === 4 ? 2 : 1;
+    // The query includes distant road endpoints; only terrain-sample houses
+    // whose actual footprint can intersect this chunk.
+    if (x + Math.ceil(size / 2) < chunkMinX || x - Math.ceil(size / 2) > chunkMaxX ||
+        z + Math.ceil(depth / 2) < chunkMinZ || z - Math.ceil(depth / 2) > chunkMaxZ) continue;
     const samples = [
       terrain.natural(x, z),
       terrain.natural(x - Math.floor(size / 2), z - Math.floor(depth / 2)),
