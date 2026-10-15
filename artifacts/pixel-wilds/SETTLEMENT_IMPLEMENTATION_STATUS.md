@@ -7,7 +7,7 @@ Branch: `feature/settlement-hierarchy-foundation`
 ### Streaming and validation foundation added
 - Added `src/game/hierarchy-streaming.ts` with a bounded four-plan LRU cache keyed by seed and origin.
 - Added a lazily built 256-block spatial bucket index so bounds queries inspect nearby candidates instead of scanning every node in the full hierarchy for each query.
-- Strengthened `validateHierarchyPlan()` to detect duplicate IDs, invalid parent/child links, incorrect parent tiers, missing town features and missing castle wards.
+- Strengthened `validateHierarchyPlan()` to detect duplicate IDs, invalid parent/child links, incorrect parent tiers, missing town features, missing castle wards, non-finite coordinates and parent cycles.
 - **Not yet live:** no existing chunk or settlement renderer imports the streaming utility yet. Spatial queries return planning coordinates only; they do not validate terrain or stamp structures.
 
 ### Starting kingdom and spawn preference
@@ -94,6 +94,10 @@ The hierarchy planner is still a **planning/data foundation only**. It is not ye
 3. Add preview smoke tests and verify a new game spawns in a kingdom.
 4. Profile chunk generation time and memory at village, town, city and kingdom scales.
 5. Document the seed, hierarchy data model, rendering pipeline, known limits and exact commands to run tests.
+
+## Current execution boundary
+
+The hierarchy data/validation layer has been improved, but the requested live game feature is still incomplete. The hierarchy coordinates are broad planning hints and are not yet mapped onto terrain-validated settlement sites. The current renderer still stamps independently generated settlements; simply feeding these raw coordinates into it would create overlapping or invalid structures. No successful TypeScript check, production build, automated test run or live preview has been recorded for this branch. Do not represent the feature as complete until the integration and verification items above have been implemented and tested.
 
 ## Handoff notes for another AI/developer
 
