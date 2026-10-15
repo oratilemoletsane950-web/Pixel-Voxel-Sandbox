@@ -282,9 +282,11 @@ export const FACTION_SKIN_COLORS: Record<SettlementFaction, string> = {
   wardens: "#c79b73",
 };
 
-const REGION_SIZE = 192;
+// Seeded procedural regions: placement is derived from the world seed and terrain,
+// not authored settlement coordinates. Larger regions leave room for major towns.
+const REGION_SIZE = 320;
 const APRON = 12;
-const MAX_HALF = 64;
+const MAX_HALF = 112;
 const MAX_REGION_CACHE = 128;
 const regionCache = new Map<string, Settlement | null>();
 
@@ -323,10 +325,10 @@ function kindFor(faction: SettlementFaction, tier: number, kingdom: boolean): Ki
     // The sheet's progression: village -> town -> castle -> kingdom, from
     // smallest/most common to largest/rarest. A kingdom additionally has to
     // pass `scoreSite`'s broad-plain rules.
-    if (kingdom) return { kind: "kingdom", half: 60, occupancy: 0.85, quadrantCottages: 0.5, population: 24 };
-    if (tier > 0.78) return { kind: "castle", half: 56, occupancy: 0.88, quadrantCottages: 0.5, population: 18 };
-    if (tier > 0.45) return { kind: "town", half: 48, occupancy: 0.9, quadrantCottages: 0.6, population: 12 };
-    return { kind: "village", half: 42, occupancy: 0.92, quadrantCottages: 0.7, population: 8 };
+    if (kingdom) return { kind: "kingdom", half: 104, occupancy: 0.94, quadrantCottages: 0.9, population: 24 };
+    if (tier > 0.78) return { kind: "castle", half: 76, occupancy: 0.92, quadrantCottages: 0.78, population: 18 };
+    if (tier > 0.45) return { kind: "town", half: 62, occupancy: 0.92, quadrantCottages: 0.82, population: 12 };
+    return { kind: "village", half: 42, occupancy: 0.96, quadrantCottages: 0.88, population: 8 };
   }
   if (faction === "elves") return { kind: "grove", half: 38, occupancy: 0.75, quadrantCottages: 0.45, population: 5 };
   if (faction === "dwarves") return { kind: "hold", half: 40, occupancy: 0.8, quadrantCottages: 0.35, population: 5 };
@@ -716,17 +718,21 @@ function layoutHuman(settlement: Settlement, spec: KindSpec, regionX: number, re
   }
   /* ---- block cottages between the streets, each with a path ---- */
   const quadPool = rosterPool(tier, "quad");
-  const quadStart = tier === "kingdom" ? 24 : 20;  const step = tier === "village" ? 11 : 12;
+  // Residential blocks expand with each tier. The homes follow local lanes and
+  // use varied footprints/setbacks to form clusters rather than a square grid.
+  const quadStart = tier === "village" ? 11 : tier === "town" ? 15 : tier === "castle" ? 19 : 27;
+  const step = tier === "village" ? 8 : tier === "town" ? 9 : tier === "castle" ? 10 : 11;
+  const gridCount = tier === "village" ? 4 : tier === "town" ? 6 : tier === "castle" ? 7 : 8;
   let cottage = 0;
   let farms = 0;
-  const farmGoal = tier === "village" ? 2 : 1;
+  const farmGoal = tier === "village" ? 2 : tier === "town" ? 3 : tier === "castle" ? 2 : 4;
   for (const sx of [-1, 1]) {
     for (const sz of [-1, 1]) {
-      for (let i = 0; i < 5; i += 1) {
-        for (let j = 0; j < 5; j += 1) {
+      for (let i = 0; i < gridCount; i += 1) {
+        for (let j = 0; j < gridCount; j += 1) {
           cottage += 1;
-          const qx = quadStart + i * step;
-          const qz = quadStart + j * step;
+          const qx = quadStart + i * step + Math.floor(r(cottage + 711) * 3) - 1;
+          const qz = quadStart + j * step + Math.floor(r(cottage + 712) * 3) - 1;
           const cellRoll = r(cottage + 600);
           // Farming villages keep the first free block of each quarter as a field.
           if (tier === "village" && i === 0 && j === 0 && farms < farmGoal && cellRoll < 0.7) {
@@ -984,19 +990,23 @@ function layoutFaction(settlement: Settlement, spec: KindSpec, regionX: number, 
             continue;
           }
           if (cellRoll > spec.quadrantCottages) continue;
-          const size = faction === "orcs" ? 7 : oddSize(r(cottage + 700), [7, 9]);
+          const size = faction === "orcs" ? 7 : oddSize(r(cottage + 700), [7, 9, 11]);
+          const depth = oddSize(r(cottage + 701), [7, 9, 11]);
           const x = cx + sx * qx;
           const z = cz + sz * qz;
-          const reach = (size - 1) / 2 + 1;
+          const reachX = (size - 1) / 2 + 1;
+          const reachZ = (depth - 1) / 2 + 1;
+          // Keep residential lots clear of civic buildings, gardens and other homes.
+          if (!fits(x, z, size, depth, 2)) continue;
+          settlement.buildings.push(makeBuilding(x, z, size, depth, qz <= qx ? (sz > 0 ? 2 : 0) : (sx > 0 ? 3 : 1), 1000 + cottage));
+          placed.push(rectOf(x, z, size, depth));
           if (qz <= qx) {
-            settlement.buildings.push(makeBuilding(x, z, size, size, sz > 0 ? 2 : 0, 1000 + cottage));
-            const doorZ = z - sz * reach;
+            const doorZ = z - sz * reachZ;
             const edgeZ = cz + sz * 3;
             settlement.paths.push({ x0: x - 1, x1: x + 1, z0: Math.min(doorZ, edgeZ), z1: Math.max(doorZ, edgeZ) });
           } else {
-            settlement.buildings.push(makeBuilding(x, z, size, size, sx > 0 ? 3 : 1, 1000 + cottage));
-            const doorX = x - sx * reach;
-            const edgeX = cx + sx * 3;
+            const doorX = x - sx * reachX;
+            const edgeX = cz + sx * 3;
             settlement.paths.push({ z0: z - 1, z1: z + 1, x0: Math.min(doorX, edgeX), x1: Math.max(doorX, edgeX) });
           }
         }
@@ -1056,16 +1066,16 @@ function makeSettlement(terrain: Terrain, seed: number, regionX: number, regionZ
   const tier = hash2(regionX, regionZ, seed + 8291);
   // Roughly one region in six becomes a kingdom, and only freefolk land;
   // `scoreSite` then insists the ground is a broad, flat, fertile plain.
-  const kingdom = faction === "freefolk" && hash2(regionX, regionZ, seed + 8293) > 0.84 && tier > 0.35;
+  const kingdom = faction === "freefolk" && hash2(regionX, regionZ, seed + 8293) > 0.94 && tier > 0.35;
   const spec = kindFor(faction, tier, kingdom);
   const centerX = regionX * REGION_SIZE + REGION_SIZE / 2 +
-    Math.floor((hash2(regionX, regionZ, seed + 8231) - 0.5) * 16);
+    Math.floor((hash2(regionX, regionZ, seed + 8231) - 0.5) * REGION_SIZE * 0.42);
   const centerZ = regionZ * REGION_SIZE + REGION_SIZE / 2 +
-    Math.floor((hash2(regionX, regionZ, seed + 8243) - 0.5) * 16);
+    Math.floor((hash2(regionX, regionZ, seed + 8243) - 0.5) * REGION_SIZE * 0.42);
 
   let best: { x: number; z: number; score: number; baseY: number } | null = null;
-  for (const offsetX of [-48, -24, 0, 24, 48]) {
-    for (const offsetZ of [-48, -24, 0, 24, 48]) {
+  for (const offsetX of [-72, -48, -24, 0, 24, 48, 72]) {
+    for (const offsetZ of [-72, -48, -24, 0, 24, 48, 72]) {
       const x = centerX + offsetX;
       const z = centerZ + offsetZ;
       const result = scoreSite(faction, spec, terrain, x, z);
@@ -1128,7 +1138,7 @@ function getSettlement(terrain: Terrain, regionX: number, regionZ: number): Sett
 
 /** Settlements whose footprint (plus apron) could touch the box [x0..x1] x [z0..z1]. */
 function settlementsTouching(terrain: Terrain, x0: number, z0: number, x1: number, z1: number): Settlement[] {
-  const reach = MAX_HALF + APRON + 48 + 8; // footprint + apron + candidate offset + jitter
+  const reach = MAX_HALF + APRON + 72 + 24; // footprint + apron + candidate offset + jitter
   const result: Settlement[] = [];
   const minRegionX = Math.floor((x0 - reach) / REGION_SIZE);
   const maxRegionX = Math.floor((x1 + reach) / REGION_SIZE);
@@ -1282,9 +1292,16 @@ function stampBuilding(writer: ChunkWriter, b: Building, ground: number): void {
   const stairColumns = new Set(stairs.map((cell) => `${cell.x},${cell.z}`));
   const stairKeys = new Set(stairs.map((cell) => `${cell.x},${cell.y},${cell.z}`));
   const grand = b.w >= 13 || b.d >= 13 || b.stories >= 3;
+  // A portion of houses have chamfered corners, creating varied footprints.
+  const chamfered = b.w >= 9 && b.d >= 9 &&
+    hash2(b.x, b.z, b.blueprint.length + b.stories * 17) > 0.38;
+  const clippedCorner = (dx: number, dz: number): boolean =>
+    chamfered && Math.abs(dx) >= hx - 1 && Math.abs(dz) >= hz - 1 &&
+    Math.abs(dx) + Math.abs(dz) > hx + hz - 1;
 
   for (let dx = -hx; dx <= hx; dx += 1) {
     for (let dz = -hz; dz <= hz; dz += 1) {
+      if (clippedCorner(dx, dz)) continue;
       const x = b.x + dx;
       const z = b.z + dz;
       if (!writer.inside(x, z)) continue;
@@ -1324,6 +1341,32 @@ function stampBuilding(writer: ChunkWriter, b: Building, ground: number): void {
         if (b.glazed && !corner && windowRow && windowColumn && !(onDoorWall && a <= 2)) block = ID.glass;
         writer.set(x, y, z, block);
       }
+    }
+  }
+
+  // Randomized entrance porches add a readable front entrance and varied massing.
+  const hasPorch = b.w >= 7 && b.d >= 7 && b.stories <= 3 &&
+    hash2(b.x + b.w, b.z - b.d, b.blueprint.length + 41) > 0.48;
+  if (hasPorch) {
+    for (let side = -1; side <= 1; side += 1) {
+      let px = b.x;
+      let pz = b.z;
+      if (b.facing === 0) { px += side; pz += hz + 1; }
+      else if (b.facing === 2) { px += side; pz -= hz + 1; }
+      else if (b.facing === 1) { px += hx + 1; pz += side; }
+      else { px -= hx + 1; pz += side; }
+      if (!writer.inside(px, pz)) continue;
+      writer.set(px, ground, pz, b.foundation);
+      if (side !== 0) for (let py = ground + 1; py <= ground + 3; py += 1) writer.set(px, py, pz, b.frameBlock);
+    }
+    for (let side = -2; side <= 2; side += 1) {
+      let px = b.x;
+      let pz = b.z;
+      if (b.facing === 0) { px += side; pz += hz + 2; }
+      else if (b.facing === 2) { px += side; pz -= hz + 2; }
+      else if (b.facing === 1) { px += hx + 2; pz += side; }
+      else { px -= hx + 2; pz += side; }
+      if (writer.inside(px, pz)) writer.set(px, ground + 4, pz, b.accent || b.roofBlock);
     }
   }
 
@@ -1450,6 +1493,7 @@ function stampBuilding(writer: ChunkWriter, b: Building, ground: number): void {
   const rz = hz + 1;
   for (let dx = -rx; dx <= rx; dx += 1) {
     for (let dz = -rz; dz <= rz; dz += 1) {
+      if (clippedCorner(dx, dz)) continue;
       const x = b.x + dx;
       const z = b.z + dz;
       if (!writer.inside(x, z)) continue;
