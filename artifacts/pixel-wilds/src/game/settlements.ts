@@ -356,7 +356,9 @@ function scoreSite(
   z: number,
 ): { score: number; baseY: number } {
   const half = spec.half;
-  // Probe the whole footprint (centre, half-way ring, and the edge/corners of the square).  // Anything wet in there rejects the site; the outer apron may be wet.  const probes: Array<[number, number]> = [[0, 0]];
+  // Probe the whole footprint (centre, half-way ring, and the edge/corners of the square).
+  // Anything wet in there rejects the site; the outer apron may be wet.
+  const probes: Array<[number, number]> = [[0, 0]];
   for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]]) {
     probes.push([dx * half * 0.5, dz * half * 0.5]);
     probes.push([dx * half, dz * half]);
