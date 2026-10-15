@@ -1937,47 +1937,6 @@ function castleLayout(archetype: string): CastleLayout {
   }
 }
 
-function chooseCastleSite(
-  terrain: Terrain, anchorX: number, anchorZ: number, archetype: string, searchRadius: number,
-): { x: number; z: number; ground: number } | null {
-  const layout = castleLayout(archetype);
-  let best: { x: number; z: number; ground: number; score: number } | null = null;
-  for (let radius = 0; radius <= searchRadius; radius += 16) {
-    const steps = radius === 0 ? 1 : Math.max(8, Math.round((Math.PI * 2 * radius) / 24));
-    for (let i = 0; i < steps; i += 1) {
-      const angle = radius === 0 ? 0 : (Math.PI * 2 * i) / steps;
-      const x = Math.round(anchorX + Math.cos(angle) * radius);
-      const z = Math.round(anchorZ + Math.sin(angle) * radius);
-      const offsets: Array<[number, number]> = [[0, 0], [layout.outerRadius, 0], [-layout.outerRadius, 0],
-        [0, layout.outerRadius], [0, -layout.outerRadius], [layout.outerRadius, layout.outerRadius],
-        [-layout.outerRadius, -layout.outerRadius], [layout.outerRadius, -layout.outerRadius],
-        [-layout.outerRadius, layout.outerRadius]];
-      const samples = offsets.map(([dx, dz]) => terrain.natural(x + dx, z + dz));
-      if (samples.some((s) => s.water > 0 || s.riverDist < s.riverHalfWidth + 3 ||
-          s.ground <= SEA_LEVEL + 3 || s.ground + layout.keepWall + layout.outerHeight + 12 >= 192)) continue;
-      const heights = samples.map((s) => s.ground);
-      const spread = Math.max(...heights) - Math.min(...heights);
-      if (spread > 30) continue;
-      const ground = [...heights].sort((a, b) => a - b)[Math.floor(heights.length / 2)];
-      const elevation = ground - SEA_LEVEL;
-      const riverDistance = samples[0]!.riverDist;
-      const terrainPenalty = spread * 1.7;
-      let strategicBonus = 0;
-      if (archetype === "hilltop") strategicBonus += Math.min(elevation, 55) * 0.5 - Math.abs(spread - 12) * 0.7;
-      else if (archetype === "riverside") {
-        strategicBonus += Number.isFinite(riverDistance) ? Math.max(0, 35 - Math.abs(riverDistance - 24)) * 0.7 : -8;
-      } else if (archetype === "palace-fortress") strategicBonus += Math.max(0, 14 - spread) * 0.8 - Math.abs(elevation - 18) * 0.12;
-      else strategicBonus += Math.min(elevation, 42) * 0.2 + Math.max(0, 18 - spread) * 0.6;
-      const score = strategicBonus - terrainPenalty - Math.hypot(x - anchorX, z - anchorZ) * 0.045;
-      if (!best || score > best.score) best = { x, z, ground, score };
-    }
-  }
-  if (best) return { x: best.x, z: best.z, ground: best.ground };
-  const sample = terrain.natural(anchorX, anchorZ);
-  if (sample.water > 0 || sample.ground <= SEA_LEVEL + 2 || sample.ground + 42 >= 192) return null;
-  return { x: anchorX, z: anchorZ, ground: sample.ground };
-}
-
 function stampCastleTower(
   writer: ChunkWriter, cx: number, cz: number, ground: number, half: number, height: number,
 ): void {
