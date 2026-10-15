@@ -44,3 +44,6 @@ jobs:
 
       - name: Build Pixel Wilds
         run: pnpm --filter @workspace/pixel-wilds build
+        env:
+          PORT: 5000
+          BASE_PATH: /
