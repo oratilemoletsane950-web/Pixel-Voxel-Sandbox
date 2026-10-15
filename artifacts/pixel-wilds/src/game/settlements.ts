@@ -2006,7 +2006,7 @@ function stampCastleTower(
 type ResolvedFootprint = { x: number; z: number; halfW: number; halfD: number; ownerId: string; level: string };
 const resolvedPlansByTerrain = new WeakMap<Terrain, Map<string, HierarchyPlan>>();
 
-function resolveHierarchyPlan(source: HierarchyPlan, terrain: Terrain): HierarchyPlan {
+export function resolveHierarchyPlan(source: HierarchyPlan, terrain: Terrain): HierarchyPlan {
   const nodes: SettlementNode[] = source.nodes.map((node) => ({ ...node, children: [...node.children], metadata: { ...node.metadata } }));
   const byId = new Map(nodes.map((node) => [node.id, node]));
   const originalById = new Map(source.nodes.map((node) => [node.id, node]));
@@ -2177,9 +2177,24 @@ function stampHierarchyHouseNodes(writer: ChunkWriter, terrain: Terrain, seed: n
         const nearestZ = fromZ + t * dz;
         if (Math.hypot(x - nearestX, z - nearestZ) > width / 2) continue;
         const sample = terrain.natural(x, z);
-        if (sample.water > 0 || sample.riverDist < sample.riverHalfWidth + 1) continue;
+        const riverCrossing = Number.isFinite(sample.riverDist) &&
+          sample.riverDist < sample.riverHalfWidth + 7;
+        if (sample.water > 0) {
+          // Only bridge mapped river channels, never sea or lake water.
+          if (!riverCrossing) continue;
+          const bridgeY = sample.water;
+          if (bridgeY <= SEA_LEVEL || bridgeY + 3 >= 192) continue;
+          writer.set(x, bridgeY, z, ID.dark_planks);
+          writer.set(x, bridgeY + 1, z, 0);
+          writer.set(x, bridgeY + 2, z, 0);
+          continue;
+        }
         if (sample.ground <= SEA_LEVEL + 1 || sample.ground + 2 >= 192) continue;
-        writer.set(x, sample.ground, z, ID.gravel);
+        if (riverCrossing) {
+          writer.set(x, sample.ground, z, ID.dark_planks);
+        } else {
+          writer.set(x, sample.ground, z, ID.gravel);
+        }
         writer.set(x, sample.ground + 1, z, 0);
         writer.set(x, sample.ground + 2, z, 0);
       }
