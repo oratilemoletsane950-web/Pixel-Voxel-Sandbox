@@ -11,6 +11,8 @@ import {
  */
 const MAX_PLANS = 4;
 const plans = new Map<string, HierarchyPlan>();
+const BUCKET_SIZE = 256;
+const spatialIndexes = new WeakMap<HierarchyPlan, Map<string, SettlementNode[]>>();
 
 function planKey(seed: number, options: HierarchyOptions): string {
   return [
@@ -39,12 +41,31 @@ export function hierarchyPlanFor(seed: number, options: HierarchyOptions = {}): 
   return plan;
 }
 
+function bucketKey(x: number, z: number): string {
+  return `${Math.floor(x / BUCKET_SIZE)}:${Math.floor(z / BUCKET_SIZE)}`;
+}
+
+function indexPlan(plan: HierarchyPlan): Map<string, SettlementNode[]> {
+  const cached = spatialIndexes.get(plan);
+  if (cached) return cached;
+  const index = new Map<string, SettlementNode[]>();
+  for (const node of plan.nodes) {
+    const key = bucketKey(node.x, node.z);
+    const bucket = index.get(key);
+    if (bucket) bucket.push(node);
+    else index.set(key, [node]);
+  }
+  spatialIndexes.set(plan, index);
+  return index;
+}
+
 /**
- * Returns planned nodes whose world-space location/footprint intersects a
- * rectangular query. A caller can use this to restrict work to visible chunks.
+ * Returns nodes in a rectangular world-space query. The index avoids scanning
+ * every hierarchy node for each streamed chunk. Margin is used to include
+ * structures whose footprint extends beyond their planned centre.
  *
- * Note: these are still planning coordinates; terrain validation and block
- * stamping must happen before they are treated as placed structures.
+ * Coordinates remain planning hints until a terrain-aware placement pass
+ * validates the site and the real structure stamper places the blocks.
  */
 export function hierarchyNodesInBounds(
   plan: HierarchyPlan,
@@ -54,12 +75,29 @@ export function hierarchyNodesInBounds(
   maxZ: number,
   margin = 0,
 ): SettlementNode[] {
-  return plan.nodes.filter((node) =>
-    node.x + margin >= minX &&
-    node.x - margin <= maxX &&
-    node.z + margin >= minZ &&
-    node.z - margin <= maxZ
-  );
+  const index = indexPlan(plan);
+  const firstX = Math.floor((minX - margin) / BUCKET_SIZE);
+  const lastX = Math.floor((maxX + margin) / BUCKET_SIZE);
+  const firstZ = Math.floor((minZ - margin) / BUCKET_SIZE);
+  const lastZ = Math.floor((maxZ + margin) / BUCKET_SIZE);
+  const candidates: SettlementNode[] = [];
+  const seen = new Set<string>();
+
+  for (let bx = firstX; bx <= lastX; bx += 1) {
+    for (let bz = firstZ; bz <= lastZ; bz += 1) {
+      for (const node of index.get(`${bx}:${bz}`) ?? []) {
+        if (seen.has(node.id)) continue;
+        seen.add(node.id);
+        if (
+          node.x + margin >= minX &&
+          node.x - margin <= maxX &&
+          node.z + margin >= minZ &&
+          node.z - margin <= maxZ
+        ) candidates.push(node);
+      }
+    }
+  }
+  return candidates;
 }
 
 /** Clear cached plans in tests or when a development session changes worlds. */
