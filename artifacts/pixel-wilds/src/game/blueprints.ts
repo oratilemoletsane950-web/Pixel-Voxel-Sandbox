@@ -177,8 +177,7 @@ export function pickFrom<T>(values: readonly T[], roll: number): T {
 
 interface Palette {
   walls: number[];
-  frame: number;  floor: number;
-  foundation: number;
+  frame: number;  floor: number;  foundation: number;
 }
 
 const PALETTES: Record<HumanTier, Record<WallStyle, Palette>> = {
@@ -232,7 +231,7 @@ export function accentBlock(accent: Blueprint["accent"]): number {
   return 0;
 }
 
-/** Apply Victorian facade details to a building's style. */
+/** Apply blueprint facade settings to a generated building. */
 export function applyVictorianFacade(
   b: import("./settlements").Building,
   facadeVariant: Blueprint["facadeVariant"],
@@ -243,23 +242,26 @@ export function applyVictorianFacade(
   bayWindowWidth?: number,
 ): import("./settlements").Building {
   const result = { ...b };
-  if (facadeVariant === 1) {
-    // Add bay window on the front façade
-    result.bayWindowWidth = bayWindowWidth || 3;
-  } else if (facadeVariant === 2) {
-    // Full Victorian: bay windows + dormers + cornice
-    result.bayWindowWidth = bayWindowWidth || 3;
-    result.hasDormers = hasDormers !== undefined ? hasDormers : true;
-    if (corniceBlock !== undefined) {
-      // Map the block ID to an accent value for the Building interface
-      if (corniceBlock === ID.gold) result.accent = ID.gold;
-      else if (corniceBlock === ID.marble) result.accent = ID.marble;
-      else if (corniceBlock === ID.brick) result.accent = ID.brick;
-      else result.accent = corniceBlock;
-    }
-    result.gableTrim = gableTrim !== undefined ? gableTrim : true;
+
+  if (facadeVariant === 1 || facadeVariant === 2) {
+    // A configured width of zero explicitly disables the bay window.
+    result.bayWindowWidth = bayWindowWidth !== undefined ? bayWindowWidth : 3;
   }
-  // Window count is informational - the generator uses it for placement
+  if (facadeVariant === 2 && hasDormers === undefined) {
+    result.hasDormers = true;
+  }
+  if (hasDormers !== undefined) result.hasDormers = hasDormers;
+
+  if (corniceBlock !== undefined) {
+    // Cornice material becomes the facade's decorative accent.
+    if (corniceBlock === ID.gold || corniceBlock === ID.marble || corniceBlock === ID.brick) {
+      result.accent = corniceBlock;
+    } else if (corniceBlock !== 0) {
+      result.accent = corniceBlock;
+    }
+  }
+  if (gableTrim !== undefined) result.gableTrim = gableTrim;
   if (windowCount !== undefined) result.windowCount = windowCount;
+
   return result;
 }
