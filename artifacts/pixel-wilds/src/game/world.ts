@@ -409,7 +409,14 @@ export function findSpawnPoint(
       }
       if (top < 0) continue;
       const id = getBlockId(world, x, top, z);
-      const soft = id === ID.grass ? 0 : id === ID.sand || id === ID.path || id === ID.cobblestone ? 3 : id === ID.snow ? 6 : 100;
+      // Prefer natural grass, then familiar settlement surfaces, but accept any
+      // solid dry ground as a last resort. Restricting this to a short whitelist
+      // could leave a perfectly usable world with no candidate and spawn the
+      // player at y=100 in empty sky.
+      const soft = id === ID.grass ? 0
+        : id === ID.sand || id === ID.path || id === ID.cobblestone ? 3
+        : id === ID.snow ? 6
+        : IS_SOLID[id] === 1 ? 12 : 100;
       if (soft >= 100 || IS_SOLID[id] !== 1) continue;
       let clear = true;
       for (let dy = 1; dy <= 6 && clear; dy += 1) if (getBlockId(world, x, top + dy, z) !== AIR) clear = false;
