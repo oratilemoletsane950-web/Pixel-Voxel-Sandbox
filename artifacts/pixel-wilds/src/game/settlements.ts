@@ -2001,8 +2001,9 @@ function stampHierarchyHouseNodes(writer: ChunkWriter, terrain: Terrain, seed: n
     ];
     if (samples.some((sample) => sample.water > 0 || sample.riverDist < sample.riverHalfWidth + 2)) continue;
     const heights = samples.map((sample) => sample.ground);
-    if (Math.max(...heights) - Math.min(...heights) > 8) continue;
-    const ground = Math.round(heights.reduce((sum, value) => sum + value, 0) / heights.length);
+    if (Math.max(...heights) - Math.min(...heights) > 4) continue;
+    const sortedHeights = [...heights].sort((a, b) => a - b);
+    const ground = sortedHeights[Math.floor(sortedHeights.length / 2)];
     if (ground <= SEA_LEVEL + 2 || ground + stories * 6 + 8 >= 192) continue;
 
     const timber = archetype === 4 ? ID.dark_planks : ID.planks;
