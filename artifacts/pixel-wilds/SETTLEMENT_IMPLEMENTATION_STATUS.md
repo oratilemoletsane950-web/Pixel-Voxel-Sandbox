@@ -1,6 +1,6 @@
 # Procedural Settlement System — Implementation Status
 
-Branch: `feature/settlement-hierarchy-foundation`
+Branch: `feature/settlement-hierarchy-completion`
 
 ## What has been implemented in this tranche
 
@@ -21,7 +21,7 @@ Branch: `feature/settlement-hierarchy-foundation`
 - Expanded that region's deterministic site search to find a terrain-valid kingdom plain over a wider area while preserving the existing water, slope, elevation and climate checks.
 - Updated new-world setup and spawn selection to prefer the kingdom before falling back to another human settlement.
 
-**Verification caveat:** these changes have been committed to the feature branch but have not yet been typechecked or preview-tested. The spawn routine still uses the existing safe-ground scan; a running preview is needed to confirm the actual player appears inside the walls/urban area for representative seeds.
+**Verification status:** the merged foundation passed the GitHub Actions TypeScript check and production build before merge. Automated hierarchy and streaming tests have now been added to this follow-up branch and wired into CI; their result is pending. No live preview or in-game spawn test has been performed, so actual appearance and player placement remain unverified.
 
 ### Deterministic hierarchy planning
 Added `src/game/settlement-hierarchy.ts`.
@@ -48,7 +48,7 @@ The hierarchy planner is connected to chunk stamping for residential `house` nod
 3. Connect village nodes to actual building blueprints and guarantee 20–30 residential homes per village, counting houses separately from barns, stalls and civic buildings.
 4. Wire hierarchy nodes into real settlement blueprints and chunk stamping; prove one kingdom -> city -> town -> village vertical slice before enabling full counts.
 5. Verify the starting-kingdom path with a new world and representative seeds.
-6. Run `npm run typecheck` and `npm run build`; fix all errors before merging.
+6. Run automated hierarchy tests, TypeScript checking and the production build in CI; fix all errors before merging.
 
 ### P1 — Correct hierarchy and civic architecture in the renderer
 1. Replace the current one-settlement-per-region interpretation for human settlements with parent-child region planning.
@@ -100,6 +100,13 @@ The hierarchy planner is connected to chunk stamping for residential `house` nod
 3. Add preview smoke tests and verify a new game spawns in a kingdom.
 4. Profile chunk generation time and memory at village, town, city and kingdom scales.
 5. Document the seed, hierarchy data model, rendering pipeline, known limits and exact commands to run tests.
+
+## Automated checks added in the current follow-up
+
+- Added deterministic hierarchy count/link tests across representative seeds.
+- Added tests that same seed/options yield identical plans and changing the origin translates coordinates without changing IDs.
+- Added streaming-cache reuse, spatial bounds ordering, margin/negative-coordinate and invalid-query tests.
+- Added a package test command and a CI step to run these tests before typecheck/build. CI results must be checked before treating them as passing.
 
 ## Current execution boundary
 
