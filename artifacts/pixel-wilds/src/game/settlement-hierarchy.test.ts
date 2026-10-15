@@ -38,7 +38,7 @@ test("different origins translate all planned coordinates by the same offset", (
   assert.equal(first.nodes.length, shifted.nodes.length);
   for (let i = 0; i < first.nodes.length; i += 1) {
     assert.equal(shifted.nodes[i].x, first.nodes[i].x + 1000);
-    assert.equal(shifted.nodes[i].z, first.nodes[i].z - 250);
+    assert.equal(shifted.nodes[i].z + 250, first.nodes[i].z);
     assert.equal(shifted.nodes[i].id, first.nodes[i].id);
   }
 });
