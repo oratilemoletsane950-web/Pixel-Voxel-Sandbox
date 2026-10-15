@@ -42,3 +42,31 @@ test("different origins translate all planned coordinates by the same offset", (
     assert.equal(shifted.nodes[i].id, first.nodes[i].id);
   }
 });
+
+test("city, town, and village centres retain minimum separation", () => {
+  for (const seed of [3, 19, 42, 101, 2026]) {
+    const plan = createHierarchyPlan(seed);
+    const byId = new Map(plan.nodes.map((node) => [node.id, node]));
+    const cities = plan.nodes.filter((node) => node.level === "city");
+    for (let i = 0; i < cities.length; i += 1) {
+      for (let j = i + 1; j < cities.length; j += 1) {
+        const distance = Math.hypot(cities[i].x - cities[j].x, cities[i].z - cities[j].z);
+        assert.ok(distance > 1450, `cities too close for seed ${seed}: ${distance}`);
+      }
+      const towns = cities[i].children.map((id) => byId.get(id)).filter((node) => node?.level === "town");
+      for (let a = 0; a < towns.length; a += 1) {
+        for (let b = a + 1; b < towns.length; b += 1) {
+          const distance = Math.hypot(towns[a]!.x - towns[b]!.x, towns[a]!.z - towns[b]!.z);
+          assert.ok(distance > 400, `towns too close for seed ${seed}: ${distance}`);
+        }
+        const villages = towns[a]!.children.map((id) => byId.get(id)).filter((node) => node?.level === "village");
+        for (let v = 0; v < villages.length; v += 1) {
+          for (let w = v + 1; w < villages.length; w += 1) {
+            const distance = Math.hypot(villages[v]!.x - villages[w]!.x, villages[v]!.z - villages[w]!.z);
+            assert.ok(distance > 80, `villages too close for seed ${seed}: ${distance}`);
+          }
+        }
+      }
+    }
+  }
+});
