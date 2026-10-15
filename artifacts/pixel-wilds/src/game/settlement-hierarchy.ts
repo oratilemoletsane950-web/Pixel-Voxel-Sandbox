@@ -163,14 +163,49 @@ export function createHierarchyPlan(seed: number, options: HierarchyOptions = {}
 /** Lightweight structural validation for development and automated tests. */
 export function validateHierarchyPlan(plan: HierarchyPlan): string[] {
   const errors: string[] = [];
-  const byId = new Map(plan.nodes.map((node) => [node.id, node]));
+  const byId = new Map<string, SettlementNode>();
+  for (const node of plan.nodes) {
+    if (byId.has(node.id)) errors.push(`Duplicate node id: ${node.id}.`);
+    else byId.set(node.id, node);
+  }
+
   const kingdom = byId.get(plan.kingdomId);
   if (!kingdom || kingdom.level !== "kingdom") errors.push("Missing root kingdom.");
+  if (kingdom?.parentId !== null) errors.push("Root kingdom must not have a parent.");
 
+  const expectedParent: Partial<Record<SettlementLevel, SettlementLevel>> = {
+    city: "kingdom",
+    town: "city",
+    village: "town",
+    house: "village",
+    castle: "kingdom",
+  };
   const countChildren = (node: SettlementNode, level: SettlementLevel) =>
     node.children.map((id) => byId.get(id)).filter((child) => child?.level === level).length;
 
   for (const node of plan.nodes) {
+    if (node.parentId) {
+      const parent = byId.get(node.parentId);
+      if (!parent) errors.push(`${node.id}: missing parent ${node.parentId}.`);
+      else {
+        if (expectedParent[node.level] && parent.level !== expectedParent[node.level]) {
+          errors.push(`${node.id}: ${node.level} must be parented by ${expectedParent[node.level]}, not ${parent.level}.`);
+        }
+        if (!parent.children.includes(node.id)) errors.push(`${node.id}: parent does not list this child.`);
+      }
+    } else if (node.id !== plan.kingdomId) {
+      errors.push(`${node.id}: only the root kingdom may omit a parent.`);
+    }
+
+    const seenChildren = new Set<string>();
+    for (const childId of node.children) {
+      if (seenChildren.has(childId)) errors.push(`${node.id}: duplicate child reference ${childId}.`);
+      seenChildren.add(childId);
+      const child = byId.get(childId);
+      if (!child) errors.push(`${node.id}: missing child ${childId}.`);
+      else if (child.parentId !== node.id) errors.push(`${node.id}: child ${childId} points to a different parent.`);
+    }
+
     if (node.level === "kingdom") {
       const cities = countChildren(node, "city");
       if (cities < 5 || cities > 8) errors.push(`${node.id}: expected 5-8 cities, got ${cities}.`);
@@ -180,15 +215,18 @@ export function validateHierarchyPlan(plan: HierarchyPlan): string[] {
     } else if (node.level === "town") {
       const villages = countChildren(node, "village");
       if (villages < 5 || villages > 8) errors.push(`${node.id}: expected 5-8 villages, got ${villages}.`);
+      for (const key of ["townSquare", "townHall", "outerWall"]) {
+        if (node.metadata[key] !== true) errors.push(`${node.id}: missing town feature ${key}.`);
+      }
     } else if (node.level === "village") {
       const houses = countChildren(node, "house");
       if (houses < 20 || houses > 30) errors.push(`${node.id}: expected 20-30 houses, got ${houses}.`);
     } else if (node.level === "castle") {
-      if (!plan.castleWards[node.id]?.includes("outer") || !plan.castleWards[node.id]?.includes("inner") || !plan.castleWards[node.id]?.includes("keep")) {
-        errors.push(`${node.id}: castle must declare outer ward, inner ward and keep.`);
+      const wards = plan.castleWards[node.id] ?? [];
+      for (const ward of ["outer", "inner", "keep"] as const) {
+        if (!wards.includes(ward)) errors.push(`${node.id}: castle must declare the ${ward} ward.`);
       }
     }
-    if (node.parentId && !byId.has(node.parentId)) errors.push(`${node.id}: missing parent ${node.parentId}.`);
   }
   return errors;
 }
