@@ -1892,7 +1892,35 @@ export function stampSettlements(writer: ChunkWriter, terrain: Terrain, seed: nu
   const { startX, startZ } = writer;
   const endX = startX + CHUNK_SIZE - 1;
   const endZ = startZ + CHUNK_SIZE - 1;
-  for (const s of settlementsTouching(terrain, startX, startZ, endX, endZ)) {
+  const originSettlement = getSettlement(terrain, 0, 0);
+  const hierarchyOriginX = originSettlement?.kind === "kingdom" ? originSettlement.centerX : 0;
+  const hierarchyOriginZ = originSettlement?.kind === "kingdom" ? originSettlement.centerZ : 0;
+  const hierarchyPlan = hierarchyPlanFor(seed, { originX: hierarchyOriginX, originZ: hierarchyOriginZ });
+  const legacyCandidates = settlementsTouching(terrain, startX, startZ, endX, endZ);
+  for (const s of legacyCandidates) {
+    // Keep the starting kingdom intact. Other legacy settlements are omitted
+    // when their footprint would occupy a hierarchy-owned village, town, city
+    // civic centre or castle; this avoids stamping two independent plans over
+    // the same site while retaining legacy settlements in untouched regions.
+    if (s.kind !== "kingdom") {
+      const margin = s.radius + 64;
+      const nearbyHierarchy = hierarchyNodesInBounds(
+        hierarchyPlan,
+        s.centerX - margin, s.centerZ - margin,
+        s.centerX + margin, s.centerZ + margin,
+        0,
+      );
+      const conflicts = nearbyHierarchy.some((node) => {
+        const distance = Math.hypot(node.x - s.centerX, node.z - s.centerZ);
+        const ownedRadius = node.level === "town" ? 52
+          : node.level === "village" ? 44
+          : node.level === "city" ? 28
+          : node.level === "castle" ? 60
+          : node.level === "house" ? 6 : 0;
+        return ownedRadius > 0 && distance < s.radius + ownedRadius;
+      });
+      if (conflicts) continue;
+    }
     const ground = s.baseY;
     const half = s.radius;
     if (!writer.overlaps(s.centerX - half - 6, s.centerZ - half - 6, s.centerX + half + 6, s.centerZ + half + 6)) continue;
