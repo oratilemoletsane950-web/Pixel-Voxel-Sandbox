@@ -7,6 +7,7 @@ Branch: `feature/settlement-hierarchy-foundation`
 ### Streaming and validation foundation added
 - Added `src/game/hierarchy-streaming.ts` with a bounded four-plan LRU cache keyed by seed and origin.
 - Added a lazily built 256-block spatial bucket index so bounds queries inspect nearby candidates instead of scanning every node in the full hierarchy for each query.
+- Hardened bounds queries to reject non-finite values, inverted ranges and negative margins; results are sorted deterministically so chunk consumers do not depend on bucket traversal order.
 - Strengthened `validateHierarchyPlan()` to detect duplicate IDs, invalid parent/child links, incorrect parent tiers, missing town features, missing castle wards, non-finite coordinates and parent cycles.
 - **Not yet live:** no existing chunk or settlement renderer imports the streaming utility yet. Spatial queries return planning coordinates only; they do not validate terrain or stamp structures.
 
