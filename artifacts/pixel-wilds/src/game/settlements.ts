@@ -16,7 +16,6 @@ import type { HeightRecord, Terrain } from "./terrain";
 import { leafBlob } from "./trees";
 import { hierarchyNodesInBounds, hierarchyPlanFor } from "./hierarchy-streaming";
 import type { HierarchyPlan, SettlementNode } from "./settlement-hierarchy";
-import type { HierarchyPlan, SettlementNode } from "./settlement-hierarchy";
 
 /**
  * Settlements (1 block = 0.5 m).
