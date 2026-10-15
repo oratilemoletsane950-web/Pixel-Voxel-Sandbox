@@ -1,6 +1,6 @@
 # Procedural Settlement System — Implementation Status
 
-Branch: `feature/guaranteed-village-homes`
+Branch: `feature/on-demand-world-spawn-safety`
 
 ## What has been implemented in this tranche
 
