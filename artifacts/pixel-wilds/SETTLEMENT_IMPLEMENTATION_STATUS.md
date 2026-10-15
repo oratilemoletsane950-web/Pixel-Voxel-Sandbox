@@ -4,6 +4,13 @@ Branch: `feature/settlement-hierarchy-foundation`
 
 ## What has been implemented in this tranche
 
+### Starting kingdom and spawn preference
+- Reserved procedural region `(0, 0)` for a human kingdom rather than relying on a rare random kingdom roll.
+- Expanded that region's deterministic site search to find a terrain-valid kingdom plain over a wider area while preserving the existing water, slope, elevation and climate checks.
+- Updated new-world setup and spawn selection to prefer the kingdom before falling back to another human settlement.
+
+**Verification caveat:** these changes have been committed to the feature branch but have not yet been typechecked or preview-tested. The spawn routine still uses the existing safe-ground scan; a running preview is needed to confirm the actual player appears inside the walls/urban area for representative seeds.
+
 ### Deterministic hierarchy planning
 Added `src/game/settlement-hierarchy.ts`.
 
@@ -19,7 +26,7 @@ Added `src/game/settlement-hierarchy.ts`.
 - Includes `validateHierarchyPlan()` to check required counts and parent references.
 
 ### Important limitation
-This is currently a **planning/data foundation only**. It is not yet connected to `settlements.ts`, terrain site selection, chunk stamping, the player spawn system or world streaming. The planned coordinates are deterministic hints, not terrain-validated final positions. It must not be described as the finished in-game hierarchy yet.
+The hierarchy planner is still a **planning/data foundation only**. It is not yet connected to the settlement layout/stamping pipeline or used to render its city -> town -> village -> house relationships. The separate starting-kingdom preference is wired into existing procedural settlement selection, but it does not make the hierarchy planner itself live. Planned hierarchy coordinates remain hints, not terrain-validated final positions. The full in-game hierarchy must not be described as finished yet.
 
 ## Work remaining, in priority order
 
@@ -28,8 +35,9 @@ This is currently a **planning/data foundation only**. It is not yet connected t
 2. Add a hierarchy cache keyed by world seed and kingdom/region ID; avoid rebuilding thousands of nodes for every chunk request.
 3. Add a terrain-aware placement pass that validates land, water, slope, spacing and footprint conflicts.
 4. Connect village nodes to actual building blueprints and guarantee 20–30 residential homes per village, counting houses separately from barns, stalls and civic buildings.
-5. Build one test kingdom with one city, one town and one village in a development/test mode first, then enable full required counts.
-6. Run `npm run typecheck` and `npm run build`; fix all errors before merging.
+5. Wire hierarchy nodes into real settlement blueprints and chunk stamping; prove one kingdom -> city -> town -> village vertical slice before enabling full counts.
+6. Verify the starting-kingdom path with a new world and representative seeds.
+7. Run `npm run typecheck` and `npm run build`; fix all errors before merging.
 
 ### P1 — Correct hierarchy and civic architecture in the renderer
 1. Replace the current one-settlement-per-region interpretation for human settlements with parent-child region planning.
@@ -71,8 +79,8 @@ This is currently a **planning/data foundation only**. It is not yet connected t
 2. Generate metadata ahead of visible geometry, then stamp only buildings intersecting requested chunks.
 3. Make adjacent chunks agree on the same buildings, roads, walls and terrain.
 4. Cache and evict region data safely without changing it on revisit.
-5. Add a deterministic spawn-selection routine that searches for a safe point inside the starting kingdom, close to a road/populated district but not inside a wall, water, roof or occupied building.
-6. Ensure the initial kingdom hierarchy exists before the player becomes controllable.
+5. **Partially implemented:** region (0, 0) is reserved for a terrain-validated starting kingdom, and new-world setup prefers that kingdom. Still verify that the spawn point is inside the intended playable area for new worlds.
+6. Ensure the full hierarchy exists before the player becomes controllable; this is not implemented yet.
 7. Test repeated travel away from and back to regions for consistency, duplicates and memory leaks.
 
 ### P6 — Validation, performance and handoff
@@ -85,7 +93,7 @@ This is currently a **planning/data foundation only**. It is not yet connected t
 ## Handoff notes for another AI/developer
 
 - Start from this branch and read this document before editing.
-- The new module is intentionally not yet wired into the live renderer; integration is the next task.
+- The hierarchy module is not yet wired into live settlement rendering. Starting-kingdom selection has been connected separately, but the requested parent-child settlement hierarchy is still incomplete.
 - Read `src/game/settlements.ts`, `src/game/terrain.ts`, `src/game/chunk.ts`, the chunk/world renderer, player spawn logic and `package.json` before changing architecture.
 - Do not claim that the hierarchy or spawn requirement is complete until it is wired into the runtime and verified in a running preview.
 - Do not modify block scale casually. The existing 0.5 m/block convention makes a 4-block player 2 m tall, but the current 192-block vertical world limits realistic mountain heights.
