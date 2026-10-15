@@ -38,7 +38,7 @@ Added `src/game/settlement-hierarchy.ts`.
 - Includes `validateHierarchyPlan()` to check required counts and parent references.
 
 ### Important limitation
-The hierarchy planner is now connected to chunk stamping for residential `house` nodes, but the whole hierarchy is not yet live. Hierarchy houses use terrain checks before stamping; city/town/village footprints and their roads, squares, halls, walls and castle wards still need a unified terrain-aware layout. The separate legacy settlement generator remains active. The full in-game hierarchy must not be described as finished yet.
+The hierarchy planner is connected to chunk stamping for residential `house` nodes, town and city civic structures, roads, town walls/gates and castle wards. The whole hierarchy is not yet live: village nodes do not have their own full blueprinted village layouts, planned counts are not guaranteed rendered counts, and the legacy settlement generator remains active. The full in-game hierarchy must not be described as finished yet.
 
 ## Work remaining, in priority order
 
@@ -108,7 +108,7 @@ The hierarchy data/validation layer has been improved, but the requested live ga
 ## Handoff notes for another AI/developer
 
 - Start from this branch and read this document before editing.
-- The hierarchy module is not yet wired into live settlement rendering. Starting-kingdom selection has been connected separately, but the requested parent-child settlement hierarchy is still incomplete.
+- The hierarchy module is partially wired into live settlement rendering for houses, town/city civic structures, roads and castle wards. Starting-kingdom selection is connected separately, but the requested parent-child settlement hierarchy is still incomplete.
 - Read `src/game/settlements.ts`, `src/game/terrain.ts`, `src/game/chunk.ts`, the chunk/world renderer, player spawn logic and `package.json` before changing architecture.
 - Do not claim that the hierarchy or spawn requirement is complete until it is wired into the runtime and verified in a running preview.
 - Do not modify block scale casually. The existing 0.5 m/block convention makes a 4-block player 2 m tall, but the current 192-block vertical world limits realistic mountain heights.
