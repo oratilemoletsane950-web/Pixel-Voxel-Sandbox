@@ -1,6 +1,6 @@
 # Procedural Settlement System — Implementation Status
 
-Branch: `feature/detailed-town-fortifications`
+Branch: `feature/settlement-layout-spacing`
 
 ## What has been implemented in this tranche
 
@@ -27,7 +27,7 @@ Branch: `feature/detailed-town-fortifications`
 Added `src/game/settlement-hierarchy.ts`.
 
 - Defines lightweight nodes for kingdoms, cities, towns, villages, houses and castles.
-- Generates a seeded hierarchy plan with stable IDs and reproducible names/coordinates.
+- Generates a seeded hierarchy plan with stable IDs and reproducible names/coordinates. City centres now use a fixed wider ring; town and village rings have tighter deterministic angular jitter and revised radii to reduce cross-tier footprint crowding.
 - Enforces 5–8 cities per kingdom.
 - Enforces exactly 5 towns per city.
 - Enforces 5–8 villages per town.
@@ -43,7 +43,7 @@ The hierarchy planner is connected to chunk stamping for residential `house` nod
 ## Work remaining, in priority order
 
 ### P0 — Integrate and prove the smallest vertical slice
-1. **In progress:** detailed hierarchy town gatehouses and towers have been added; next validate/refine footprint spacing and finish reconciling legacy and hierarchy layouts. Geometry still requires visual preview verification.
+1. Detailed hierarchy town gatehouses and towers have been added. This follow-up widens the city ring and refines town/village radii to reduce planned footprint overlap; automated multi-seed minimum-distance checks cover the centres. Finish reconciling legacy and hierarchy layouts and visually verify geometry.
 2. Add a terrain-aware placement pass that validates land, water, slope, spacing and footprint conflicts.
 3. Connect village nodes to actual building blueprints and guarantee 20–30 residential homes per village, counting houses separately from barns, stalls and civic buildings.
 4. Wire hierarchy nodes into real settlement blueprints and chunk stamping; prove one kingdom -> city -> town -> village vertical slice before enabling full counts.
@@ -105,6 +105,7 @@ The hierarchy planner is connected to chunk stamping for residential `house` nod
 
 - Added deterministic hierarchy count/link tests across representative seeds.
 - Added tests that same seed/options yield identical plans and changing the origin translates coordinates without changing IDs.
+- Added multi-seed minimum-distance tests between city centres, sibling town centres and sibling village centres.
 - Added streaming-cache reuse, spatial bounds ordering, margin/negative-coordinate and invalid-query tests.
 - Added a package test command and a CI step to run these tests before typecheck/build. CI results must be checked before treating them as passing.
 
