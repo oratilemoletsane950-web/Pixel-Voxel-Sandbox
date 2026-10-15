@@ -618,6 +618,28 @@ function layoutHuman(settlement: Settlement, spec: KindSpec, regionX: number, re
     commit(blueprintById(tier, "warehouse"), stores.x + 7, stores.z, facingIn(stores.x + 7, stores.z), 0);
   }
 
+  /* ---- neighborhood hierarchy and local street network ---- */
+  // Towns are organized as five village-like neighborhoods around the civic
+  // centre. Castles have four wards around the keep. Kingdoms have ten urban
+  // wards (the visual city-level subdivisions) around the palace and districts.
+  const wardCount = tier === "town" ? 5 : tier === "castle" ? 4 : tier === "kingdom" ? 10 : 0;
+  const wardReach = tier === "town" ? 0.58 : tier === "castle" ? 0.48 : 0.66;
+  const wardHalf = tier === "town" ? 4 : tier === "castle" ? 5 : 6;
+  for (let ward = 0; ward < wardCount; ward += 1) {
+    const angle = -Math.PI / 2 + (ward * Math.PI * 2) / wardCount;
+    const wx = cx + Math.round(Math.cos(angle) * half * wardReach);
+    const wz = cz + Math.round(Math.sin(angle) * half * wardReach);
+    // A compact local square gives each neighborhood a recognizable centre.
+    settlement.districts.push({ x: wx, z: wz, half: wardHalf });
+    // Connect the local square back to the civic cross, forming a walkable
+    // street hierarchy instead of isolated rows of houses.
+    if (Math.abs(wx - cx) >= Math.abs(wz - cz)) {
+      settlement.paths.push({ x0: Math.min(cx, wx), x1: Math.max(cx, wx), z0: wz - 1, z1: wz + 1 });
+    } else {
+      settlement.paths.push({ x0: wx - 1, x1: wx + 1, z0: Math.min(cz, wz), z1: Math.max(cz, wz) });
+    }
+  }
+
   /* ---- farms and parks (guaranteed green space) ---- */
   const greenSpace: Record<HumanTier, Array<[number, number, number, number] | "garden">> = {
     village: [[-24, 26, 13, 15], [26, -25, 15, 13]],
@@ -1006,7 +1028,7 @@ function layoutFaction(settlement: Settlement, spec: KindSpec, regionX: number, 
             settlement.paths.push({ x0: x - 1, x1: x + 1, z0: Math.min(doorZ, edgeZ), z1: Math.max(doorZ, edgeZ) });
           } else {
             const doorX = x - sx * reachX;
-            const edgeX = cz + sx * 3;
+            const edgeX = cx + sx * 3;
             settlement.paths.push({ z0: z - 1, z1: z + 1, x0: Math.min(doorX, edgeX), x1: Math.max(doorX, edgeX) });
           }
         }
