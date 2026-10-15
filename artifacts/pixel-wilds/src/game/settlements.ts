@@ -2240,31 +2240,68 @@ function stampHierarchyHouseNodes(writer: ChunkWriter, terrain: Terrain, seed: n
     const size = bp.w;
     const depth = bp.d;
     const stories = bp.stories;
-    // The query includes distant road endpoints; only terrain-sample houses
-    // whose actual blueprint footprint can intersect this chunk.
-    if (x + Math.ceil(size / 2) < chunkMinX || x - Math.ceil(size / 2) > chunkMaxX ||
-        z + Math.ceil(depth / 2) < chunkMinZ || z - Math.ceil(depth / 2) > chunkMaxZ) continue;
-    const samples = [
-      terrain.natural(x, z),
-      terrain.natural(x - Math.floor(size / 2), z - Math.floor(depth / 2)),
-      terrain.natural(x + Math.floor(size / 2), z - Math.floor(depth / 2)),
-      terrain.natural(x - Math.floor(size / 2), z + Math.floor(depth / 2)),
-      terrain.natural(x + Math.floor(size / 2), z + Math.floor(depth / 2)),
-    ];
-    if (samples.some((sample) => sample.water > 0 || sample.riverDist < sample.riverHalfWidth + 2)) continue;
-    const houseHeights = samples.map((sample) => sample.ground);
-    if (Math.max(...houseHeights) - Math.min(...houseHeights) > 4) continue;
-    const sortedHouseHeights = [...houseHeights].sort((a, b) => a - b);
-    const ground = sortedHouseHeights[Math.floor(sortedHouseHeights.length / 2)];
-    if (ground <= SEA_LEVEL + 2 || ground + stories * 6 + 8 >= 192) continue;
+    // Resolve unsuitable planned sites by searching deterministic nearby candidates.
+    // Each node picks the same site in every chunk, preserving seamless boundaries.
+    const halfW = Math.ceil(size / 2);
+    const halfD = Math.ceil(depth / 2);
+    const candidateOffsets: Array<[number, number]> = [[0, 0]];
+    for (let radius = 4; radius <= 48; radius += 4) {
+      for (let step = 0; step < 16; step += 1) {
+        const angle = (Math.PI * 2 * step) / 16;
+        candidateOffsets.push([Math.round(Math.cos(angle) * radius), Math.round(Math.sin(angle) * radius)]);
+      }
+    }
+    const siblingHouses = nodes.filter((other) => other.level === "house" && other.parentId === node.parentId && other.id !== node.id);
+    let chosen: { x: number; z: number; ground: number } | null = null;
+    let bestFallback: { x: number; z: number; ground: number; score: number } | null = null;
+
+    for (const [offsetX, offsetZ] of candidateOffsets) {
+      const siteX = x + offsetX;
+      const siteZ = z + offsetZ;
+      const overlapsHouse = siblingHouses.some((other) =>
+        Math.abs(siteX - Math.round(other.x)) < halfW + 5 &&
+        Math.abs(siteZ - Math.round(other.z)) < halfD + 5);
+      const samples = [
+        terrain.natural(siteX, siteZ),
+        terrain.natural(siteX - halfW, siteZ - halfD),
+        terrain.natural(siteX + halfW, siteZ - halfD),
+        terrain.natural(siteX - halfW, siteZ + halfD),
+        terrain.natural(siteX + halfW, siteZ + halfD),
+      ];
+      if (samples.some((sample) => sample.water > 0 || sample.riverDist < sample.riverHalfWidth + 2)) continue;
+      const heights = samples.map((sample) => sample.ground);
+      const spread = Math.max(...heights) - Math.min(...heights);
+      const sorted = [...heights].sort((a, b) => a - b);
+      const ground = sorted[Math.floor(sorted.length / 2)];
+      if (ground <= SEA_LEVEL + 2 || ground + stories * 6 + 8 >= 192) continue;
+
+      const score = spread * 10 + Math.hypot(offsetX, offsetZ);
+      if (!bestFallback || score < bestFallback.score) bestFallback = { x: siteX, z: siteZ, ground, score };
+      if (!overlapsHouse && spread <= 4) {
+        chosen = { x: siteX, z: siteZ, ground };
+        break;
+      }
+    }
+    // If strict flat sites are unavailable, prefer the least-steep dry candidate
+    // rather than silently dropping a home.
+    if (!chosen && bestFallback) {
+      chosen = { x: bestFallback.x, z: bestFallback.z, ground: bestFallback.ground };
+    }
+    if (!chosen) continue;
+    const siteX = chosen.x;
+    const siteZ = chosen.z;
+    const ground = chosen.ground;
+    // The final site may shift into a neighbouring chunk, so check overlap only now.
+    if (siteX + halfW < chunkMinX || siteX - halfW > chunkMaxX ||
+        siteZ + halfD < chunkMinZ || siteZ - halfD > chunkMaxZ) continue;
 
     // Use the same blueprint roster as hand-designed villages, so hierarchy
     // homes inherit their real footprints, wall palettes, roof forms and facades.
     const palette = tierPalette("village", bp.style);
     const building = applyVictorianFacade({
-      x, z, w: bp.w, d: bp.d, wall: bp.stories * 6, stories: bp.stories,
+      x: siteX, z: siteZ, w: bp.w, d: bp.d, wall: bp.stories * 6, stories: bp.stories,
       facing: archetype % 4 as Facing, roof: bp.roof,
-      wallBlock: pickFrom(palette.walls, hash2(x, z, seed + archetype * 37)),
+      wallBlock: pickFrom(palette.walls, hash2(siteX, siteZ, seed + archetype * 37)),
       frameBlock: palette.frame, roofBlock: tierRoofBlock("village"),
       floorBlock: palette.floor, foundation: palette.foundation,
       chimney: bp.chimney || bp.forge ? ID.cobblestone : 0, glazed: true,
