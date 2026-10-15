@@ -68,7 +68,7 @@ const RENDER_RADIUS_KEY = 'pixel-wilds-render-radius';
 const SETTLEMENT_KIND_LABELS: Record<SettlementKind, string> = {
   village: 'Village',
   town: 'Town',
-  city: 'City',
+  castle: 'Castle',
   kingdom: 'Kingdom',
   grove: 'Elven grove',
   hold: 'Mountain hold',
@@ -77,8 +77,21 @@ const SETTLEMENT_KIND_LABELS: Record<SettlementKind, string> = {
   lodge: 'Warden lodge',
 };
 
+/** What each design is, in one line (second row of the HUD card). */
+const SETTLEMENT_TAGLINES: Record<SettlementKind, string> = {
+  village: 'homes, farms & a watchtower',
+  town: 'workshops, town hall & market',
+  castle: 'moat, keep & garrison',
+  kingdom: 'palace, wards & temples',
+  grove: 'canopies & clearings',
+  hold: 'deep halls & forges',
+  camp: 'palisade & bonfires',
+  tower: 'spire & star chamber',
+  lodge: 'stands & fire pits',
+};
+
 /** Human settlements worth finding: streets, furniture, doors and walls. */
-const HUMAN_SETTLEMENT_KINDS: SettlementKind[] = ['village', 'town', 'city', 'kingdom'];
+const HUMAN_SETTLEMENT_KINDS: SettlementKind[] = ['village', 'town', 'castle', 'kingdom'];
 /** How far from you (and from a fresh origin) the HUD looks for one. */
 const SETTLEMENT_SEARCH = 640;
 
@@ -166,13 +179,15 @@ const DEFAULT_INVENTORY: Inventory = Object.fromEntries(
     type,
     type.endsWith('_ore')
       ? 6
-      : type === 'glass' || type === 'brick' || type === 'roof'
-        ? 16
-        : type === 'door' || type === 'marble'
-          ? 8
-          : type === 'chair' || type === 'table'
-            ? 6
-            : 24,
+      : type === 'gold'
+        ? 4
+        : type === 'glass' || type === 'brick' || type === 'roof'
+          ? 16
+          : type === 'door' || type === 'marble'
+            ? 8
+            : type === 'chair' || type === 'table'
+              ? 6
+              : 24,
   ]),
 ) as Inventory;
 
@@ -218,7 +233,7 @@ function initialWorld(position: Position | null = null): WorldData {
     loaded = createWorld(undefined, x, z, 5);
   }
   if (position) return loaded;
-  // A brand-new world opens at the nearest village, town, city or kingdom,
+  // A brand-new world opens at the nearest village, town, castle or kingdom,
   // with its chunks already generated, so a settlement is the first thing
   // you see instead of empty wilderness.
   const settlement = humanSettlementNear(loaded, 0, 0);
@@ -1026,6 +1041,20 @@ function App() {
     [world.seed, Math.floor((playerPosition?.x ?? 0) / 16), Math.floor((playerPosition?.z ?? 0) / 16)],
   );
   const nearestSettlement = nearbySettlements[0];
+  // Up to two more, of kinds you have not been shown yet, so the card helps
+  // you find every design out there.
+  const otherNearby = useMemo(() => {
+    if (!nearbySettlements.length) return [];
+    const seen = new Set<string>([nearbySettlements[0].kind]);
+    const picked: typeof nearbySettlements = [];
+    for (const s of nearbySettlements) {
+      if (picked.length >= 2) break;
+      if (seen.has(s.kind)) continue;
+      seen.add(s.kind);
+      picked.push(s);
+    }
+    return picked;
+  }, [nearbySettlements]);
   const settlementDistance = nearestSettlement
     ? Math.hypot(
       nearestSettlement.x - (playerPosition?.x ?? 0.5),
@@ -1385,9 +1414,7 @@ function App() {
             </small>
             <strong>{nearestSettlement.name}</strong>
             <p>
-              {nearestSettlement.buildings.length} buildings ·{' '}
-              {nearestSettlement.wall ? 'walls & towers' : 'open streets'}
-              {nearestSettlement.kind === 'kingdom' ? ' · keep & wards' : ''}
+              {nearestSettlement.buildings.length} buildings · {SETTLEMENT_TAGLINES[nearestSettlement.kind]}
             </p>
             <p>
               {atSettlement
@@ -1397,6 +1424,21 @@ function App() {
                     nearestSettlement.z - (playerPosition?.z ?? 0.5),
                   )}`}
             </p>
+            {nearestSettlement.landmarks.length > 0 && (
+              <p>{nearestSettlement.landmarks.slice(0, 3).join(' · ')}</p>
+            )}
+            {otherNearby.length > 0 && (
+              <p>
+                also near:{' '}
+                {otherNearby
+                  .map((s) => {
+                    const dx = s.x - (playerPosition?.x ?? 0.5);
+                    const dz = s.z - (playerPosition?.z ?? 0.5);
+                    return `${SETTLEMENT_KIND_LABELS[s.kind]} ${Math.round(Math.hypot(dx, dz))} m ${compassWord(dx, dz)}`;
+                  })
+                  .join(' · ')}
+              </p>
+            )}
           </div>
         )}
 
@@ -1421,7 +1463,7 @@ function App() {
           <p><b>Rock:</b> pink granite in the high country, pale limestone in low basins, stone elsewhere; coal and iron veins sit inside the rock, and bedrock lies at the bottom.</p>
           <p><b>Rivers &amp; lakes:</b> rivers wind through low ground with flat water, banks of sand, gravel, clay or mud, and freeze in the cold. Basins below sea level fill with water.</p>
           <p><b>Trees:</b> ten kinds with their own trunks - oaks and birches in mixed woods, pine belts with bare lower trunks, spruce in the cold, giant redwoods with 3 x 3 bases in old stands, palms leaning off beaches, willows trailing leaves in swamps, cactus in deserts.</p>
-          <p><b>Settlements:</b> villages, towns and cities on good lowland; kingdoms only on broad flat fertile plains, where a stone curtain wall with eight gate towers encloses an inner ward around the royal keep. Every house gets a door, a table and chairs - and there are no mobs, just the buildings for you to explore.</p>
+          <p><b>Settlements:</b> four designs, each with its own roster of houses - <b>villages</b> (well, hall, watchtower, market stalls, thatched roofs, farms), <b>towns</b> (three-storey town hall and guild hall, inns, forges, row houses, palisade with gate towers), <b>castles</b> (moat, gatehouses, curtain wall, five-storey keep, garrison, royal gardens) and <b>kingdoms</b> (moat, double walls, a domed palace, and paved districts for market, temple, barracks and warehouses). Multi-storey houses have stairs you can walk up; tall pieces like the watchtower are lookouts reached by flight. Every house gets a door, a table and chairs - and there are no mobs, just the buildings for you to explore.</p>
           <p><b>Finding them:</b> a new world spawns you in the nearest settlement, and the card top-right always shows the nearest one with its distance and compass direction.</p>
           <p><b>Crafting:</b> press <kbd className="keycap">C</kbd> for the workbench - planks from logs, doors, chairs and tables from planks, dressed stone, marble, bricks, roof tiles and glass from what you gather. Place them anywhere you like.</p>
           <p><b>Everywhere:</b> 16×16 chunks stream in around you out to the view distance you choose; terrain comes from the seed, and your edits persist.</p>

@@ -49,6 +49,7 @@ export const BLOCK_TYPES = [
   "chair",
   "table",
   "marble",
+  "gold",
 ] as const;
 
 /** Scenery that is part of the world but is cleared rather than collected. */
@@ -82,7 +83,8 @@ export type TexturePattern =
   | "door"
   | "chair"
   | "table"
-  | "marble";
+  | "marble"
+  | "gilded";
 
 export interface BlockInfo {
   name: WorldBlockType;
@@ -170,6 +172,7 @@ const BLOCK_LIST: BlockInfo[] = [
   def("chair", "Chair", "CHR", ["#6f4e33", "#8d6846", "#593d28"], ["#d0a16d", "#79553b", "#a4774e"], { pattern: "chair" }),
   def("table", "Table", "TBL", ["#8d6846", "#b58a5c", "#6b4c34"], ["#d0a16d", "#79553b", "#a4774e"], { pattern: "table" }),
   def("marble", "Marble", "MRB", ["#dcd9cf", "#f1efe7", "#c2bfb4"], ["#f7f5ee", "#a3a199", "#d8d5cb"], { pattern: "marble" }),
+  def("gold", "Royal gold", "GLD", ["#c99b2e", "#e6c455", "#a87d1f"], ["#f6e08a", "#8f6a17", "#dcb13c"], { pattern: "gilded" }),
   def("flower", "Wild bloom", "FLR", ["#59845b", "#7aa76a", "#507b54"], ["#f4d276", "#d8796e", "#93b56a"], { pattern: "flower", solid: false }),
   def("wheat", "Wheat", "WHT", ["#c9b24a", "#d8c35a", "#b39b3b"], ["#e8d47a", "#a68c2f", "#c9b24a"], { pattern: "wheat", solid: false }),
   def("water", "Water", "WTR", ["#246b78", "#55b5bc", "#195665"], ["#9ad7d1", "#257a88", "#61b7ba"], { pattern: "water", solid: false, opaque: false, alpha: 0.74 }),

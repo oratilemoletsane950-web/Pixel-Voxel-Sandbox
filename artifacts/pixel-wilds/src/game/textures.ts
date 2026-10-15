@@ -313,6 +313,21 @@ function drawTile(ctx: Ctx, ox: number, oy: number, info: BlockInfo, face: numbe
       }
       break;
     }
+    case "gilded": {
+      // Stacked gold courses with a few bright sparks, so royal accents read
+      // as metalwork rather than flat yellow.
+      fill(base);
+      for (let row = 0; row < 4; row += 1) {
+        const y = row * 4 + 3;
+        for (let x = 0; x < S; x += 1) px(x, y, shade(base, 0.74));
+        const seam = (row % 2) * 4 + 1;
+        for (let k = 0; k < 3; k += 1) px(seam, row * 4 + k, shade(base, 0.74));
+        for (let k = 0; k < 6; k += 1) px(Math.floor(rand() * S), row * 4 + Math.floor(rand() * 3), shade(base, 0.94 + rand() * 0.22));
+      }
+      for (let k = 0; k < 12; k += 1) px(Math.floor(rand() * S), Math.floor(rand() * S), info.speckle[0]);
+      for (let k = 0; k < 8; k += 1) px(Math.floor(rand() * S), Math.floor(rand() * S), info.speckle[1]);
+      break;
+    }
     case "marble": {
       // Pale stone with soft grey veins wandering across the face.
       fill(base);
