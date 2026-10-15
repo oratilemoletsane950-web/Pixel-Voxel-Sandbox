@@ -1,0 +1,46 @@
+name: Pixel Wilds validation
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "artifacts/pixel-wilds/**"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "package.json"
+      - ".github/workflows/pixel-wilds-validation.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pixel-wilds-validation-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  typecheck-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.8.1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck Pixel Wilds
+        run: pnpm --filter @workspace/pixel-wilds typecheck
+
+      - name: Build Pixel Wilds
+        run: pnpm --filter @workspace/pixel-wilds build
