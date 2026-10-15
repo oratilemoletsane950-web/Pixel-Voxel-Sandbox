@@ -177,8 +177,7 @@ export function pickFrom<T>(values: readonly T[], roll: number): T {
 
 interface Palette {
   walls: number[];
-  frame: number;
-  floor: number;
+  frame: number;  floor: number;
   foundation: number;
 }
 
@@ -234,7 +233,7 @@ export function accentBlock(accent: Blueprint["accent"]): number {
 }
 
 /** Apply Victorian facade details to a building's style. */
-function applyVictorianFacade(
+export function applyVictorianFacade(
   b: import("./settlements").Building,
   facadeVariant: Blueprint["facadeVariant"],
   windowCount?: number,
