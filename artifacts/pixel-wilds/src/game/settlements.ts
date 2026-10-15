@@ -1018,10 +1018,8 @@ function layoutFaction(settlement: Settlement, spec: KindSpec, regionX: number, 
           const z = cz + sz * qz;
           const reachX = (size - 1) / 2 + 1;
           const reachZ = (depth - 1) / 2 + 1;
-          // Keep residential lots clear of civic buildings, gardens and other homes.
-          if (!fits(x, z, size, depth, 2)) continue;
+          // Place varied residential footprints in the outer neighborhood blocks.
           settlement.buildings.push(makeBuilding(x, z, size, depth, qz <= qx ? (sz > 0 ? 2 : 0) : (sx > 0 ? 3 : 1), 1000 + cottage));
-          placed.push(rectOf(x, z, size, depth));
           if (qz <= qx) {
             const doorZ = z - sz * reachZ;
             const edgeZ = cz + sz * 3;
