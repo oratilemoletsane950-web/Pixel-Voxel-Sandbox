@@ -2359,11 +2359,6 @@ function stampHierarchyHouseNodes(writer: ChunkWriter, terrain: Terrain, seed: n
         break;
       }
     }
-    // If strict flat sites are unavailable, prefer the least-steep dry candidate
-    // rather than silently dropping a home.
-    if (!chosen && bestFallback) {
-      chosen = { x: bestFallback.x, z: bestFallback.z, ground: bestFallback.ground };
-    }
     // Never force a house onto water, a steep footprint, or another structure.
     // If the bounded terrain search cannot find a safe, non-overlapping site,
     // omit this house rather than corrupting the world layout with a raised pad.
