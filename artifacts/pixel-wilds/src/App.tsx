@@ -1,7 +1,6 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
-import HumanoidBatches from './components/HumanoidBatches';
 import {
   BLOCK_TYPES,
   DEFAULT_RENDER_RADIUS,
@@ -35,8 +34,6 @@ import { createAtlasTexture } from './game/textures';
 import {
   FACTION_COLORS,
   FACTION_LABELS,
-  FACTION_SKIN_COLORS,
-  type Humanoid,
   type SettlementKind,
 } from './game/settlements';
 import {
@@ -79,6 +76,26 @@ const SETTLEMENT_KIND_LABELS: Record<SettlementKind, string> = {
   tower: 'Mage tower',
   lodge: 'Warden lodge',
 };
+
+/** Human settlements worth finding: streets, furniture, doors and walls. */
+const HUMAN_SETTLEMENT_KINDS: SettlementKind[] = ['village', 'town', 'city', 'kingdom'];
+/** How far from you (and from a fresh origin) the HUD looks for one. */
+const SETTLEMENT_SEARCH = 640;
+
+function humanSettlementNear(world: WorldData, x: number, z: number) {
+  return (
+    getSettlementsNear(world.seed, x, z, SETTLEMENT_SEARCH).find((settlement) =>
+      HUMAN_SETTLEMENT_KINDS.includes(settlement.kind),
+    ) ?? null
+  );
+}
+
+/** Compass word for the offset (dx, dz); north is -z, east is +x. */
+function compassWord(dx: number, dz: number): string {
+  const names = ['north', 'north-east', 'east', 'south-east', 'south', 'south-west', 'west', 'north-west'];
+  const angle = Math.atan2(dx, -dz);
+  return names[((Math.round(angle / (Math.PI / 4)) % 8) + 8) % 8];
+}
 
 type AimTarget = { cell: BlockCell; adjacent: { x: number; y: number; z: number } };
 type Inventory = Record<BlockType, number>;
@@ -193,16 +210,26 @@ function readPlayerSave() {
 function initialWorld(position: Position | null = null): WorldData {
   const x = position?.x ?? 0;
   const z = position?.z ?? 0;
+  let loaded: WorldData;
   // A small area loads immediately; the rest streams in a few chunks at a time.
   try {
-    return loadWorld(x, z, 5);
+    loaded = loadWorld(x, z, 5);
   } catch {
-    return createWorld(undefined, x, z, 5);
+    loaded = createWorld(undefined, x, z, 5);
   }
+  if (position) return loaded;
+  // A brand-new world opens at the nearest village, town, city or kingdom,
+  // with its chunks already generated, so a settlement is the first thing
+  // you see instead of empty wilderness.
+  const settlement = humanSettlementNear(loaded, 0, 0);
+  if (!settlement) return loaded;
+  const center = getChunkCoordinates(settlement.x, settlement.z);
+  return ensureChunks(loaded, center.x, center.z, 7, 400);
 }
 
 function findSpawn(world: WorldData): Position {
-  return findSpawnPoint(world);
+  const settlement = humanSettlementNear(world, 0, 0);
+  return findSpawnPoint(world, settlement?.x ?? 0, settlement?.z ?? 0);
 }
 
 function getHotbarIndexFromCode(code: string): number {
@@ -279,7 +306,6 @@ function GameWorld({
   onPlace,
   onPosition,
   onChunkChange,
-  inhabitants,
   savedPosition,
   mobileMove,
   renderRadius,
@@ -291,7 +317,6 @@ function GameWorld({
   onPlace: (cell: BlockCell, adjacent: AimTarget['adjacent']) => void;
   onPosition: (position: Position) => void;
   onChunkChange: (chunkX: number, chunkZ: number) => void;
-  inhabitants: Humanoid[];
   savedPosition: Position | null;
   mobileMove: { forward: number; side: number; jump: boolean };
   renderRadius: number;
@@ -346,7 +371,6 @@ function GameWorld({
     onPlace,
     onPosition,
     onChunkChange,
-    inhabitants,
     world,
     mobileMove,
   });
@@ -356,7 +380,6 @@ function GameWorld({
     onPlace,
     onPosition,
     onChunkChange,
-    inhabitants,
     world,
     mobileMove,
   };
@@ -608,7 +631,6 @@ function GameWorld({
           materials={materials}
         />
       ))}
-      <HumanoidBatches inhabitants={inhabitants} />
       {target.current && (
         <mesh position={[target.current.cell.x + 0.5, target.current.cell.y + 0.5, target.current.cell.z + 0.5]}>
           <boxGeometry args={[1.02, 1.02, 1.02]} />
@@ -634,7 +656,6 @@ function VoxelFallback({
   onPlace,
   onPosition,
   onChunkChange,
-  inhabitants,
   savedPosition,
   mobileMove,
   started,
@@ -646,7 +667,6 @@ function VoxelFallback({
   onPlace: (cell: BlockCell, adjacent: AimTarget['adjacent']) => void;
   onPosition: (position: Position) => void;
   onChunkChange: (chunkX: number, chunkZ: number) => void;
-  inhabitants: Humanoid[];
   savedPosition: Position | null;
   mobileMove: { forward: number; side: number; jump: boolean };
   started: boolean;
@@ -683,7 +703,6 @@ function VoxelFallback({
     onPlace,
     onPosition,
     onChunkChange,
-    inhabitants,
     onStart,
   });
   latest.current = {
@@ -694,7 +713,6 @@ function VoxelFallback({
     onPlace,
     onPosition,
     onChunkChange,
-    inhabitants,
     onStart,
   };
 
@@ -928,32 +946,6 @@ function VoxelFallback({
         );
       }
 
-      for (const person of latest.current.inhabitants) {
-        const dx = person.x - player.x;
-        const dz = person.z - player.z;
-        if (Math.abs(dx) > 30 || Math.abs(dz) > 30) continue;
-        const centerX = width / 2 + ((dx - dz) * tileWidth) / 2;
-        const feetY = centerY + ((dx + dz) * tileHeight) / 2 -
-          (person.y - baseY) * blockHeight;
-        const pixel = Math.max(3, Math.round(tileWidth * 0.23));
-        if (centerX < -pixel * 3 || centerX > width + pixel * 3 ||
-          feetY < -pixel * 10 || feetY > height + pixel * 3) continue;
-        context.fillStyle = 'rgba(47, 59, 48, 0.35)';
-        context.fillRect(centerX - pixel * 1.15, feetY - pixel * 0.4, pixel * 2.3, pixel * 0.7);
-        context.fillStyle = FACTION_COLORS[person.faction];
-        context.fillRect(centerX - pixel, feetY - pixel * 3, pixel * 2, pixel * 2);
-        context.fillStyle = FACTION_SKIN_COLORS[person.faction];
-        context.fillRect(centerX - pixel * 0.75, feetY - pixel * 4.4, pixel * 1.5, pixel * 1.4);
-        context.fillStyle = '#3c3b34';
-        context.fillRect(centerX - pixel * 0.82, feetY - pixel, pixel * 0.68, pixel);
-        context.fillRect(centerX + pixel * 0.14, feetY - pixel, pixel * 0.68, pixel);
-        if (person.faction === 'mages') {
-          context.fillStyle = '#d8a958';
-          context.fillRect(centerX - pixel, feetY - pixel * 5.1, pixel * 2, pixel * 0.8);
-          context.fillRect(centerX - pixel * 0.55, feetY - pixel * 6, pixel * 1.1, pixel);
-        }
-      }
-
     };
     frame = window.requestAnimationFrame(render);
 
@@ -1006,7 +998,18 @@ function App() {
       ? saved
       : DEFAULT_RENDER_RADIUS;
   });
-  const streamCenter = useRef(getChunkCoordinates(savedPlayer?.position?.x ?? 0, savedPlayer?.position?.z ?? 0));
+  // New saves start at the nearest settlement (see initialWorld), so the
+  // streaming timer must follow that spot, not the origin.
+  const spawnTarget = useMemo(
+    () => (savedPlayer?.position ? null : humanSettlementNear(world, 0, 0)),
+    [world.seed, savedPlayer?.position],
+  );
+  const streamCenter = useRef(
+    getChunkCoordinates(
+      savedPlayer?.position?.x ?? spawnTarget?.x ?? 0,
+      savedPlayer?.position?.z ?? spawnTarget?.z ?? 0,
+    ),
+  );
   const selected = BLOCK_TYPES[selectedIndex] ?? 'grass';
   const hotbarPage = Math.floor(selectedIndex / HOTBAR_SLOTS);
   const hotbarPages = Math.ceil(BLOCK_TYPES.length / HOTBAR_SLOTS);
@@ -1016,23 +1019,11 @@ function App() {
         world.seed,
         playerPosition?.x ?? 0.5,
         playerPosition?.z ?? 0.5,
-        90,
+        SETTLEMENT_SEARCH,
       ),
     // Settlements are cached per region, so only the rounded position matters.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [world.seed, Math.floor((playerPosition?.x ?? 0) / 16), Math.floor((playerPosition?.z ?? 0) / 16)],
-  );
-  const inhabitants = useMemo(
-    () =>
-      nearbySettlements
-        .flatMap((settlement) => settlement.inhabitants)
-        .filter((person) =>
-          Math.hypot(
-            person.x - (playerPosition?.x ?? 0.5),
-            person.z - (playerPosition?.z ?? 0.5),
-          ) < 96,
-        ),
-    [nearbySettlements, playerPosition],
   );
   const nearestSettlement = nearbySettlements[0];
   const settlementDistance = nearestSettlement
@@ -1041,7 +1032,8 @@ function App() {
       nearestSettlement.z - (playerPosition?.z ?? 0.5),
     )
     : Infinity;
-  const visibleSettlement = nearestSettlement && settlementDistance <= nearestSettlement.radius + 16 ? nearestSettlement : null;
+  const atSettlement =
+    nearestSettlement !== null && settlementDistance <= nearestSettlement.radius + 16;
 
   useEffect(() => {
     const probe = document.createElement('canvas');
@@ -1278,7 +1270,6 @@ function App() {
           onPlace={placeBlock}
           onPosition={setPlayerPosition}
           onChunkChange={streamChunks}
-          inhabitants={inhabitants}
           savedPosition={playerPosition}
           mobileMove={mobileMove}
           started={started}
@@ -1304,7 +1295,6 @@ function App() {
             onPlace={placeBlock}
             onPosition={setPlayerPosition}
             onChunkChange={streamChunks}
-            inhabitants={inhabitants}
             savedPosition={playerPosition}
             mobileMove={mobileMove}
             renderRadius={renderRadius}
@@ -1384,17 +1374,29 @@ function App() {
           </button>
         </div>
 
-        {visibleSettlement && (
-          <div className="settlement-card" data-testid="status-nearby-settlement">
+        {nearestSettlement && (
+          <div
+            className={`settlement-card ${atSettlement ? 'is-here' : ''}`}
+            data-testid="status-nearby-settlement"
+          >
             <small>
-              <i style={{ backgroundColor: FACTION_COLORS[visibleSettlement.faction] }} />
-              {FACTION_LABELS[visibleSettlement.faction]} · {SETTLEMENT_KIND_LABELS[visibleSettlement.kind]}
+              <i style={{ backgroundColor: FACTION_COLORS[nearestSettlement.faction] }} />
+              {FACTION_LABELS[nearestSettlement.faction]} · {SETTLEMENT_KIND_LABELS[nearestSettlement.kind]}
             </small>
-            <strong>{visibleSettlement.name}</strong>
+            <strong>{nearestSettlement.name}</strong>
             <p>
-              {visibleSettlement.inhabitants.length} residents · {visibleSettlement.inhabitants[0]?.name}
+              {nearestSettlement.buildings.length} buildings ·{' '}
+              {nearestSettlement.wall ? 'walls & towers' : 'open streets'}
+              {nearestSettlement.kind === 'kingdom' ? ' · keep & wards' : ''}
             </p>
-            <p>{visibleSettlement.inhabitants[0]?.role}</p>
+            <p>
+              {atSettlement
+                ? 'you are here'
+                : `${Math.round(settlementDistance)} m to the ${compassWord(
+                    nearestSettlement.x - (playerPosition?.x ?? 0.5),
+                    nearestSettlement.z - (playerPosition?.z ?? 0.5),
+                  )}`}
+            </p>
           </div>
         )}
 
@@ -1419,7 +1421,8 @@ function App() {
           <p><b>Rock:</b> pink granite in the high country, pale limestone in low basins, stone elsewhere; coal and iron veins sit inside the rock, and bedrock lies at the bottom.</p>
           <p><b>Rivers &amp; lakes:</b> rivers wind through low ground with flat water, banks of sand, gravel, clay or mud, and freeze in the cold. Basins below sea level fill with water.</p>
           <p><b>Trees:</b> ten kinds with their own trunks - oaks and birches in mixed woods, pine belts with bare lower trunks, spruce in the cold, giant redwoods with 3 x 3 bases in old stands, palms leaning off beaches, willows trailing leaves in swamps, cactus in deserts.</p>
-          <p><b>Settlements:</b> villages, towns and cities on good lowland; kingdoms only on broad flat fertile plains, where a stone curtain wall with eight gate towers encloses an inner ward around the royal keep. Every house gets a door, a table and chairs.</p>
+          <p><b>Settlements:</b> villages, towns and cities on good lowland; kingdoms only on broad flat fertile plains, where a stone curtain wall with eight gate towers encloses an inner ward around the royal keep. Every house gets a door, a table and chairs - and there are no mobs, just the buildings for you to explore.</p>
+          <p><b>Finding them:</b> a new world spawns you in the nearest settlement, and the card top-right always shows the nearest one with its distance and compass direction.</p>
           <p><b>Crafting:</b> press <kbd className="keycap">C</kbd> for the workbench - planks from logs, doors, chairs and tables from planks, dressed stone, marble, bricks, roof tiles and glass from what you gather. Place them anywhere you like.</p>
           <p><b>Everywhere:</b> 16×16 chunks stream in around you out to the view distance you choose; terrain comes from the seed, and your edits persist.</p>
         </aside>

@@ -390,11 +390,18 @@ export function getLoadedChunkCount(world: WorldData): number {
   return Object.keys(world.chunks).length;
 }
 
-/** A dry, open spot near the origin; prefers grass, then sand. */
-export function findSpawnPoint(world: WorldData): { x: number; y: number; z: number } {
+/**
+ * A dry, open spot near (centerX, centerZ); prefers grass, then sand.
+ * Used with a settlement's centre so new worlds open on a village street.
+ */
+export function findSpawnPoint(
+  world: WorldData,
+  centerX = 0,
+  centerZ = 0,
+): { x: number; y: number; z: number } {
   let best: { x: number; z: number; y: number; score: number } | null = null;
-  for (let x = -96; x <= 96; x += 2) {
-    for (let z = -96; z <= 96; z += 2) {
+  for (let x = centerX - 96; x <= centerX + 96; x += 2) {
+    for (let z = centerZ - 96; z <= centerZ + 96; z += 2) {
       if (!getChunk(world, x, z)) continue;
       let top = -1;
       for (let y = MAX_BUILD_HEIGHT; y >= 0; y -= 1) {
@@ -407,7 +414,7 @@ export function findSpawnPoint(world: WorldData): { x: number; y: number; z: num
       let clear = true;
       for (let dy = 1; dy <= 6 && clear; dy += 1) if (getBlockId(world, x, top + dy, z) !== AIR) clear = false;
       if (!clear) continue;
-      const score = Math.hypot(x, z) + soft;
+      const score = Math.hypot(x - centerX, z - centerZ) + soft;
       if (!best || score < best.score) best = { x, z, y: top, score };
     }
   }

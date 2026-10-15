@@ -236,3 +236,7 @@ button:focus-visible { outline: 3px solid #f08a58; outline-offset: 3px; }
 @media (max-width:700px) {
   .craft-panel { top:66px;right:9px;left:9px;width:auto;max-height:56vh; }
 }
+
+/* The nearest-settlement card: accent it once you actually arrive */
+.settlement-card.is-here { border-color:#de7854;box-shadow:3px 4px 0 rgba(222,120,84,.4); }
+.settlement-card.is-here strong { color:#a85f45; }

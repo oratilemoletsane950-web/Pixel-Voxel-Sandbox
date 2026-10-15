@@ -77,6 +77,14 @@ Headless gameplay tests (no browser needed; run from `artifacts/pixel-wilds`):
   **eight gate towers** and four corner towers, a stone **keep** (21×17, four
   towers of its own) on the plaza, and an **inner ward wall** between keep and
   town, gated on every street — keep, bailey and wards.
+- **No mobs by design**: settlements are uninhabited architecture — no NPCs,
+  no wandering villagers, no hostiles. Just the buildings and their furniture
+  for you to explore.
+- **You always find them**: a brand-new world **spawns you inside the nearest
+  village/town/city/kingdom** (its chunks are generated before the first
+  frame), and the settlement card top-right always shows the nearest
+  settlement with its distance and compass direction — it accents when you
+  arrive. Existing saves keep their position and use the same card to navigate.
 - **Furnished interiors**: every house gets a **wooden door** hung in its
   doorway (opaque, but walk-through), plus a **table** and two **chairs**
   against the wall opposite the door; halls and keeps get a long banquet
@@ -102,6 +110,25 @@ Headless gameplay tests (no browser needed; run from `artifacts/pixel-wilds`):
   structure counts, village/kingdom furniture stamping, and the presence of
   all four new tree species. All passing.
 
+## Settlement design
+
+Every settlement is planned on paper first (see the header of
+`src/game/settlements.ts`), then stamped by every chunk that touches it:
+
+| Kind | Footprint (half-extent) | Site rules | Layout |
+| --- | --- | --- | --- |
+| Village | 36 | any dry lowland, moisture 0.38–0.78 | cross streets, plaza with a well, cottages, thatched roofs, farms |
+| Town | 44 | better score, same lowland rules | as the village, plus a timber palisade with one gate per side |
+| City | 54 | the best lowland sites | stone wall, corner towers, cobble streets, taller mixed walls |
+| Kingdom | 56 | **flat plain only** (range ≤ 14, 3–30 m elevation, no desert/tundra, moisture 0.4–0.8), villagers only, ~1 region in 30 | curtain wall (16 high, 8 gate towers + 4 corner towers) → outer ward houses → inner ward wall (10 high, gated on all four streets) → keep on the plaza with 4 towers |
+| Grove / Hold / Camp / Tower / Lodge | 30–40 | faction taste (elves want forest, dwarves want mountains, …) | faction-specific walls, roofs and centrepiece |
+
+Common to all: levelled ground with a 12-block apron, streets 5 blocks wide
+meeting at a paved plaza, buildings facing the street, doorways 5 blocks high
+hung with walk-through doors, and every house furnished with a table and two
+chairs. Halls and keeps get long banquet tables. **No mobs** — the settlements
+are empty of life on purpose.
+
 ## What still needs to be done
 
 - **Doors do not swing.** They are always walk-through panels; there is no
@@ -113,8 +140,8 @@ Headless gameplay tests (no browser needed; run from `artifacts/pixel-wilds`):
 - **Kingdom ward paths** from outer cottages stop at the inner ward wall
   (cosmetic dead-end); they should route through the ward gates instead.
 - **Laws of the realm**: kingdoms have placement/size rules, but no
-  behavioural rules (no curfews, no faction hostility, no tribute or trading
-  with villagers).
+  behavioural rules (factions are currently styling only — there are no NPCs
+  to enforce anything, by design).
 - **Mobile flight**: touch has no Space key, so flight cannot be toggled on
   touch devices yet (needs a Fly button next to Craft).
 - **More craftables**: stairs, fences, banners, beds, ladders, chests — the
