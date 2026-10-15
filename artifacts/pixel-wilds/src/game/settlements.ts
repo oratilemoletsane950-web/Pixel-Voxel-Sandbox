@@ -1993,6 +1993,95 @@ export function stampSettlements(writer: ChunkWriter, terrain: Terrain, seed: nu
   stampHierarchyHouseNodes(writer, terrain, seed);
 }
 
+type CastleLayout = {
+  outerRadius: number; outerHeight: number; innerRadius: number; innerHeight: number;
+  innerRise: number; keepRadius: number; keepHeight: number; keepRise: number;
+  gateHalfWidth: number; towerHalf: number; towerExtra: number; gateTowers: boolean;
+  keepSize: number; keepWall: number; moat: boolean;
+};
+
+function castleLayout(archetype: string): CastleLayout {
+  switch (archetype) {
+    case "hilltop":
+      return { outerRadius: 43, outerHeight: 12, innerRadius: 27, innerHeight: 10, innerRise: 3,
+        keepRadius: 0, keepHeight: 0, keepRise: 0, gateHalfWidth: 2, towerHalf: 4,
+        towerExtra: 10, gateTowers: false, keepSize: 15, keepWall: 36, moat: false };
+    case "riverside":
+      return { outerRadius: 50, outerHeight: 9, innerRadius: 32, innerHeight: 9, innerRise: 2,
+        keepRadius: 0, keepHeight: 0, keepRise: 0, gateHalfWidth: 3, towerHalf: 4,
+        towerExtra: 6, gateTowers: true, keepSize: 19, keepWall: 24, moat: true };
+    case "palace-fortress":
+      return { outerRadius: 44, outerHeight: 8, innerRadius: 0, innerHeight: 0, innerRise: 0,
+        keepRadius: 0, keepHeight: 0, keepRise: 0, gateHalfWidth: 3, towerHalf: 3,
+        towerExtra: 5, gateTowers: true, keepSize: 23, keepWall: 30, moat: true };
+    case "concentric":
+    default:
+      return { outerRadius: 56, outerHeight: 10, innerRadius: 38, innerHeight: 9, innerRise: 2,
+        keepRadius: 20, keepHeight: 8, keepRise: 4, gateHalfWidth: 3, towerHalf: 4,
+        towerExtra: 7, gateTowers: false, keepSize: 17, keepWall: 24, moat: false };
+  }
+}
+
+function chooseCastleSite(
+  terrain: Terrain, anchorX: number, anchorZ: number, archetype: string, searchRadius: number,
+): { x: number; z: number; ground: number } | null {
+  const layout = castleLayout(archetype);
+  let best: { x: number; z: number; ground: number; score: number } | null = null;
+  for (let radius = 0; radius <= searchRadius; radius += 16) {
+    const steps = radius === 0 ? 1 : Math.max(8, Math.round((Math.PI * 2 * radius) / 24));
+    for (let i = 0; i < steps; i += 1) {
+      const angle = radius === 0 ? 0 : (Math.PI * 2 * i) / steps;
+      const x = Math.round(anchorX + Math.cos(angle) * radius);
+      const z = Math.round(anchorZ + Math.sin(angle) * radius);
+      const offsets: Array<[number, number]> = [[0, 0], [layout.outerRadius, 0], [-layout.outerRadius, 0],
+        [0, layout.outerRadius], [0, -layout.outerRadius], [layout.outerRadius, layout.outerRadius],
+        [-layout.outerRadius, -layout.outerRadius], [layout.outerRadius, -layout.outerRadius],
+        [-layout.outerRadius, layout.outerRadius]];
+      const samples = offsets.map(([dx, dz]) => terrain.natural(x + dx, z + dz));
+      if (samples.some((s) => s.water > 0 || s.riverDist < s.riverHalfWidth + 3 ||
+          s.ground <= SEA_LEVEL + 3 || s.ground + layout.keepWall + layout.outerHeight + 12 >= 192)) continue;
+      const heights = samples.map((s) => s.ground);
+      const spread = Math.max(...heights) - Math.min(...heights);
+      if (spread > 30) continue;
+      const ground = [...heights].sort((a, b) => a - b)[Math.floor(heights.length / 2)];
+      const elevation = ground - SEA_LEVEL;
+      const riverDistance = samples[0]!.riverDist;
+      const terrainPenalty = spread * 1.7;
+      let strategicBonus = 0;
+      if (archetype === "hilltop") strategicBonus += Math.min(elevation, 55) * 0.5 - Math.abs(spread - 12) * 0.7;
+      else if (archetype === "riverside") {
+        strategicBonus += Number.isFinite(riverDistance) ? Math.max(0, 35 - Math.abs(riverDistance - 24)) * 0.7 : -8;
+      } else if (archetype === "palace-fortress") strategicBonus += Math.max(0, 14 - spread) * 0.8 - Math.abs(elevation - 18) * 0.12;
+      else strategicBonus += Math.min(elevation, 42) * 0.2 + Math.max(0, 18 - spread) * 0.6;
+      const score = strategicBonus - terrainPenalty - Math.hypot(x - anchorX, z - anchorZ) * 0.045;
+      if (!best || score > best.score) best = { x, z, ground, score };
+    }
+  }
+  if (best) return { x: best.x, z: best.z, ground: best.ground };
+  const sample = terrain.natural(anchorX, anchorZ);
+  if (sample.water > 0 || sample.ground <= SEA_LEVEL + 2 || sample.ground + 42 >= 192) return null;
+  return { x: anchorX, z: anchorZ, ground: sample.ground };
+}
+
+function stampCastleTower(
+  writer: ChunkWriter, cx: number, cz: number, ground: number, half: number, height: number,
+): void {
+  if (!writer.overlaps(cx - half - 1, cz - half - 1, cx + half + 1, cz + half + 1)) return;
+  for (let dx = -half; dx <= half; dx += 1) for (let dz = -half; dz <= half; dz += 1) {
+    const x = cx + dx; const z = cz + dz;
+    if (!writer.inside(x, z) || Math.max(Math.abs(dx), Math.abs(dz)) !== half) continue;
+    const corner = Math.abs(dx) === half && Math.abs(dz) === half;
+    for (let y = ground; y < ground + height; y += 1) {
+      const slit = !corner && y === ground + 4 && (dx === 0 || dz === 0);
+      if (!slit) writer.set(x, y, z, corner || y % 8 === 0 ? ID.cobblestone : ID.stone_bricks);
+    }
+    for (let offset = -half; offset <= half; offset += 2) {
+      if (Math.abs(dx) === half && dz === offset) writer.set(x, ground + height, z, ID.stone_bricks);
+      if (Math.abs(dz) === half && dx === offset) writer.set(x, ground + height, z, ID.stone_bricks);
+    }
+  }
+}
+
 /**
  * Turn nearby hierarchy house records into real block-stamped buildings.
  * Terrain is sampled at the centre and corners; wet or excessively uneven
@@ -2215,21 +2304,65 @@ function stampHierarchyHouseNodes(writer: ChunkWriter, terrain: Terrain, seed: n
     }
 
     if (node.level === "castle") {
-      const sample = terrain.natural(x, z);
-      if (sample.water > 0 || sample.riverDist < sample.riverHalfWidth + 4 ||
-          sample.ground <= SEA_LEVEL + 3 || sample.ground + 40 >= 192) continue;
-      // Three concentric wards: outer bailey, inner ward and keep enclosure.
-      stampRingWithGates(x, z, 56, sample.ground, 10, ID.stone_bricks, 3);
-      stampRingWithGates(x, z, 38, sample.ground + 2, 9, ID.stone_bricks, 2);
-      stampRingWithGates(x, z, 20, sample.ground + 4, 8, ID.stone_bricks, 2);
+      const searchRadius = Number(node.metadata.strategicRadius) || 88;
+      if (Math.abs(x - chunkMinX) > searchRadius + 64 + CHUNK_SIZE ||
+          Math.abs(z - chunkMinZ) > searchRadius + 64 + CHUNK_SIZE) continue;
+      const archetype = String(node.metadata.archetype ?? "concentric");
+      const site = chooseCastleSite(terrain, x, z, archetype, searchRadius);
+      if (!site) continue;
+      const castleX = site.x;
+      const castleZ = site.z;
+      const ground = site.ground;
+      const style = castleLayout(archetype);
+
+      if (style.moat) {
+        const moatRadius = style.outerRadius + 3;
+        const minX = Math.max(castleX - moatRadius, chunkMinX);
+        const maxX = Math.min(castleX + moatRadius, chunkMaxX);
+        const minZ = Math.max(castleZ - moatRadius, chunkMinZ);
+        const maxZ = Math.min(castleZ + moatRadius, chunkMaxZ);
+        for (let px = minX; px <= maxX; px += 1) for (let pz = minZ; pz <= maxZ; pz += 1) {
+          if (Math.max(Math.abs(px - castleX), Math.abs(pz - castleZ)) !== moatRadius) continue;
+          const dx = px - castleX; const dz = pz - castleZ;
+          if ((Math.abs(dx) <= 3 && Math.abs(dz) >= style.outerRadius - 1) ||
+              (Math.abs(dz) <= 3 && Math.abs(dx) >= style.outerRadius - 1)) continue;
+          writer.set(px, ground - 1, pz, ID.water);
+          writer.set(px, ground - 2, pz, ID.water);
+          writer.set(px, ground - 3, pz, ID.gravel);
+        }
+      }
+
+      stampRingWithGates(castleX, castleZ, style.outerRadius, ground, style.outerHeight, ID.stone_bricks, style.gateHalfWidth);
+      if (style.innerRadius > 0) {
+        stampRingWithGates(castleX, castleZ, style.innerRadius, ground + style.innerRise, style.innerHeight, ID.stone_bricks, 2);
+      }
+      if (style.keepRadius > 0) {
+        stampRingWithGates(castleX, castleZ, style.keepRadius, ground + style.keepRise, style.keepHeight, ID.stone_bricks, 2);
+      }
+      for (const dx of [-style.outerRadius, style.outerRadius]) {
+        for (const dz of [-style.outerRadius, style.outerRadius]) {
+          stampCastleTower(writer, castleX + dx, castleZ + dz, ground, style.towerHalf, style.outerHeight + style.towerExtra);
+        }
+      }
+      if (style.gateTowers) {
+        for (const [dx, dz] of [[0, -style.outerRadius], [0, style.outerRadius], [-style.outerRadius, 0], [style.outerRadius, 0]] as const) {
+          stampCastleTower(writer, castleX + dx, castleZ + dz, ground, 3, style.outerHeight + 5);
+        }
+      }
       const keep: Building = {
-        x, z, w: 17, d: 17, wall: 24, stories: 4, facing: 0, roof: "hip",
-        wallBlock: ID.stone_bricks, frameBlock: ID.dark_planks, roofBlock: ID.roof,
+        x: castleX, z: castleZ, w: style.keepSize, d: style.keepSize,
+        wall: style.keepWall, stories: Math.max(2, Math.floor(style.keepWall / 6)),
+        facing: 0, roof: archetype === "palace-fortress" ? "dome" : "hip",
+        wallBlock: archetype === "riverside" ? ID.cobblestone : ID.stone_bricks,
+        frameBlock: archetype === "palace-fortress" ? ID.marble : ID.dark_planks,
+        roofBlock: archetype === "palace-fortress" ? ID.marble : ID.roof,
         floorBlock: ID.stone_bricks, foundation: ID.stone_bricks, chimney: ID.cobblestone,
-        glazed: true, blueprint: "hierarchy-castle-keep", accent: ID.dark_planks,
-        open: false, turret: 4, spire: false, forge: false, furniture: 2,
+        glazed: true, blueprint: `hierarchy-castle-${archetype}-keep`,
+        accent: archetype === "palace-fortress" ? ID.gold : ID.dark_planks,
+        open: false, turret: archetype === "palace-fortress" ? 4 : 1,
+        spire: false, forge: false, furniture: 2,
       };
-      stampBuilding(writer, keep, sample.ground + 4);
+      stampBuilding(writer, keep, ground + style.keepRise);
       continue;
     }
 
