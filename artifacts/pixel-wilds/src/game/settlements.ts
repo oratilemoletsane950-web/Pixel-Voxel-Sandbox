@@ -1975,62 +1975,163 @@ function stampHierarchyHouseNodes(writer: ChunkWriter, terrain: Terrain, seed: n
   const originX = start?.kind === "kingdom" ? start.centerX : 0;
   const originZ = start?.kind === "kingdom" ? start.centerZ : 0;
   const plan = hierarchyPlanFor(seed, { originX, originZ });
-  const nodes = hierarchyNodesInBounds(
-    plan,
-    writer.startX,
-    writer.startZ,
-    writer.startX + CHUNK_SIZE - 1,
-    writer.startZ + CHUNK_SIZE - 1,
-    8,
-  );
+  const chunkMinX = writer.startX;
+  const chunkMinZ = writer.startZ;
+  const chunkMaxX = chunkMinX + CHUNK_SIZE - 1;
+  const chunkMaxZ = chunkMinZ + CHUNK_SIZE - 1;
+  // Pull endpoints far enough away to draw the roads crossing this chunk.
+  const nodes = hierarchyNodesInBounds(plan, chunkMinX, chunkMinZ, chunkMaxX, chunkMaxZ, 520);
+  const byId = new Map(plan.nodes.map((node) => [node.id, node]));
+
+  const stampRoad = (fromX: number, fromZ: number, toX: number, toZ: number, width: number): void => {
+    const minX = Math.max(Math.min(fromX, toX) - width, chunkMinX);
+    const maxX = Math.min(Math.max(fromX, toX) + width, chunkMaxX);
+    const minZ = Math.max(Math.min(fromZ, toZ) - width, chunkMinZ);
+    const maxZ = Math.min(Math.max(fromZ, toZ) + width, chunkMaxZ);
+    if (minX > maxX || minZ > maxZ) return;
+    const dx = toX - fromX;
+    const dz = toZ - fromZ;
+    const lengthSq = dx * dx + dz * dz || 1;
+    for (let x = minX; x <= maxX; x += 1) {
+      for (let z = minZ; z <= maxZ; z += 1) {
+        const t = Math.max(0, Math.min(1, ((x - fromX) * dx + (z - fromZ) * dz) / lengthSq));
+        const nearestX = fromX + t * dx;
+        const nearestZ = fromZ + t * dz;
+        if (Math.hypot(x - nearestX, z - nearestZ) > width / 2) continue;
+        const sample = terrain.natural(x, z);
+        if (sample.water > 0 || sample.riverDist < sample.riverHalfWidth + 1) continue;
+        if (sample.ground <= SEA_LEVEL + 1 || sample.ground + 2 >= 192) continue;
+        writer.set(x, sample.ground, z, ID.gravel);
+        writer.set(x, sample.ground + 1, z, 0);
+        writer.set(x, sample.ground + 2, z, 0);
+      }
+    }
+  };
+
+  const stampRingWithGates = (
+    x: number, z: number, radius: number, ground: number, height: number,
+    block: number, gateHalfWidth: number,
+  ): void => {
+    const minX = Math.max(x - radius, chunkMinX);
+    const maxX = Math.min(x + radius, chunkMaxX);
+    const minZ = Math.max(z - radius, chunkMinZ);
+    const maxZ = Math.min(z + radius, chunkMaxZ);
+    if (minX > maxX || minZ > maxZ) return;
+    for (let px = minX; px <= maxX; px += 1) {
+      for (let pz = minZ; pz <= maxZ; pz += 1) {
+        const edge = Math.max(Math.abs(px - x), Math.abs(pz - z));
+        if (Math.abs(edge - radius) > 0) continue;
+        const dx = px - x;
+        const dz = pz - z;
+        const cardinalGate = (Math.abs(dx) <= gateHalfWidth && Math.abs(dz) === radius) ||
+          (Math.abs(dz) <= gateHalfWidth && Math.abs(dx) === radius);
+        if (cardinalGate) continue;
+        for (let y = ground; y < ground + height; y += 1) {
+          const crenel = height >= 7 && y === ground + height - 1 && ((px + pz) & 1) === 0;
+          writer.set(px, y, pz, crenel ? ID.stone_bricks : block);
+        }
+      }
+    }
+    // Gate piers make each opening legible without closing the passage.
+    for (const [gx, gz] of [[x, z - radius], [x, z + radius], [x - radius, z], [x + radius, z]] as const) {
+      for (const side of [-1, 1]) {
+        const px = gx + (gx === x ? side * (gateHalfWidth + 1) : 0);
+        const pz = gz + (gz === z ? side * (gateHalfWidth + 1) : 0);
+        if (px < chunkMinX || px > chunkMaxX || pz < chunkMinZ || pz > chunkMaxZ) continue;
+        for (let y = ground; y < ground + height + 1; y += 1) writer.set(px, y, pz, ID.stone_bricks);
+      }
+    }
+  };
 
   for (const node of nodes) {
-    // Town nodes own a real civic centre: a two-storey hall and a paved square.
-    // The square is chunk-clipped so neighbouring chunks reconstruct it consistently.
-    if (node.level === "town" && node.metadata.townHall === true && node.metadata.townSquare === true) {
-      const x = Math.round(node.x);
-      const z = Math.round(node.z);
-      const hallWidth = 15;
-      const hallDepth = 13;
-      const samples = [
-        terrain.natural(x, z),
-        terrain.natural(x - 7, z - 6),
-        terrain.natural(x + 7, z - 6),
-        terrain.natural(x - 7, z + 6),
-        terrain.natural(x + 7, z + 6),
-      ];
+    const x = Math.round(node.x);
+    const z = Math.round(node.z);
+
+    if (node.level === "city") {
+      // A city gets a civic landmark and radial links to its five town centres.
+      const nearby = Math.abs(x - chunkMinX) <= 520 + CHUNK_SIZE && Math.abs(z - chunkMinZ) <= 520 + CHUNK_SIZE;
+      if (nearby) {
+        const sample = terrain.natural(x, z);
+        if (sample.water <= 0 && sample.riverDist >= sample.riverHalfWidth + 3 &&
+            sample.ground > SEA_LEVEL + 2 && sample.ground + 28 < 192) {
+          const plazaRadius = 15;
+          for (let px = Math.max(x - plazaRadius, chunkMinX); px <= Math.min(x + plazaRadius, chunkMaxX); px += 1) {
+            for (let pz = Math.max(z - plazaRadius, chunkMinZ); pz <= Math.min(z + plazaRadius, chunkMaxZ); pz += 1) {
+              if (Math.abs(px - x) <= 9 && Math.abs(pz - z) <= 8) continue;
+              writer.set(px, sample.ground, pz, ID.stone_bricks);
+              writer.set(px, sample.ground + 1, pz, 0);
+            }
+          }
+          const hall: Building = {
+            x, z, w: 19, d: 17, wall: 18, stories: 3, facing: 0, roof: "hip",
+            wallBlock: ID.stone_bricks, frameBlock: ID.dark_planks, roofBlock: ID.roof,
+            floorBlock: ID.stone_bricks, foundation: ID.stone_bricks, chimney: ID.cobblestone,
+            glazed: true, blueprint: "hierarchy-city-hall", accent: ID.dark_planks,
+            open: false, turret: 1, spire: false, forge: false, furniture: 2,
+          };
+          stampBuilding(writer, hall, sample.ground);
+        }
+      }
+      for (const townId of node.children) {
+        const town = byId.get(townId);
+        if (town?.level === "town") stampRoad(x, z, Math.round(town.x), Math.round(town.z), 5);
+      }
+      continue;
+    }
+
+    if (node.level === "town") {
+      // Main streets connect the town square to its village neighbourhoods.
+      for (const villageId of node.children) {
+        const village = byId.get(villageId);
+        if (village?.level === "village") stampRoad(x, z, Math.round(village.x), Math.round(village.z), 3);
+      }
+
+      const samples = [terrain.natural(x, z), terrain.natural(x - 7, z - 6),
+        terrain.natural(x + 7, z - 6), terrain.natural(x - 7, z + 6), terrain.natural(x + 7, z + 6)];
       if (samples.some((sample) => sample.water > 0 || sample.riverDist < sample.riverHalfWidth + 3)) continue;
       const heights = samples.map((sample) => sample.ground);
       if (Math.max(...heights) - Math.min(...heights) > 3) continue;
       const sortedHeights = [...heights].sort((a, b) => a - b);
       const ground = sortedHeights[Math.floor(sortedHeights.length / 2)];
-      if (ground <= SEA_LEVEL + 2 || ground + 22 >= 192) continue;
+      if (ground <= SEA_LEVEL + 2 || ground + 24 >= 192) continue;
 
+      // Defensive timber curtain with four deliberately open gates.
+      stampRingWithGates(x, z, 48, ground, 7, ID.dark_planks, 2);
       const plazaRadius = 11;
-      const plazaMinX = Math.max(x - plazaRadius, writer.startX);
-      const plazaMaxX = Math.min(x + plazaRadius, writer.startX + CHUNK_SIZE - 1);
-      const plazaMinZ = Math.max(z - plazaRadius, writer.startZ);
-      const plazaMaxZ = Math.min(z + plazaRadius, writer.startZ + CHUNK_SIZE - 1);
-      if (plazaMinX <= plazaMaxX && plazaMinZ <= plazaMaxZ) {
-        for (let px = plazaMinX; px <= plazaMaxX; px += 1) {
-          for (let pz = plazaMinZ; pz <= plazaMaxZ; pz += 1) {
-            if (Math.abs(px - x) <= Math.floor(hallWidth / 2) + 1 &&
-                Math.abs(pz - z) <= Math.floor(hallDepth / 2) + 1) continue;
-            writer.set(px, ground, pz, ID.stone_bricks);
-            writer.set(px, ground + 1, pz, 0);
-          }
+      for (let px = Math.max(x - plazaRadius, chunkMinX); px <= Math.min(x + plazaRadius, chunkMaxX); px += 1) {
+        for (let pz = Math.max(z - plazaRadius, chunkMinZ); pz <= Math.min(z + plazaRadius, chunkMaxZ); pz += 1) {
+          if (Math.abs(px - x) <= 8 && Math.abs(pz - z) <= 7) continue;
+          writer.set(px, ground, pz, ID.stone_bricks);
+          writer.set(px, ground + 1, pz, 0);
         }
       }
-
       const hall: Building = {
-        x, z, w: hallWidth, d: hallDepth, wall: 12, stories: 2, facing: 0,
-        roof: "hip", wallBlock: ID.cobblestone, frameBlock: ID.dark_planks,
-        roofBlock: ID.roof, floorBlock: ID.stone_bricks, foundation: ID.stone_bricks,
-        chimney: ID.cobblestone, glazed: true, blueprint: "hierarchy-town-hall",
-        accent: ID.dark_planks, open: false, turret: 0, spire: false, forge: false,
-        furniture: 2,
+        x, z, w: 15, d: 13, wall: 12, stories: 2, facing: 0, roof: "hip",
+        wallBlock: ID.cobblestone, frameBlock: ID.dark_planks, roofBlock: ID.roof,
+        floorBlock: ID.stone_bricks, foundation: ID.stone_bricks, chimney: ID.cobblestone,
+        glazed: true, blueprint: "hierarchy-town-hall", accent: ID.dark_planks,
+        open: false, turret: 0, spire: false, forge: false, furniture: 2,
       };
       stampBuilding(writer, hall, ground);
+      continue;
+    }
+
+    if (node.level === "castle") {
+      const sample = terrain.natural(x, z);
+      if (sample.water > 0 || sample.riverDist < sample.riverHalfWidth + 4 ||
+          sample.ground <= SEA_LEVEL + 3 || sample.ground + 40 >= 192) continue;
+      // Three concentric wards: outer bailey, inner ward and keep enclosure.
+      stampRingWithGates(x, z, 56, sample.ground, 10, ID.stone_bricks, 3);
+      stampRingWithGates(x, z, 38, sample.ground + 2, 9, ID.stone_bricks, 2);
+      stampRingWithGates(x, z, 20, sample.ground + 4, 8, ID.stone_bricks, 2);
+      const keep: Building = {
+        x, z, w: 17, d: 17, wall: 24, stories: 4, facing: 0, roof: "hip",
+        wallBlock: ID.stone_bricks, frameBlock: ID.dark_planks, roofBlock: ID.roof,
+        floorBlock: ID.stone_bricks, foundation: ID.stone_bricks, chimney: ID.cobblestone,
+        glazed: true, blueprint: "hierarchy-castle-keep", accent: ID.dark_planks,
+        open: false, turret: 4, spire: false, forge: false, furniture: 2,
+      };
+      stampBuilding(writer, keep, sample.ground + 4);
       continue;
     }
 
@@ -2039,8 +2140,6 @@ function stampHierarchyHouseNodes(writer: ChunkWriter, terrain: Terrain, seed: n
     const size = archetype === 0 ? 7 : archetype === 1 ? 9 : archetype === 2 ? 9 : archetype === 3 ? 11 : 7;
     const depth = archetype === 2 ? 11 : archetype === 3 ? 9 : size;
     const stories = archetype === 3 ? 2 : archetype === 4 ? 2 : 1;
-    const x = Math.round(node.x);
-    const z = Math.round(node.z);
     const samples = [
       terrain.natural(x, z),
       terrain.natural(x - Math.floor(size / 2), z - Math.floor(depth / 2)),
@@ -2049,22 +2148,20 @@ function stampHierarchyHouseNodes(writer: ChunkWriter, terrain: Terrain, seed: n
       terrain.natural(x + Math.floor(size / 2), z + Math.floor(depth / 2)),
     ];
     if (samples.some((sample) => sample.water > 0 || sample.riverDist < sample.riverHalfWidth + 2)) continue;
-    const heights = samples.map((sample) => sample.ground);
-    if (Math.max(...heights) - Math.min(...heights) > 4) continue;
-    const sortedHeights = [...heights].sort((a, b) => a - b);
-    const ground = sortedHeights[Math.floor(sortedHeights.length / 2)];
+    const houseHeights = samples.map((sample) => sample.ground);
+    if (Math.max(...houseHeights) - Math.min(...houseHeights) > 4) continue;
+    const sortedHouseHeights = [...houseHeights].sort((a, b) => a - b);
+    const ground = sortedHouseHeights[Math.floor(sortedHouseHeights.length / 2)];
     if (ground <= SEA_LEVEL + 2 || ground + stories * 6 + 8 >= 192) continue;
-
     const timber = archetype === 4 ? ID.dark_planks : ID.planks;
     const roof = archetype === 0 ? ID.thatch : archetype === 2 ? ID.birch_wood : ID.roof;
     const building: Building = {
       x, z, w: size, d: depth, wall: stories * 6, stories, facing: archetype % 4 as Facing,
-      roof: archetype === 3 ? "hip" : "gable",
-      wallBlock: timber, frameBlock: ID.wood, roofBlock: roof, floorBlock: ID.planks,
-      foundation: ID.cobblestone, chimney: archetype >= 2 ? ID.cobblestone : 0,
-      glazed: true, blueprint: `hierarchy-house-${archetype}`, accent: 0,
-      open: false, turret: archetype === 3 ? 1 : 0, spire: false, forge: false,
-      furniture: 1,
+      roof: archetype === 3 ? "hip" : "gable", wallBlock: timber, frameBlock: ID.wood,
+      roofBlock: roof, floorBlock: ID.planks, foundation: ID.cobblestone,
+      chimney: archetype >= 2 ? ID.cobblestone : 0, glazed: true,
+      blueprint: `hierarchy-house-${archetype}`, accent: 0, open: false,
+      turret: archetype === 3 ? 1 : 0, spire: false, forge: false, furniture: 1,
     };
     stampBuilding(writer, building, ground);
   }
