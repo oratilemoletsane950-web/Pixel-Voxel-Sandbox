@@ -1,6 +1,6 @@
 # Procedural Settlement System — Implementation Status
 
-Branch: `main`
+Branch: `feature/world-scale-mountains-trees`
 
 ## What has been implemented in this tranche
 
@@ -79,11 +79,11 @@ The hierarchy planner is connected to chunk stamping for residential `house` nod
 ### P4 — Physical scale and terrain
 1. Current code documents **1 block = 0.5 m** and a 4-block player height, which already corresponds to a 2 m player. Preserve that relationship unless the actual player collider proves otherwise.
 2. Audit camera height, collider height, door dimensions, storey height, movement speed and collision before modifying units.
-3. The current chunk storage has `WORLD_HEIGHT = 192` blocks (96 m at 0.5 m/block). This is too low to represent real mountains hundreds or thousands of metres tall in the same vertical world. Plan a deliberate vertical-world/terrain redesign; do not merely increase tree dimensions or change the scale comment.
+3. **Partially implemented:** mountain ridges now have stronger, sharper relief and a higher peak envelope while staying below the existing 192-block storage ceiling. This improves local mountain scale but does not represent real-world mountains hundreds or thousands of metres tall; that requires a separate vertical-world redesign.
 4. Design terrain vertical range, chunk storage, meshing, collision, sky/fog, water, caves and save data together before changing `WORLD_HEIGHT`.
-5. Give trees species-specific height, trunk diameter, canopy and age ranges, scaled in metres.
+5. **Implemented in this pass:** oak, birch, spruce, pine, redwood, palm and willow trunk ranges are scaled up by species, and trunk heights are capped against available vertical space so canopies are less likely to be clipped by the 192-block world ceiling. Tree diameters/canopies and age stages remain future work.
 6. Generate mountains with foothills, ridgelines, valleys, passes and elevation profiles, not small stepped pyramids.
-7. Add LOD/instancing and chunk streaming to keep large forests and settlements performant.
+7. Existing deterministic chunk-clipped tree stamping is retained; add LOD/instancing and profile performance for the larger canopies in a later pass.
 
 ### P5 — On-demand generation and safe kingdom spawn
 1. Define a region/chunk lifecycle: unknown -> planned -> terrain-validated -> generated -> cached; preserve seed and IDs.
@@ -121,3 +121,11 @@ The hierarchy data/validation layer has been improved, but the requested live ga
 - Do not claim that the hierarchy or spawn requirement is complete until it is wired into the runtime and verified in a running preview.
 - Do not modify block scale casually. The existing 0.5 m/block convention makes a 4-block player 2 m tall, but the current 192-block vertical world limits realistic mountain heights.
 - Run `npm run typecheck` and `npm run build` after integration. This tranche has not been typechecked or run in the game preview.
+
+
+## World-scale pass (current branch)
+
+- Increased mountain uplift and ridge contrast in the terrain height field without changing the block scale, chunk storage dimensions, collision units or streaming model.
+- Increased species-specific trunk height ranges for oak, birch, spruce, pine, redwood, palm and willow. Trunks now account for the remaining vertical space before choosing a height, preserving room for species-specific crowns near the world ceiling.
+- Added regression coverage that samples multiple deterministic seeds, checks mountain peak/elevation-range targets, and asserts terrain ground remains within storage bounds.
+- This is a first world-scale pass, not a full real-world-altitude simulation: the 192-block world remains 96 m tall at 0.5 m per block. Truly alpine mountain ranges require coordinated changes to chunk storage, meshing, collision, water, lighting/fog and persistence.
