@@ -14,7 +14,7 @@ Branch: `main`
 - City-level structures added: hierarchy `city` nodes stamp a three-storey civic hall and plaza; roads connect city centres to their child towns, and town centres to their child villages. Roads are chunk-clipped and sampled against water/river terrain.
 - Castle ward slice added: the hierarchy capital castle is offset from the kingdom centre and stamps three concentric gated stone enclosures plus a four-storey keep.
 - Legacy overlap mitigation added: non-kingdom legacy settlements are skipped when their footprint intersects hierarchy-owned town, village, city, castle or house sites; the starting legacy kingdom is preserved.
-- Still incomplete: this is conflict filtering rather than a universal footprint reservation solver. Some hierarchy structures can still be skipped on invalid terrain, town walls are a simple square palisade rather than a detailed wall-and-tower system, and kingdom/city/village layout spacing is not yet fully terrain-aware. Spatial query coordinates are not a complete terrain-aware strategic layout.
+- Remaining limits: hierarchy houses now reserve resolved footprints within the deterministic local village pass, but there is not yet a global reservation solver across all settlement tiers. Town/city/village centres are planned geometrically and can still compete with terrain features or legacy structures; complete path connectivity and universal terrain-aware placement remain future work.
 
 ### Starting kingdom and spawn preference
 - Reserved procedural region `(0, 0)` for a human kingdom rather than relying on a rare random kingdom roll.
@@ -39,6 +39,10 @@ Added `src/game/settlement-hierarchy.ts`.
 
 ### Important limitation
 The hierarchy planner is connected to chunk stamping for residential `house` nodes, town and city civic structures, roads, town walls/gates and castle wards. The whole hierarchy is not yet live: village nodes do not have their own full blueprinted village layouts, planned counts are not guaranteed rendered counts, and the legacy settlement generator remains active. The full in-game hierarchy must not be described as finished yet.
+
+## Follow-up robustness pass
+- Added double-tap W forward sprint to both the WebGL game and its fallback renderer. The boost applies while the second W press is held, clears on W release or window blur, and does not replace Shift sprint or Space flight.
+- Added deterministic local footprint reservations while hierarchy house sites are resolved, reducing houses being relocated onto one another during the same chunk query. Reservations are local to a village query; global cross-tier reservations remain outstanding.
 
 ## Work remaining, in priority order
 

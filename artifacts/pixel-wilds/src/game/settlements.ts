@@ -2099,6 +2099,8 @@ function stampHierarchyHouseNodes(writer: ChunkWriter, terrain: Terrain, seed: n
   // Pull endpoints far enough away to draw the roads crossing this chunk.
   const nodes = hierarchyNodesInBounds(plan, chunkMinX, chunkMinZ, chunkMaxX, chunkMaxZ, 520);
   const byId = new Map(plan.nodes.map((node) => [node.id, node]));
+  // Reserve resolved house footprints in stable node order for each village.
+  const reservedHouseSites = new Map<string, Array<{ x: number; z: number; halfW: number; halfD: number }>>();
 
   const stampRoad = (fromX: number, fromZ: number, toX: number, toZ: number, width: number): void => {
     const minX = Math.max(Math.min(fromX, toX) - width, chunkMinX);
@@ -2385,6 +2387,7 @@ function stampHierarchyHouseNodes(writer: ChunkWriter, terrain: Terrain, seed: n
       }
     }
     const siblingHouses = nodes.filter((other) => other.level === "house" && other.parentId === node.parentId && other.id !== node.id);
+    const reserved = reservedHouseSites.get(node.parentId ?? "") ?? [];
     let chosen: { x: number; z: number; ground: number } | null = null;
     let bestFallback: { x: number; z: number; ground: number; score: number } | null = null;
 
@@ -2393,7 +2396,9 @@ function stampHierarchyHouseNodes(writer: ChunkWriter, terrain: Terrain, seed: n
       const siteZ = z + offsetZ;
       const overlapsHouse = siblingHouses.some((other) =>
         Math.abs(siteX - Math.round(other.x)) < halfW + 5 &&
-        Math.abs(siteZ - Math.round(other.z)) < halfD + 5);
+        Math.abs(siteZ - Math.round(other.z)) < halfD + 5) ||
+        reserved.some((other) => Math.abs(siteX - other.x) < halfW + other.halfW + 3 &&
+          Math.abs(siteZ - other.z) < halfD + other.halfD + 3);
       const samples = [
         terrain.natural(siteX, siteZ),
         terrain.natural(siteX - halfW, siteZ - halfD),
@@ -2433,6 +2438,8 @@ function stampHierarchyHouseNodes(writer: ChunkWriter, terrain: Terrain, seed: n
     const siteX = chosen.x;
     const siteZ = chosen.z;
     const ground = chosen.ground;
+    reserved.push({ x: siteX, z: siteZ, halfW, halfD });
+    reservedHouseSites.set(node.parentId ?? "", reserved);
     // The final site may shift into a neighbouring chunk, so check overlap only now.
     if (siteX + halfW < chunkMinX || siteX - halfW > chunkMaxX ||
         siteZ + halfD < chunkMinZ || siteZ - halfD > chunkMaxZ) continue;
