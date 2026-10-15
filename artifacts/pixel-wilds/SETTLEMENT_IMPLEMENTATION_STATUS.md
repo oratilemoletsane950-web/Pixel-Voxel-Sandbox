@@ -1,6 +1,6 @@
 # Procedural Settlement System — Implementation Status
 
-Branch: `main`
+Branch: `feature/terrain-aware-house-counts`
 
 ## What has been implemented in this tranche
 
@@ -45,7 +45,7 @@ The hierarchy planner is connected to chunk stamping for residential `house` nod
 ### P0 — Integrate and prove the smallest vertical slice
 1. Detailed hierarchy town gatehouses and towers have been added. This follow-up widens the city ring and refines town/village radii to reduce planned footprint overlap; automated multi-seed minimum-distance checks cover the centres. Finish reconciling legacy and hierarchy layouts and visually verify geometry.
 2. Add a terrain-aware placement pass that validates land, water, slope, spacing and footprint conflicts.
-3. **Partially complete:** hierarchy house nodes now use the village blueprint roster. Add terrain-aware site recovery and per-village placement accounting to guarantee 20–30 successfully rendered residential homes, counting houses separately from barns, stalls and civic buildings.
+3. **In progress:** hierarchy houses use the village blueprint roster and now search deterministic nearby sites when the planned footprint is wet, too steep, or too low/high. A best-dry-site fallback reduces skipped homes. Full rendered-count guarantees still require relocating an entire village when no dry site exists and validating the final stamped count per village.
 4. Wire hierarchy nodes into real settlement blueprints and chunk stamping; prove one kingdom -> city -> town -> village vertical slice before enabling full counts.
 5. Verify the starting-kingdom path with a new world and representative seeds.
 6. Run automated hierarchy tests, TypeScript checking and the production build in CI; fix all errors before merging.
