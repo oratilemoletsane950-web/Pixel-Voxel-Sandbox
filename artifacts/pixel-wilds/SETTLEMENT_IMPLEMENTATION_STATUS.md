@@ -4,6 +4,11 @@ Branch: `feature/settlement-hierarchy-foundation`
 
 ## What has been implemented in this tranche
 
+### Streaming foundation added
+- Added `src/game/hierarchy-streaming.ts` with a bounded four-plan LRU cache keyed by seed and origin, plus a world-space bounds query to limit future hierarchy work to the chunks that need it.
+- This prevents the expensive full hierarchy plan from being rebuilt for every streamed chunk once the runtime generator is connected.
+- **Not yet live:** no existing chunk or settlement renderer imports this module yet. The bounds query currently filters the plan node list and is a correctness-first foundation, not a spatial index; optimize it after the rendering bridge is working.
+
 ### Starting kingdom and spawn preference
 - Reserved procedural region `(0, 0)` for a human kingdom rather than relying on a rare random kingdom roll.
 - Expanded that region's deterministic site search to find a terrain-valid kingdom plain over a wider area while preserving the existing water, slope, elevation and climate checks.
