@@ -1896,96 +1896,9 @@ export function stampSettlements(writer: ChunkWriter, terrain: Terrain, seed: nu
   const hierarchyOriginX = originSettlement?.kind === "kingdom" ? originSettlement.centerX : 0;
   const hierarchyOriginZ = originSettlement?.kind === "kingdom" ? originSettlement.centerZ : 0;
   const hierarchyPlan = hierarchyPlanFor(seed, { originX: hierarchyOriginX, originZ: hierarchyOriginZ });
-  const legacyCandidates = settlementsTouching(terrain, startX, startZ, endX, endZ);
-  for (const s of legacyCandidates) {
-    // Keep the starting kingdom intact. Other legacy settlements are omitted
-    // when their footprint would occupy a hierarchy-owned village, town, city
-    // civic centre or castle; this avoids stamping two independent plans over
-    // the same site while retaining legacy settlements in untouched regions.
-    if (s.kind !== "kingdom") {
-      const margin = s.radius + 64;
-      const nearbyHierarchy = hierarchyNodesInBounds(
-        hierarchyPlan,
-        s.centerX - margin, s.centerZ - margin,
-        s.centerX + margin, s.centerZ + margin,
-        0,
-      );
-      const conflicts = nearbyHierarchy.some((node) => {
-        const distance = Math.hypot(node.x - s.centerX, node.z - s.centerZ);
-        const ownedRadius = node.level === "town" ? 52
-          : node.level === "village" ? 44
-          : node.level === "city" ? 28
-          : node.level === "castle" ? 60
-          : node.level === "house" ? 6 : 0;
-        return ownedRadius > 0 && distance < s.radius + ownedRadius;
-      });
-      if (conflicts) continue;
-    }
-    const ground = s.baseY;
-    const half = s.radius;
-    if (!writer.overlaps(s.centerX - half - 6, s.centerZ - half - 6, s.centerX + half + 6, s.centerZ + half + 6)) continue;
-
-    // 1. Streets, plaza, district paving and paths, clearing any plants above.
-    for (let x = Math.max(s.centerX - half, startX); x <= Math.min(s.centerX + half, endX); x += 1) {
-      for (let z = Math.max(s.centerZ - half, startZ); z <= Math.min(s.centerZ + half, endZ); z += 1) {
-        const block = groundCover(s, x - s.centerX, z - s.centerZ);
-        if (block === 0) continue;
-        writer.set(x, ground, z, block);
-        writer.set(x, ground + 1, z, 0);
-      }
-    }
-    for (const district of s.districts) {
-      const dh = district.half;
-      if (!writer.overlaps(district.x - dh, district.z - dh, district.x + dh, district.z + dh)) continue;
-      for (let x = Math.max(district.x - dh, startX); x <= Math.min(district.x + dh, endX); x += 1) {
-        for (let z = Math.max(district.z - dh, startZ); z <= Math.min(district.z + dh, endZ); z += 1) {
-          writer.set(x, ground, z, s.plazaBlock);
-          writer.set(x, ground + 1, z, 0);
-        }
-      }
-    }
-    for (const path of s.paths) {
-      const x0 = Math.min(path.x0, path.x1);
-      const x1 = Math.max(path.x0, path.x1);
-      const z0 = Math.min(path.z0, path.z1);
-      const z1 = Math.max(path.z0, path.z1);      if (!writer.overlaps(x0, z0, x1, z1)) continue;
-      for (let x = Math.max(x0, startX); x <= Math.min(x1, endX); x += 1) {
-        for (let z = Math.max(z0, startZ); z <= Math.min(z1, endZ); z += 1) {
-          writer.set(x, ground, z, ID.path);
-          writer.set(x, ground + 1, z, 0);
-        }
-      }
-    }
-
-    // 2. Moat and bridges (before anything is built on the bank).
-    if (s.moat) stampMoat(writer, s, ground);
-
-    // 3. Farms and gardens.
-    for (const farm of s.farms) stampFarm(writer, farm, ground);
-    for (const garden of s.gardens) stampGarden(writer, garden, ground, seed);
-
-    // 4. The centrepiece (well, fountain, great tree, bonfire, ...). Keeps,
-    //    palaces and halls are ordinary buildings and come with step 5.
-    if (s.feature === "well") stampWell(writer, s.centerX, s.centerZ, ground);
-    else if (s.feature === "fountain") stampFountain(writer, s.centerX, s.centerZ, ground, false);
-    else if (s.feature === "fire") stampFire(writer, s.centerX, s.centerZ, ground);
-    else if (s.feature === "tree") stampGreatTree(writer, s.centerX, s.centerZ, ground, seed);
-
-    // 5. Buildings.
-    for (const building of s.buildings) stampBuilding(writer, building, ground);
-
-    // 6. Walls: curtain first, then the kingdom's inner ward.
-    stampWall(writer, s, ground);
-    if (s.innerWall && s.innerHalf > 0) {
-      stampRing(writer, s.centerX, s.centerZ, s.innerHalf, s.innerWall, s.baseY + 13, ground);
-    }
-
-    // 7. Towers (they stand on the wall line and the moat bank).
-    for (const tower of s.towers) stampTower(writer, tower, ground);
-
-    // 8. Gatehouses last: their archway cuts through the wall.
-    for (const gate of s.gates) stampBuilding(writer, gate, ground);
-  }
+  // Legacy settlement geometry has been retired. The old generator remains
+  // available only for deterministic starting-kingdom/spawn metadata; no legacy
+  // village, town, castle or kingdom blocks are stamped into streamed chunks.
 
   // Hierarchy house nodes are the source of these residential buildings. Keep
   // this after legacy settlement stamping so the hierarchy owns its own homes
@@ -2099,8 +2012,22 @@ function stampHierarchyHouseNodes(writer: ChunkWriter, terrain: Terrain, seed: n
   // Pull endpoints far enough away to draw the roads crossing this chunk.
   const nodes = hierarchyNodesInBounds(plan, chunkMinX, chunkMinZ, chunkMaxX, chunkMaxZ, 520);
   const byId = new Map(plan.nodes.map((node) => [node.id, node]));
-  // Reserve resolved house footprints in stable node order for each village.
-  const reservedHouseSites = new Map<string, Array<{ x: number; z: number; halfW: number; halfD: number }>>();
+  // Global, deterministic reservations shared across all villages in this query.
+  // Reservations include major hierarchy footprints, so relocated houses cannot
+  // spill into town walls, city civic centres, or castle enclosures.
+  type ReservedFootprint = { x: number; z: number; halfW: number; halfD: number; ownerId: string; level: string };
+  const reservedFootprints: ReservedFootprint[] = [];
+  for (const node of nodes) {
+    const footprint = node.level === "city" ? 20
+      : node.level === "town" ? 52
+      : node.level === "castle" ? 64
+      : 0;
+    if (footprint > 0) reservedFootprints.push({
+      x: Math.round(node.x), z: Math.round(node.z), halfW: footprint, halfD: footprint,
+      ownerId: node.id, level: node.level,
+    });
+  }
+  const reservedHouseSites: ReservedFootprint[] = [];
 
   const stampRoad = (fromX: number, fromZ: number, toX: number, toZ: number, width: number): void => {
     const minX = Math.max(Math.min(fromX, toX) - width, chunkMinX);
@@ -2386,19 +2313,19 @@ function stampHierarchyHouseNodes(writer: ChunkWriter, terrain: Terrain, seed: n
         candidateOffsets.push([Math.round(Math.cos(angle) * radius), Math.round(Math.sin(angle) * radius)]);
       }
     }
-    const siblingHouses = nodes.filter((other) => other.level === "house" && other.parentId === node.parentId && other.id !== node.id);
-    const reserved = reservedHouseSites.get(node.parentId ?? "") ?? [];
     let chosen: { x: number; z: number; ground: number } | null = null;
     let bestFallback: { x: number; z: number; ground: number; score: number } | null = null;
 
     for (const [offsetX, offsetZ] of candidateOffsets) {
       const siteX = x + offsetX;
       const siteZ = z + offsetZ;
-      const overlapsHouse = siblingHouses.some((other) =>
-        Math.abs(siteX - Math.round(other.x)) < halfW + 5 &&
-        Math.abs(siteZ - Math.round(other.z)) < halfD + 5) ||
-        reserved.some((other) => Math.abs(siteX - other.x) < halfW + other.halfW + 3 &&
-          Math.abs(siteZ - other.z) < halfD + other.halfD + 3);
+      const overlapsHouse = reservedHouseSites.some((other) =>
+        Math.abs(siteX - other.x) < halfW + other.halfW + 3 &&
+        Math.abs(siteZ - other.z) < halfD + other.halfD + 3);
+      const overlapsMajorStructure = reservedFootprints.some((other) =>
+        other.ownerId !== node.parentId &&
+        Math.abs(siteX - other.x) < halfW + other.halfW + 4 &&
+        Math.abs(siteZ - other.z) < halfD + other.halfD + 4);
       const samples = [
         terrain.natural(siteX, siteZ),
         terrain.natural(siteX - halfW, siteZ - halfD),
@@ -2415,7 +2342,7 @@ function stampHierarchyHouseNodes(writer: ChunkWriter, terrain: Terrain, seed: n
 
       const score = spread * 10 + Math.hypot(offsetX, offsetZ);
       if (!bestFallback || score < bestFallback.score) bestFallback = { x: siteX, z: siteZ, ground, score };
-      if (!overlapsHouse && spread <= 4) {
+      if (!overlapsHouse && !overlapsMajorStructure && spread <= 4) {
         chosen = { x: siteX, z: siteZ, ground };
         break;
       }
@@ -2438,8 +2365,9 @@ function stampHierarchyHouseNodes(writer: ChunkWriter, terrain: Terrain, seed: n
     const siteX = chosen.x;
     const siteZ = chosen.z;
     const ground = chosen.ground;
-    reserved.push({ x: siteX, z: siteZ, halfW, halfD });
-    reservedHouseSites.set(node.parentId ?? "", reserved);
+    reservedHouseSites.push({
+      x: siteX, z: siteZ, halfW, halfD, ownerId: node.id, level: "house",
+    });
     // The final site may shift into a neighbouring chunk, so check overlap only now.
     if (siteX + halfW < chunkMinX || siteX - halfW > chunkMaxX ||
         siteZ + halfD < chunkMinZ || siteZ - halfD > chunkMaxZ) continue;
