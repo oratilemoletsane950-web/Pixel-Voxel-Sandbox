@@ -1985,6 +1985,55 @@ function stampHierarchyHouseNodes(writer: ChunkWriter, terrain: Terrain, seed: n
   );
 
   for (const node of nodes) {
+    // Town nodes own a real civic centre: a two-storey hall and a paved square.
+    // The square is chunk-clipped so neighbouring chunks reconstruct it consistently.
+    if (node.level === "town" && node.metadata.townHall === true && node.metadata.townSquare === true) {
+      const x = Math.round(node.x);
+      const z = Math.round(node.z);
+      const hallWidth = 15;
+      const hallDepth = 13;
+      const samples = [
+        terrain.natural(x, z),
+        terrain.natural(x - 7, z - 6),
+        terrain.natural(x + 7, z - 6),
+        terrain.natural(x - 7, z + 6),
+        terrain.natural(x + 7, z + 6),
+      ];
+      if (samples.some((sample) => sample.water > 0 || sample.riverDist < sample.riverHalfWidth + 3)) continue;
+      const heights = samples.map((sample) => sample.ground);
+      if (Math.max(...heights) - Math.min(...heights) > 3) continue;
+      const sortedHeights = [...heights].sort((a, b) => a - b);
+      const ground = sortedHeights[Math.floor(sortedHeights.length / 2)];
+      if (ground <= SEA_LEVEL + 2 || ground + 22 >= 192) continue;
+
+      const plazaRadius = 11;
+      const plazaMinX = Math.max(x - plazaRadius, writer.startX);
+      const plazaMaxX = Math.min(x + plazaRadius, writer.startX + CHUNK_SIZE - 1);
+      const plazaMinZ = Math.max(z - plazaRadius, writer.startZ);
+      const plazaMaxZ = Math.min(z + plazaRadius, writer.startZ + CHUNK_SIZE - 1);
+      if (plazaMinX <= plazaMaxX && plazaMinZ <= plazaMaxZ) {
+        for (let px = plazaMinX; px <= plazaMaxX; px += 1) {
+          for (let pz = plazaMinZ; pz <= plazaMaxZ; pz += 1) {
+            if (Math.abs(px - x) <= Math.floor(hallWidth / 2) + 1 &&
+                Math.abs(pz - z) <= Math.floor(hallDepth / 2) + 1) continue;
+            writer.set(px, ground, pz, ID.stone_bricks);
+            writer.set(px, ground + 1, pz, 0);
+          }
+        }
+      }
+
+      const hall: Building = {
+        x, z, w: hallWidth, d: hallDepth, wall: 12, stories: 2, facing: 0,
+        roof: "hip", wallBlock: ID.cobblestone, frameBlock: ID.dark_planks,
+        roofBlock: ID.roof, floorBlock: ID.stone_bricks, foundation: ID.stone_bricks,
+        chimney: ID.cobblestone, glazed: true, blueprint: "hierarchy-town-hall",
+        accent: ID.dark_planks, open: false, turret: 0, spire: false, forge: false,
+        furniture: 2,
+      };
+      stampBuilding(writer, hall, ground);
+      continue;
+    }
+
     if (node.level !== "house") continue;
     const archetype = Number(node.metadata.archetypeIndex) || 0;
     const size = archetype === 0 ? 7 : archetype === 1 ? 9 : archetype === 2 ? 9 : archetype === 3 ? 11 : 7;
