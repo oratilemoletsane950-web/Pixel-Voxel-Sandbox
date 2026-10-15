@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { ID, IS_SOLID } from "./blocks";
-import { CHUNK_SIZE, WORLD_HEIGHT, chunkIndex } from "./chunk";
+import { IS_SOLID } from "./blocks";
+import { CHUNK_SIZE, WORLD_HEIGHT } from "./chunk";
 import {
   createWorld,
   ensureChunks,
