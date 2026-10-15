@@ -19,7 +19,7 @@ import { leafBlob } from "./trees";
  * Settlements (1 block = 0.5 m).
  *
  * How one is made, in order:
- *  1. The world is divided into 192 x 192 regions; each region may hold one
+ *  1. The world is divided into 320 x 320 procedural regions; each region may hold one
  *     settlement. A few candidate sites per region are scored for flatness,
  *     dryness and what the faction likes (elves want forest, dwarves want
  *     mountains, ...). Sites on or near water are rejected.
@@ -37,16 +37,16 @@ import { leafBlob } from "./trees";
  * named house types per tier (see `blueprints.ts`), a progression of
  * village -> town -> castle -> kingdom:
  *
- *   village - 40-block footprint. Central square with a well, the village
+ *   village - 42-block radius. Central square with a well, the village
  *             hall (the chief's house, 2 storeys), a watchtower and market
  *             stalls on the square, cottages, farms. Thatched roofs, timber.
  *             No wall - just open lanes.
- *   town    - 48-block footprint. Town hall (3 storeys, clock turret) and
+ *   town    - 62-block radius. Five neighborhood squares linked by streets; town hall (3 storeys, clock turret) and
  *             guild hall facing the square, three market stalls, an inn and a
  *             blacksmith with a lit forge guaranteed; multi-storey row houses
  *             along the streets. Timber palisade, 9 high, with a stone gate
  *             tower on each of the four gates. Cobble streets.
- *   castle  - 56-block footprint, on flat-ish defended ground. A water MOAT
+ *   castle  - 76-block radius, on flat-ish defended ground. A water MOAT
  *             around a 15-high crenellated curtain wall with four gatehouses
  *             (open archways you walk through) and twelve towers; the royal
  *             keep (5 storeys, gold banded, four corner turrets) rises on the
@@ -54,7 +54,7 @@ import { leafBlob } from "./trees";
  *             spire, a mage tower, guest and commander houses fill the bailey,
  *             and the royal gardens (hedges, paths, a fountain) sit in one
  *             quarter.
- *   kingdom - 60-block footprint, on a broad flat fertile plain only (see
+ *   kingdom - 104-block radius, on a broad flat fertile plain only (see
  *             `scoreSite`). Moat + 16-high curtain wall with eight gate
  *             towers, four corner towers and four gatehouses; inside, an
  *             inner ward wall (10 high, gated on every street) rings the
@@ -1086,7 +1086,7 @@ function makeSettlement(terrain: Terrain, seed: number, regionX: number, regionZ
 
   const faction = chooseFaction(hash2(regionX, regionZ, seed + 8219));
   const tier = hash2(regionX, regionZ, seed + 8291);
-  // Roughly one region in six becomes a kingdom, and only freefolk land;
+  // Kingdoms are deliberately rare and only freefolk land;
   // `scoreSite` then insists the ground is a broad, flat, fertile plain.
   const kingdom = faction === "freefolk" && hash2(regionX, regionZ, seed + 8293) > 0.94 && tier > 0.35;
   const spec = kindFor(faction, tier, kingdom);
