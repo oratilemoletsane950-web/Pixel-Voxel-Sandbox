@@ -2245,7 +2245,7 @@ function stampHierarchyHouseNodes(writer: ChunkWriter, terrain: Terrain, seed: n
     const halfW = Math.ceil(size / 2);
     const halfD = Math.ceil(depth / 2);
     const candidateOffsets: Array<[number, number]> = [[0, 0]];
-    for (let radius = 4; radius <= 48; radius += 4) {
+    for (let radius = 4; radius <= 160; radius += 4) {
       for (let step = 0; step < 16; step += 1) {
         const angle = (Math.PI * 2 * step) / 16;
         candidateOffsets.push([Math.round(Math.cos(angle) * radius), Math.round(Math.sin(angle) * radius)]);
@@ -2287,7 +2287,16 @@ function stampHierarchyHouseNodes(writer: ChunkWriter, terrain: Terrain, seed: n
     if (!chosen && bestFallback) {
       chosen = { x: bestFallback.x, z: bestFallback.z, ground: bestFallback.ground };
     }
-    if (!chosen) continue;
+    // A village's planned residential count is a hard rendering requirement. If
+    // the surrounding search finds no dry site (for example, a tiny island or
+    // river delta), retain the house on a deterministic raised build pad rather
+    // than silently dropping it. The pad clears the footprint while stamping,
+    // so water/vegetation cannot leave the interior flooded.
+    if (!chosen) {
+      const sample = terrain.natural(x, z);
+      const safeGround = Math.max(SEA_LEVEL + 3, Math.min(sample.ground, 192 - stories * 6 - 10));
+      chosen = { x, z, ground: safeGround };
+    }
     const siteX = chosen.x;
     const siteZ = chosen.z;
     const ground = chosen.ground;
