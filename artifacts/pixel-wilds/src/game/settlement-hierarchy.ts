@@ -157,7 +157,8 @@ export function createHierarchyPlan(seed: number, options: HierarchyOptions = {}
 
   if (options.includeCapitalCastle !== false) {
     const castleId = `${kingdomId}-capital-castle`;
-    add(castleId, generatedName(seed, 999, "castle"), "castle", kingdomId, originX, originZ, { capital: true });
+    // Offset the capital castle from the kingdom centre to avoid occupying the legacy palace/plaza.
+    add(castleId, generatedName(seed, 999, "castle"), "castle", kingdomId, originX + 132, originZ + 96, { capital: true });
     castleWards[castleId] = ["outer", "inner", "keep"];
   }
 
