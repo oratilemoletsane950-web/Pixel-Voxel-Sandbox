@@ -103,6 +103,12 @@ function humanSettlementNear(world: WorldData, x: number, z: number) {
   );
 }
 
+/** New worlds start at the guaranteed origin kingdom, not a nearer hamlet. */
+function startingKingdomNear(world: WorldData) {
+  return getSettlementsNear(world.seed, 0, 0, SETTLEMENT_SEARCH * 2)
+    .find((settlement) => settlement.kind === 'kingdom') ?? null;
+}
+
 /** Compass word for the offset (dx, dz); north is -z, east is +x. */
 function compassWord(dx: number, dz: number): string {
   const names = ['north', 'north-east', 'east', 'south-east', 'south', 'south-west', 'west', 'north-west'];
@@ -236,14 +242,14 @@ function initialWorld(position: Position | null = null): WorldData {
   // A brand-new world opens at the nearest village, town, castle or kingdom,
   // with its chunks already generated, so a settlement is the first thing
   // you see instead of empty wilderness.
-  const settlement = humanSettlementNear(loaded, 0, 0);
+  const settlement = startingKingdomNear(loaded) ?? humanSettlementNear(loaded, 0, 0);
   if (!settlement) return loaded;
   const center = getChunkCoordinates(settlement.x, settlement.z);
   return ensureChunks(loaded, center.x, center.z, 7, 400);
 }
 
 function findSpawn(world: WorldData): Position {
-  const settlement = humanSettlementNear(world, 0, 0);
+  const settlement = startingKingdomNear(world) ?? humanSettlementNear(world, 0, 0);
   return findSpawnPoint(world, settlement?.x ?? 0, settlement?.z ?? 0);
 }
 
