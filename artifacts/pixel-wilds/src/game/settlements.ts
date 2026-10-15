@@ -15,6 +15,7 @@ import { hash2, lerp, smoothstep } from "./noise";
 import type { HeightRecord, Terrain } from "./terrain";
 import { leafBlob } from "./trees";
 import { hierarchyNodesInBounds, hierarchyPlanFor } from "./hierarchy-streaming";
+import type { HierarchyPlan, SettlementNode } from "./settlement-hierarchy";
 
 /**
  * Settlements (1 block = 0.5 m).
@@ -2000,6 +2001,153 @@ function stampCastleTower(
  * Terrain is sampled at the centre and corners; wet or excessively uneven
  * sites are skipped rather than placing houses through rivers or cliffs.
  */
+
+type ResolvedFootprint = { x: number; z: number; halfW: number; halfD: number; ownerId: string; level: string };
+const resolvedPlansByTerrain = new WeakMap<Terrain, Map<string, HierarchyPlan>>();
+
+function resolveHierarchyPlan(source: HierarchyPlan, terrain: Terrain): HierarchyPlan {
+  const nodes: SettlementNode[] = source.nodes.map((node) => ({ ...node, children: [...node.children], metadata: { ...node.metadata } }));
+  const byId = new Map(nodes.map((node) => [node.id, node]));
+  const originalById = new Map(source.nodes.map((node) => [node.id, node]));
+  const major: ResolvedFootprint[] = [];
+  const houseSites: ResolvedFootprint[] = [];
+  const buckets = new Map<string, ResolvedFootprint[]>();
+  const bucketSize = 64;
+  const bucketKey = (x: number, z: number) => Math.floor(x / bucketSize) + ":" + Math.floor(z / bucketSize);
+  const addHouseSite = (site: ResolvedFootprint) => {
+    const key = bucketKey(site.x, site.z);
+    const bucket = buckets.get(key);
+    if (bucket) bucket.push(site);
+    else buckets.set(key, [site]);
+    houseSites.push(site);
+  };
+  const overlaps = (x: number, z: number, halfW: number, halfD: number, parentId: string | null) => {
+    for (let bx = Math.floor((x - halfW - 20) / bucketSize); bx <= Math.floor((x + halfW + 20) / bucketSize); bx += 1) {
+      for (let bz = Math.floor((z - halfD - 20) / bucketSize); bz <= Math.floor((z + halfD + 20) / bucketSize); bz += 1) {
+        for (const other of buckets.get(bx + ":" + bz) ?? []) {
+          if (other.ownerId === parentId) continue;
+          if (Math.abs(x - other.x) < halfW + other.halfW + 3 && Math.abs(z - other.z) < halfD + other.halfD + 3) return true;
+        }
+      }
+    }
+    return major.some((other) => other.ownerId !== parentId &&
+      Math.abs(x - other.x) < halfW + other.halfW + 4 && Math.abs(z - other.z) < halfD + other.halfD + 4);
+  };
+  const offsets = (radiusMax: number): Array<[number, number]> => {
+    const result: Array<[number, number]> = [[0, 0]];
+    for (let radius = 16; radius <= radiusMax; radius += 16) {
+      const steps = Math.max(8, Math.round((Math.PI * 2 * radius) / 32));
+      for (let step = 0; step < steps; step += 1) {
+        const angle = Math.PI * 2 * step / steps;
+        result.push([Math.round(Math.cos(angle) * radius), Math.round(Math.sin(angle) * radius)]);
+      }
+    }
+    return result;
+  };
+  const assess = (x: number, z: number, halfW: number, halfD: number, maxSpread: number, maxHeight: number) => {
+    const samples = [terrain.natural(x, z), terrain.natural(x - halfW, z - halfD), terrain.natural(x + halfW, z - halfD),
+      terrain.natural(x - halfW, z + halfD), terrain.natural(x + halfW, z + halfD)];
+    if (samples.some((sample) => sample.water > 0 || sample.riverDist < sample.riverHalfWidth + 3)) return null;
+    const heights = samples.map((sample) => sample.ground);
+    const spread = Math.max(...heights) - Math.min(...heights);
+    const ground = [...heights].sort((a, b) => a - b)[Math.floor(heights.length / 2)];
+    if (spread > maxSpread || ground <= SEA_LEVEL + 2 || ground + maxHeight >= 192) return null;
+    return { ground, spread };
+  };
+
+  // Resolve major sites once per world. Children follow their resolved parent's displacement.
+  const majorNodes = nodes.filter((node) => ["city", "town", "village", "castle"].includes(node.level));
+  const rank = { city: 0, town: 1, village: 2, castle: 3 } as const;
+  majorNodes.sort((a, b) => rank[a.level as keyof typeof rank] - rank[b.level as keyof typeof rank] || a.id.localeCompare(b.id));
+  for (const node of majorNodes) {
+    const original = originalById.get(node.id)!;
+    const parent = node.parentId ? byId.get(node.parentId) : undefined;
+    const originalParent = node.parentId ? originalById.get(node.parentId) : undefined;
+    const anchorX = Math.round(original.x + (parent && originalParent ? parent.x - originalParent.x : 0));
+    const anchorZ = Math.round(original.z + (parent && originalParent ? parent.z - originalParent.z : 0));
+    const size = node.level === "city" ? 20 : node.level === "town" ? 55 : node.level === "village" ? 10 : 66;
+    const radiusMax = node.level === "city" ? 384 : node.level === "town" ? 256 : node.level === "village" ? 128 : 160;
+    const maxSpread = node.level === "city" ? 10 : node.level === "town" ? 8 : node.level === "village" ? 7 : 24;
+    const maxHeight = node.level === "city" ? 32 : node.level === "town" ? 30 : node.level === "village" ? 12 : 52;
+    let best: { x: number; z: number; ground: number; score: number } | null = null;
+    for (const [dx, dz] of offsets(radiusMax)) {
+      const x = anchorX + dx;
+      const z = anchorZ + dz;
+      if (major.some((other) => Math.abs(x - other.x) < size + other.halfW + 8 && Math.abs(z - other.z) < size + other.halfD + 8)) continue;
+      const site = assess(x, z, size, size, maxSpread, maxHeight);
+      if (!site) continue;
+      let score = site.spread * 12 + Math.hypot(dx, dz) * 0.08;
+      if (node.level === "castle") {
+        const elevation = site.ground - SEA_LEVEL;
+        const archetype = String(node.metadata.archetype ?? "concentric");
+        if (archetype === "hilltop") score -= Math.min(elevation, 60) * 0.35;
+        else if (archetype === "palace-fortress") score += Math.abs(elevation - 18) * 0.12;
+        else score -= Math.min(elevation, 36) * 0.08;
+      }
+      if (!best || score < best.score) best = { x, z, ground: site.ground, score };
+    }
+    if (!best) { node.metadata.placementValid = false; continue; }
+    node.x = best.x; node.z = best.z;
+    node.metadata.resolvedGround = best.ground;
+    node.metadata.placementValid = true;
+    const footprint: ResolvedFootprint = { x: node.x, z: node.z, halfW: size, halfD: size, ownerId: node.id, level: node.level };
+    major.push(footprint);
+    if (node.level === "village") addHouseSite(footprint);
+  }
+
+  // Resolve all residential footprints once, with reservations shared across every village.
+  const blueprintIds = ["simple_home", "farmers_cottage", "fishermans_hut", "woodcutters_cabin", "bakers_house"] as const;
+  for (const node of nodes) {
+    if (node.level !== "house") continue;
+    const parent = node.parentId ? byId.get(node.parentId) : undefined;
+    const original = originalById.get(node.id)!;
+    const originalParent = node.parentId ? originalById.get(node.parentId) : undefined;
+    if (!parent || parent.metadata.placementValid !== true) { node.metadata.placementValid = false; continue; }
+    const anchorX = Math.round(original.x + parent.x - (originalParent?.x ?? parent.x));
+    const anchorZ = Math.round(original.z + parent.z - (originalParent?.z ?? parent.z));
+    const archetype = Math.max(0, Math.min(4, Math.floor(Number(node.metadata.archetypeIndex) || 0)));
+    const bp = blueprintById("village", blueprintIds[archetype]);
+    const halfW = Math.ceil(bp.w / 2);
+    const halfD = Math.ceil(bp.d / 2);
+    let chosen: { x: number; z: number; ground: number; score: number } | null = null;
+    const candidates: Array<[number, number]> = [[0, 0]];
+    for (let radius = 4; radius <= 192; radius += 4) {
+      for (let step = 0; step < 16; step += 1) {
+        const angle = Math.PI * 2 * step / 16;
+        candidates.push([Math.round(Math.cos(angle) * radius), Math.round(Math.sin(angle) * radius)]);
+      }
+    }
+    for (const [dx, dz] of candidates) {
+      const x = anchorX + dx;
+      const z = anchorZ + dz;
+      if (overlaps(x, z, halfW, halfD, node.parentId)) continue;
+      const site = assess(x, z, halfW, halfD, 5, bp.stories * 6 + 8);
+      if (!site) continue;
+      const score = site.spread * 10 + Math.hypot(dx, dz);
+      if (!chosen || score < chosen.score) chosen = { x, z, ground: site.ground, score };
+      if (site.spread <= 4) break;
+    }
+    if (!chosen) { node.metadata.placementValid = false; continue; }
+    node.x = chosen.x; node.z = chosen.z;
+    node.metadata.resolvedGround = chosen.ground;
+    node.metadata.placementValid = true;
+    addHouseSite({ x: node.x, z: node.z, halfW, halfD, ownerId: node.id, level: "house" });
+  }
+  return { ...source, nodes };
+}
+
+function resolvedHierarchyPlanFor(terrain: Terrain, seed: number, originX: number, originZ: number): HierarchyPlan {
+  const key = (seed >>> 0) + ":" + Math.round(originX) + ":" + Math.round(originZ);
+  let cache = resolvedPlansByTerrain.get(terrain);
+  if (!cache) { cache = new Map<string, HierarchyPlan>(); resolvedPlansByTerrain.set(terrain, cache); }
+  const existing = cache.get(key);
+  if (existing) return existing;
+  const resolved = resolveHierarchyPlan(hierarchyPlanFor(seed, { originX, originZ }), terrain);
+  if (cache.size >= 2) cache.delete(cache.keys().next().value!);
+  cache.set(key, resolved);
+  return resolved;
+}
+
 function stampHierarchyHouseNodes(writer: ChunkWriter, terrain: Terrain, seed: number): void {
   const start = getSettlement(terrain, 0, 0);
   const originX = start?.kind === "kingdom" ? start.centerX : 0;
