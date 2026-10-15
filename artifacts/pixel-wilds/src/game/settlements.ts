@@ -14,6 +14,7 @@ import { CHUNK_SIZE, ChunkWriter, SEA_LEVEL } from "./chunk";
 import { hash2, lerp, smoothstep } from "./noise";
 import type { HeightRecord, Terrain } from "./terrain";
 import { leafBlob } from "./trees";
+import { hierarchyNodesInBounds, hierarchyPlanFor } from "./hierarchy-streaming";
 
 /**
  * Settlements (1 block = 0.5 m).
@@ -1956,5 +1957,65 @@ export function stampSettlements(writer: ChunkWriter, terrain: Terrain, seed: nu
 
     // 8. Gatehouses last: their archway cuts through the wall.
     for (const gate of s.gates) stampBuilding(writer, gate, ground);
+  }
+
+  // Hierarchy house nodes are the source of these residential buildings. Keep
+  // this after legacy settlement stamping so the hierarchy owns its own homes
+  // without changing the existing settlement landmarks in this increment.
+  stampHierarchyHouseNodes(writer, terrain, seed);
+}
+
+/**
+ * Turn nearby hierarchy house records into real block-stamped buildings.
+ * Terrain is sampled at the centre and corners; wet or excessively uneven
+ * sites are skipped rather than placing houses through rivers or cliffs.
+ */
+function stampHierarchyHouseNodes(writer: ChunkWriter, terrain: Terrain, seed: number): void {
+  const start = getSettlement(terrain, 0, 0);
+  const originX = start?.kind === "kingdom" ? start.centerX : 0;
+  const originZ = start?.kind === "kingdom" ? start.centerZ : 0;
+  const plan = hierarchyPlanFor(seed, { originX, originZ });
+  const nodes = hierarchyNodesInBounds(
+    plan,
+    writer.startX,
+    writer.startZ,
+    writer.startX + CHUNK_SIZE - 1,
+    writer.startZ + CHUNK_SIZE - 1,
+    8,
+  );
+
+  for (const node of nodes) {
+    if (node.level !== "house") continue;
+    const archetype = Number(node.metadata.archetypeIndex) || 0;
+    const size = archetype === 0 ? 7 : archetype === 1 ? 9 : archetype === 2 ? 9 : archetype === 3 ? 11 : 7;
+    const depth = archetype === 2 ? 11 : archetype === 3 ? 9 : size;
+    const stories = archetype === 3 ? 2 : archetype === 4 ? 2 : 1;
+    const x = Math.round(node.x);
+    const z = Math.round(node.z);
+    const samples = [
+      terrain.natural(x, z),
+      terrain.natural(x - Math.floor(size / 2), z - Math.floor(depth / 2)),
+      terrain.natural(x + Math.floor(size / 2), z - Math.floor(depth / 2)),
+      terrain.natural(x - Math.floor(size / 2), z + Math.floor(depth / 2)),
+      terrain.natural(x + Math.floor(size / 2), z + Math.floor(depth / 2)),
+    ];
+    if (samples.some((sample) => sample.water > 0 || sample.riverDist < sample.riverHalfWidth + 2)) continue;
+    const heights = samples.map((sample) => sample.ground);
+    if (Math.max(...heights) - Math.min(...heights) > 8) continue;
+    const ground = Math.round(heights.reduce((sum, value) => sum + value, 0) / heights.length);
+    if (ground <= SEA_LEVEL + 2 || ground + stories * 6 + 8 >= 192) continue;
+
+    const timber = archetype === 4 ? ID.dark_planks : ID.planks;
+    const roof = archetype === 0 ? ID.thatch : archetype === 2 ? ID.birch_wood : ID.roof;
+    const building: Building = {
+      x, z, w: size, d: depth, wall: stories * 6, stories, facing: archetype % 4 as Facing,
+      roof: archetype === 3 ? "hip" : "gable",
+      wallBlock: timber, frameBlock: ID.wood, roofBlock: roof, floorBlock: ID.planks,
+      foundation: ID.cobblestone, chimney: archetype >= 2 ? ID.cobblestone : 0,
+      glazed: true, blueprint: `hierarchy-house-${archetype}`, accent: 0,
+      open: false, turret: archetype === 3 ? 1 : 0, spire: false, forge: false,
+      furniture: 1,
+    };
+    stampBuilding(writer, building, ground);
   }
 }
