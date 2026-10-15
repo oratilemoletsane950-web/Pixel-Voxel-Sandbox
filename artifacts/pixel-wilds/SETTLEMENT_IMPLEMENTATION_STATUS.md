@@ -14,7 +14,7 @@ Branch: `main`
 - City-level structures added: hierarchy `city` nodes stamp a three-storey civic hall and plaza; roads connect city centres to their child towns, and town centres to their child villages. Roads are chunk-clipped and sampled against water/river terrain.
 - Castle ward slice added: the hierarchy capital castle is offset from the kingdom centre and stamps three concentric gated stone enclosures plus a four-storey keep.
 - Legacy settlement block stamping has been removed entirely. The legacy generator is retained only as deterministic metadata for locating the starting kingdom/spawn; its old village, town, castle and kingdom geometry is not rendered.
-- Remaining limits: hierarchy houses now reserve resolved footprints within the deterministic local village pass, but there is not yet a global reservation solver across all settlement tiers. Town/city/village centres are planned geometrically and can still compete with terrain features or legacy structures; complete path connectivity and universal terrain-aware placement remain future work.
+- Placement follow-up: all hierarchy city/town/village/castle sites and residential houses are resolved once per Terrain/seed/origin, then spatially queried by chunk. Resolved major and house footprints share global deterministic reservations; unsuitable sites are relocated within bounded searches or marked unplaceable rather than forced into water or excessive slopes. Roads use resolved centres and river crossings receive plank bridges. Remaining caveats are listed in the latest global-placement section below.
 
 ### Starting kingdom and spawn preference
 - Reserved procedural region `(0, 0)` for a human kingdom rather than relying on a rare random kingdom roll.
@@ -38,7 +38,7 @@ Added `src/game/settlement-hierarchy.ts`.
 - Includes `validateHierarchyPlan()` to check required counts and parent references.
 
 ### Important limitation
-The hierarchy planner is connected to chunk stamping for residential `house` nodes, town and city civic structures, roads, town walls/gates and castle wards. The whole hierarchy is not yet live: village nodes do not have their own full blueprinted village layouts, planned counts are not guaranteed rendered counts, and the legacy settlement generator remains active. The full in-game hierarchy must not be described as finished yet.
+The hierarchy planner is connected to chunk stamping for residential `house` nodes, town and city civic structures, roads, town walls/gates and castle wards. Legacy settlement geometry stamping has been removed; legacy settlement data is used only for starting-kingdom/spawn metadata. Resolved sites are deterministic and terrain-checked, but houses or major sites can still be omitted when no safe candidate exists in their bounded search area.
 
 ## Follow-up robustness pass
 - Added double-tap W forward sprint to both the WebGL game and its fallback renderer. The boost applies while the second W press is held, clears on W release or window blur, and does not replace Shift sprint or Space flight.
@@ -49,7 +49,7 @@ The hierarchy planner is connected to chunk stamping for residential `house` nod
 ### P0 — Integrate and prove the smallest vertical slice
 1. Detailed hierarchy town gatehouses and towers have been added. The legacy geometry stamper is now disabled, and hierarchy house candidates use shared reservations against nearby houses and major town/city/castle footprints. Continue validating major-structure conflicts and visually verify geometry.
 2. Partially implemented: hierarchy houses validate water, river clearance, footprint slope, vertical bounds and shared footprint reservations; city civic sites now validate centre/corner water and elevation spread; towns validate local terrain and castles use a terrain-aware candidate search. A full resolver that relocates every town/city and globally reserves all major footprints before stamping remains outstanding.
-3. **Implemented:** hierarchy houses use the village blueprint roster and search deterministic nearby sites up to 160 blocks when the planned footprint is wet, too steep, or too low/high. If no dry site exists, the house is still stamped on a deterministic raised build pad rather than silently skipped. This guarantees every planned house node reaches the block-stamping pass; the raised-pad fallback is intentionally a last resort for hostile terrain.
+3. **Implemented:** hierarchy houses use the village blueprint roster and are resolved against terrain, vertical limits, major structures and other houses in one deterministic world-level pass. Searches extend up to 192 blocks; unsafe homes are omitted rather than forced onto a raised pad or into water.
 4. Wire hierarchy nodes into real settlement blueprints and chunk stamping; prove one kingdom -> city -> town -> village vertical slice before enabling full counts.
 5. Verify the starting-kingdom path with a new world and representative seeds.
 6. Run automated hierarchy tests, TypeScript checking and the production build in CI; fix all errors before merging.
@@ -122,7 +122,7 @@ The hierarchy planner is connected to chunk stamping for residential `house` nod
 
 ## Current execution boundary
 
-The hierarchy data/validation layer has been improved, but the requested live game feature is still incomplete. The hierarchy coordinates remain planning hints. House sites are terrain-checked and globally reserved against nearby hierarchy house and major-structure footprints, and major civic sites have terrain checks, but towns/cities are not yet relocated by a single global terrain-and-conflict solver. The legacy geometry stamper is disabled; only its starting-kingdom metadata is retained for spawn placement. No successful TypeScript check, production build, automated test run or live preview has been recorded for this branch. Do not represent the feature as complete until the integration and verification items above have been implemented and tested.
+The hierarchy now uses a cached world-level placement solver. It resolves city, town, village and castle sites first, shifts descendants with their resolved parent, then resolves all houses with global footprint reservations. Chunks query the resolved plan, so revisits and chunk boundaries use identical locations. Road stamping follows resolved centres and bridges narrow river crossings; the legacy settlement geometry stamper is disabled while legacy metadata remains for starting-kingdom/spawn lookup. CI verification is in progress for this latest branch state; no live visual gameplay test has been performed.
 
 ## Handoff notes for another AI/developer
 
@@ -149,3 +149,14 @@ The hierarchy data/validation layer has been improved, but the requested live ga
 - Tightened city site checks by sampling the centre and four footprint corners for water/river clearance and elevation spread. Existing town slope/water checks and castle candidate scoring remain active.
 - Removed the unsafe raised-pad house fallback. If no dry, non-overlapping candidate can be found within the bounded search, the house is skipped rather than stamped into water or through another structure.
 - Remaining limitation: this is not yet a complete global solver for all major structures. City/town sites can be skipped when terrain is unsuitable instead of being relocated with all dependent roads, and major-structure-to-major-structure reservations need a unified resolved-site plan. House counts therefore remain planned counts, not a guaranteed rendered count.
+
+
+## World-level terrain placement follow-up
+
+- Added a deterministic resolved hierarchy plan cached per terrain instance, world seed and starting-kingdom origin. The first chunk request resolves the full hierarchy; later chunks reuse the same plan rather than making independent placement decisions.
+- Resolves major sites before houses, in parent-first order. Child anchors follow parent displacement. Each candidate samples the centre, corners, terrain dryness, river clearance, elevation spread and available vertical room. Resolved major footprints are reserved against other major sites.
+- Resolves residential house footprints across the full hierarchy using the existing blueprint roster. A spatial bucket index provides shared house reservations across villages; houses also avoid reserved city, town and castle footprints. Unplaceable structures are marked invalid and never stamped onto unsafe terrain.
+- All city halls/plazas, town walls/halls, castle wards/keeps, houses and roads use resolved coordinates. Narrow river crossings use plank bridge surfaces; sea/lake crossings remain blocked rather than being mistaken for rivers.
+- Legacy settlement block stamping is removed. The old settlement generator remains only where existing spawn logic needs its starting-kingdom metadata.
+- Regression test added for terrain-safe placement, resolved heights, major-footprint separation and house-to-house/house-to-major overlap prevention.
+- Limits to verify: bounded searches cannot guarantee placement in every hostile terrain seed; road bridge approach smoothness and visual appearance still need a live playtest. A full rendered-block occupancy audit is not yet available, so the geometry-level reservations are validated analytically rather than against every stamped voxel.
