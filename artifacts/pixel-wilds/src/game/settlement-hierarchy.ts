@@ -80,6 +80,7 @@ export function createHierarchyPlan(seed: number, options: HierarchyOptions = {}
   const originX = options.originX ?? 0;
   const originZ = options.originZ ?? 0;
   const nodes: SettlementNode[] = [];
+  const nodeById = new Map<string, SettlementNode>();
   const childrenByParent: Record<string, string[]> = {};
   const castleWards: Record<string, CastleWardKind[]> = {};
 
@@ -94,9 +95,10 @@ export function createHierarchyPlan(seed: number, options: HierarchyOptions = {}
   ): SettlementNode => {
     const node: SettlementNode = { id, name, level, parentId, x: Math.round(x), z: Math.round(z), children: [], metadata };
     nodes.push(node);
+    nodeById.set(id, node);
     childrenByParent[id] = node.children;
     if (parentId) {
-      const parent = nodes.find((candidate) => candidate.id === parentId);
+      const parent = nodeById.get(parentId);
       if (parent) parent.children.push(id);
     }
     return node;
