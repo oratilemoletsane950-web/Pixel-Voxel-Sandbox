@@ -173,6 +173,26 @@ export function validateHierarchyPlan(plan: HierarchyPlan): string[] {
   if (!kingdom || kingdom.level !== "kingdom") errors.push("Missing root kingdom.");
   if (kingdom?.parentId !== null) errors.push("Root kingdom must not have a parent.");
 
+  for (const node of plan.nodes) {
+    if (!Number.isFinite(node.x) || !Number.isFinite(node.z)) {
+      errors.push(`${node.id}: coordinates must be finite numbers.`);
+    }
+  }
+
+  // Walk each parent chain to catch cycles that local link checks cannot find.
+  for (const node of plan.nodes) {
+    const visited = new Set<string>();
+    let current: SettlementNode | undefined = node;
+    while (current) {
+      if (visited.has(current.id)) {
+        errors.push(`${node.id}: parent cycle detected at ${current.id}.`);
+        break;
+      }
+      visited.add(current.id);
+      current = current.parentId ? byId.get(current.parentId) : undefined;
+    }
+  }
+
   const expectedParent: Partial<Record<SettlementLevel, SettlementLevel>> = {
     city: "kingdom",
     town: "city",
