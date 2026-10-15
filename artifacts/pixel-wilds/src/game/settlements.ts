@@ -154,6 +154,18 @@ export interface Building {
   passage?: "x" | "z";
   /** 0 = none, 1 = table + chairs, 2 = banquet table. */
   furniture: 0 | 1 | 2;
+  /** Victorian facade variant: 0 = standard, 1 = bay window, 2 = full Victorian */
+  facadeVariant?: 0 | 1 | 2;
+  /** Number of Victorian sash windows per façade side. */
+  windowCount?: number;
+  /** Decorative cornice block (gold, marble, or brick), or 0 for none. */
+  corniceBlock?: number;
+  /** Whether the building has a decorative gable trim. */
+  gableTrim?: boolean;
+  /** Whether the building has dormer windows. */
+  hasDormers?: boolean;
+  /** Bay window width in blocks (0 = none). */
+  bayWindowWidth?: number;
 }
 
 interface Farm {
