@@ -1,4 +1,14 @@
 import { ID } from "./blocks";
+import {
+  accentBlock,
+  blueprintById,
+  pickFrom,
+  rosterPool,
+  tierPalette,
+  tierRoofBlock,
+  type Blueprint,
+  type HumanTier,
+} from "./blueprints";
 import { CHUNK_SIZE, ChunkWriter, SEA_LEVEL } from "./chunk";
 import { hash2, lerp, smoothstep } from "./noise";
 import type { HeightRecord, Terrain } from "./terrain";
@@ -15,33 +25,62 @@ import { leafBlob } from "./trees";
  *  2. The winning site is terraformed: the ground inside a square footprint
  *     is levelled to one height and eased back to the natural land over a
  *     12-block apron (see `settlementGround`, which feeds the terrain model).
- *  3. The layout is planned logically: two cross streets meet in a plaza,
- *     buildings line the streets and face them, cottages fill the quadrants
- *     with a path to the nearest street, and bigger settlements get a wall.
- *  4. Chunks stamp only the part of each structure that lies inside them, so
- *     a building across a chunk border is built seamlessly by both chunks.
+ *  3. The layout is planned logically on paper first - see below - then every
+ *     chunk stamps only the part of each structure that lies inside it, so a
+ *     building across a chunk border is built seamlessly by both chunks.
+ *  4. Chunks stamp in this order: streets and paths, moat and bridges, farms,
+ *     gardens, the centrepiece, buildings, walls, towers, gatehouses last
+ *     (their archway must cut through the wall).
  *
- * Kinds and their rules (all decided from the region's hash rolls and the
- * terrain score, so they are the same in every chunk and every session):
- *   village - freefolk, any decent lowland, 36-block footprint, no wall
- *   town    - freefolk, better ground, 44 blocks, timber palisade
- *   city    - freefolk, best ground, 54 blocks, stone wall and corner towers
- *   kingdom - freefolk only, ~1 region in 6, and `scoreSite` then insists on
- *             a broad FLAT plain (range <= 14 blocks), 3-30 m above sea
- *             level, never desert or frozen, moisture 0.4-0.8. It is the
- *             biggest footprint (56 blocks): a crenellated curtain wall with
- *             eight gate towers, a stone keep on the plaza with its own four
- *             towers, and an inner ward wall between them - keep, wards and
- *             bailey like a real medieval castle.
+ * The four human designs follow the settlement sheet exactly - one roster of
+ * named house types per tier (see `blueprints.ts`), a progression of
+ * village -> town -> castle -> kingdom:
+ *
+ *   village - 40-block footprint. Central square with a well, the village
+ *             hall (the chief's house, 2 storeys), a watchtower and market
+ *             stalls on the square, cottages, farms. Thatched roofs, timber.
+ *             No wall - just open lanes.
+ *   town    - 48-block footprint. Town hall (3 storeys, clock turret) and
+ *             guild hall facing the square, three market stalls, an inn and a
+ *             blacksmith with a lit forge guaranteed; multi-storey row houses
+ *             along the streets. Timber palisade, 9 high, with a stone gate
+ *             tower on each of the four gates. Cobble streets.
+ *   castle  - 56-block footprint, on flat-ish defended ground. A water MOAT
+ *             around a 15-high crenellated curtain wall with four gatehouses
+ *             (open archways you walk through) and twelve towers; the royal
+ *             keep (5 storeys, gold banded, four corner turrets) rises on the
+ *             centre; barracks, armoury, stables, granary, a chapel with a
+ *             spire, a mage tower, guest and commander houses fill the bailey,
+ *             and the royal gardens (hedges, paths, a fountain) sit in one
+ *             quarter.
+ *   kingdom - 60-block footprint, on a broad flat fertile plain only (see
+ *             `scoreSite`). Moat + 16-high curtain wall with eight gate
+ *             towers, four corner towers and four gatehouses; inside, an
+ *             inner ward wall (10 high, gated on every street) rings the
+ *             royal palace (5 storeys, dome, corner turrets, gold); four
+ *             paved DISTRICTS hold the grand market (four gold-trimmed
+ *             stalls + trade guild), the temple, the barracks, and the
+ *             warehouses; government house, university, hospital, noble
+ *             estates and the harbour master take ring slots; a royal park
+ *             and a farm fill the outer wards.
  *   grove/hold/camp/tower/lodge - the non-human factions, placed by taste.
  *
- * Furnishing: every house gets a table and chairs against the wall opposite
- * its door, halls and keeps get a long banquet table, and doorways are hung
- * with wooden doors (opaque, but walk-through). All four - door, chair, table
- * and marble - are also craftable and placeable by the player (press C).
+ * Multi-storey buildings that are at least 9 x 9 get a staircase they can
+ * walk up (one-block steps + floor slabs at every 6-block storey line);
+ * windows light every storey; belt courses mark the floors (marble, gold or
+ * brick); market stalls are canopies on posts instead of walls; and gates,
+ * moats and bridges are stamped so you can stroll in from any direction.
  *
- * Proportions: the player is 4 blocks tall, so doors are 5 high, rooms have
- * 5 blocks of headroom and streets are 5 wide (2.5 m).
+ * Furnishing: every house gets a table and chairs against the wall opposite
+ * its door, halls and keeps get a long banquet table, the blacksmith gets a
+ * coal forge, and doorways are hung with wooden doors (opaque, but
+ * walk-through). Door, chair, table, marble, brick and gold are all
+ * placeable blocks too (press C, except gold: gather it from royal places).
+ *
+ * Proportions: the player is 4 blocks tall, so doors are 5 high, storeys are
+ * 6 blocks, rooms keep 5 blocks of headroom and streets are 5 wide (2.5 m).
+ *
+ * There are NO mobs: settlements are uninhabited architecture by design.
  */
 
 export const SETTLEMENT_FACTIONS = [
@@ -57,7 +96,7 @@ export type SettlementFaction = (typeof SETTLEMENT_FACTIONS)[number];
 export type SettlementKind =
   | "village"
   | "town"
-  | "city"
+  | "castle"
   | "kingdom"
   | "grove"
   | "hold"
@@ -82,14 +121,16 @@ export interface Humanoid {
 
 type Facing = 0 | 1 | 2 | 3; // 0 = +z, 1 = +x, 2 = -z, 3 = -x
 
-interface Building {
+export interface Building {
   x: number;
   z: number;
   w: number;
   d: number;
+  /** Wall height above the floor: storeys * 6. */
   wall: number;
+  stories: number;
   facing: Facing;
-  roof: "gable" | "hip" | "flat";
+  roof: "gable" | "hip" | "flat" | "mansard" | "dome";
   wallBlock: number;
   frameBlock: number;
   roofBlock: number;
@@ -97,6 +138,22 @@ interface Building {
   foundation: number;
   chimney: number;
   glazed: boolean;
+  /** Which design from the roster built this (for the HUD and tests). */
+  blueprint: string;
+  /** Belt-course block (gold, marble or brick), or 0 for none. */
+  accent: number;
+  /** Market stall: paving, posts and a canopy instead of walls. */
+  open: boolean;
+  /** Roof-top lookout: one central turret or four corner turrets. */
+  turret: 0 | 1 | 4;
+  /** Chapel-style spire above the ridge. */
+  spire: boolean;
+  /** Blacksmith: coal fire in the corner, stack through the roof. */
+  forge: boolean;
+  /** Gatehouse: open archway through the ground floor along this axis. */
+  passage?: "x" | "z";
+  /** 0 = none, 1 = table + chairs, 2 = banquet table. */
+  furniture: 0 | 1 | 2;
 }
 
 interface Farm {
@@ -104,6 +161,19 @@ interface Farm {
   z: number;
   w: number;
   d: number;
+}
+
+interface Garden {
+  x: number;
+  z: number;
+  w: number;
+  d: number;
+}
+
+interface District {
+  x: number;
+  z: number;
+  half: number;
 }
 
 interface PathSegment {
@@ -130,9 +200,11 @@ interface TowerSpec {
   bandBlock: number;
   roofBlock: number;
   roofRise: number;
+  /** True for gate towers: doors on all four faces so the street runs through. */
+  doors?: boolean;
 }
 
-type Feature = "well" | "tree" | "hall" | "fire" | "mage" | "keep";
+type Feature = "well" | "fountain" | "tree" | "hall" | "fire" | "mage" | "keep" | "palace";
 
 export interface Settlement {
   id: string;
@@ -152,12 +224,21 @@ export interface Settlement {
   centerZ: number;
   buildings: Building[];
   farms: Farm[];
+  gardens: Garden[];
   paths: PathSegment[];
+  /** Paved district squares (kingdom markets, temples, ...). */
+  districts: District[];
   wall: WallSpec | null;
-  /** Kingdoms only: the ward wall around the keep, and its half-extent. */
+  /** Kingdoms only: the ward wall around the palace, and its half-extent. */
   innerWall: WallSpec | null;
   innerHalf: number;
+  /** Castle & kingdom: a water channel around the outer wall. */
+  moat: boolean;
   towers: TowerSpec[];
+  /** Gatehouses, stamped after the wall so their archway cuts through it. */
+  gates: Building[];
+  /** A few landmark names for the HUD card. */
+  landmarks: string[];
   feature: Feature;
   streetBlock: number;
   plazaBlock: number;
@@ -228,18 +309,23 @@ interface KindSpec {
 
 function kindFor(faction: SettlementFaction, tier: number, kingdom: boolean): KindSpec {
   if (faction === "freefolk") {
-    // A kingdom is a walled royal seat: the biggest footprint in the game,
-    // ruled by `scoreSite`, which only allows one on a broad fertile plain.
-    if (kingdom) return { kind: "kingdom", half: 56, occupancy: 0.75, quadrantCottages: 0.45, population: 16 };
-    if (tier > 0.88) return { kind: "city", half: 54, occupancy: 0.95, quadrantCottages: 0.75, population: 14 };
-    if (tier > 0.5) return { kind: "town", half: 44, occupancy: 0.9, quadrantCottages: 0.6, population: 9 };
-    return { kind: "village", half: 36, occupancy: 0.85, quadrantCottages: 0.5, population: 6 };
+    // The sheet's progression: village -> town -> castle -> kingdom, from
+    // smallest/most common to largest/rarest. A kingdom additionally has to
+    // pass `scoreSite`'s broad-plain rules.
+    if (kingdom) return { kind: "kingdom", half: 60, occupancy: 0.85, quadrantCottages: 0.5, population: 24 };
+    if (tier > 0.78) return { kind: "castle", half: 56, occupancy: 0.88, quadrantCottages: 0.5, population: 18 };
+    if (tier > 0.45) return { kind: "town", half: 48, occupancy: 0.9, quadrantCottages: 0.6, population: 12 };
+    return { kind: "village", half: 42, occupancy: 0.92, quadrantCottages: 0.7, population: 8 };
   }
   if (faction === "elves") return { kind: "grove", half: 38, occupancy: 0.75, quadrantCottages: 0.45, population: 5 };
   if (faction === "dwarves") return { kind: "hold", half: 40, occupancy: 0.8, quadrantCottages: 0.35, population: 5 };
   if (faction === "orcs") return { kind: "camp", half: 32, occupancy: 0.8, quadrantCottages: 0.4, population: 5 };
   if (faction === "mages") return { kind: "tower", half: 30, occupancy: 0.8, quadrantCottages: 0.35, population: 4 };
   return { kind: "lodge", half: 32, occupancy: 0.75, quadrantCottages: 0.35, population: 4 };
+}
+
+function isHumanTier(kind: SettlementKind): kind is HumanTier {
+  return kind === "village" || kind === "town" || kind === "castle" || kind === "kingdom";
 }
 
 /* ------------------------------------------------------------------ */
@@ -297,6 +383,16 @@ function scoreSite(
       score: 4 + (range <= 8 ? 2 : 0) + (moisture > 0.45 && moisture < 0.75 ? 1.5 : 0) - flatPenalty * 2,
     };
   }
+  // Castles want defensible, buildable ground: flat enough for a moat and a
+  // curtain wall, temperate, not frozen and not a dune field.
+  if (spec.kind === "castle") {
+    if (range > 20 || elev < 4 || elev > 46) return { score: -100, baseY };
+    if (desert || frozen || moisture < 0.28 || moisture > 0.85) return { score: -100, baseY };
+    return {
+      baseY,
+      score: 3.5 + (range <= 12 ? 1.5 : 0) + (moisture > 0.4 && moisture < 0.75 ? 1 : 0) - flatPenalty * 2,
+    };
+  }
 
   let score: number;
   switch (faction) {
@@ -324,8 +420,15 @@ function scoreSite(
 }
 
 /* ------------------------------------------------------------------ */
-/* Layout                                                              */
+/* Layout: the human four (blueprint rosters)                          */
 /* ------------------------------------------------------------------ */
+
+interface Rect {
+  x0: number;
+  z0: number;
+  x1: number;
+  z1: number;
+}
 
 interface Style {
   walls: number[];
@@ -337,23 +440,12 @@ interface Style {
   roofShape: "gable" | "hip";
 }
 
+/** Faction styles (freefolk tiers use the blueprint palettes instead). */
 function styleFor(faction: SettlementFaction, kind: SettlementKind): Style {
-  if (kind === "kingdom") {
-    // Royal stone: dressed walls, oak frames, tiled roofs - the castle style.
-    return {
-      walls: [ID.stone_bricks, ID.limestone, ID.planks],
-      frame: ID.wood,
-      roof: ID.roof,
-      floor: ID.planks,
-      foundation: ID.cobblestone,
-      chimney: ID.cobblestone,
-      roofShape: "gable",
-    };
-  }
   switch (faction) {
     case "freefolk":
       return {
-        walls: kind === "city" ? [ID.planks, ID.limestone, ID.brick] : [ID.planks, ID.planks, ID.limestone],
+        walls: [ID.planks, ID.planks, ID.limestone],
         frame: ID.wood,
         roof: kind === "village" ? ID.thatch : ID.roof,
         floor: ID.planks,
@@ -379,13 +471,406 @@ function oddSize(roll: number, options: number[]): number {
 }
 
 /**
- * Street plan, relative to the plaza at (0, 0):
- *   - an x-street (|dz| <= 2) and a z-street (|dx| <= 2) cross at the plaza;
- *   - z-street houses start 9 blocks out, x-street houses start 19 blocks out
- *     so the two rows never collide at the plaza corners;
- *   - quadrant cottages sit beyond both rows, joined to the nearest street.
+ * The four human designs. Everything is hand-placed specials first (plaza,
+ * districts, farms, ring slots), then generic street rows and block cottages
+ * fill whatever is left - each slot checked against the rectangles already
+ * taken, so houses never overlap and landmark buildings are always present.
  */
-function layout(settlement: Settlement, spec: KindSpec, regionX: number, regionZ: number, seed: number): void {
+function layoutHuman(settlement: Settlement, spec: KindSpec, regionX: number, regionZ: number, seed: number): void {
+  const tier = settlement.kind as HumanTier;
+  const cx = settlement.centerX;
+  const cz = settlement.centerZ;
+  const half = settlement.radius;
+  // How far buildings may reach toward the edge (curtain wall or open fields).
+  const limit = half - (tier === "castle" || tier === "kingdom" ? 6 : 5);
+  const r = (index: number) => hash2(regionX * 131 + index, regionZ * 137 + index * 7, seed + 9100);
+
+  const placed: Rect[] = [];
+  const rectOf = (x: number, z: number, w: number, d: number): Rect => ({
+    x0: x - (w - 1) / 2,
+    z0: z - (d - 1) / 2,
+    x1: x + (w - 1) / 2,
+    z1: z + (d - 1) / 2,
+  });
+  const fits = (x: number, z: number, w: number, d: number, m = 2): boolean => {
+    const rect = rectOf(x, z, w, d);
+    return !placed.some(
+      (p) => rect.x0 - m <= p.x1 && rect.x1 + m >= p.x0 && rect.z0 - m <= p.z1 && rect.z1 + m >= p.z0,
+    );
+  };
+
+  const landmarks: string[] = [];
+  const remember = (bp: Blueprint): void => {
+    if (!landmarks.includes(bp.label)) landmarks.push(bp.label);
+  };
+
+  const make = (bp: Blueprint, x: number, z: number, facing: Facing, extra?: Partial<Building>): Building => {
+    const palette = tierPalette(tier, bp.style);
+    return {
+      x,
+      z,
+      w: bp.w,
+      d: bp.d,
+      wall: bp.stories * 6,
+      stories: bp.stories,
+      facing,
+      roof: bp.roof,
+      wallBlock: pick(palette.walls, r(bp.id.length * 7 + Math.abs(x * 13 + z))),
+      frameBlock: palette.frame,
+      roofBlock: tierRoofBlock(tier),
+      floorBlock: palette.floor,
+      foundation: palette.foundation,
+      chimney: bp.chimney || bp.forge ? ID.cobblestone : 0,
+      glazed: true,
+      blueprint: bp.id,
+      accent: accentBlock(bp.accent),
+      open: !!bp.open,
+      turret: bp.turret ?? 0,
+      spire: !!bp.spire,
+      forge: !!bp.forge,
+      passage: bp.passage,
+      furniture: bp.furniture,
+      ...extra,
+    };
+  };
+  const commit = (bp: Blueprint, x: number, z: number, facing: Facing, m = 2, extra?: Partial<Building>): void => {
+    if (!fits(x, z, bp.w, bp.d, m)) return;
+    const building = make(bp, x, z, facing, extra);
+    placed.push(rectOf(building.x, building.z, building.w, building.d));
+    settlement.buildings.push(building);
+    remember(bp);
+  };
+  /** Face toward the settlement centre from (x, z). */
+  const facingIn = (x: number, z: number): Facing => {
+    const fdx = cx - x;
+    const fdz = cz - z;
+    return Math.abs(fdx) >= Math.abs(fdz) ? (fdx > 0 ? 1 : 3) : (fdz > 0 ? 0 : 2);
+  };
+
+  /* ---- centre piece ---- */
+  settlement.feature =
+    tier === "village" ? "well" : tier === "town" ? "fountain" : tier === "castle" ? "keep" : "palace";
+  settlement.streetBlock = tier === "castle" || tier === "kingdom" ? ID.cobblestone : ID.path;
+  settlement.plazaBlock = tier === "castle" || tier === "kingdom" ? ID.stone_bricks : ID.cobblestone;
+  if (tier === "castle") commit(blueprintById(tier, "royal_keep"), cx, cz, 0, 0);
+  if (tier === "kingdom") commit(blueprintById(tier, "royal_palace"), cx, cz, 0, 0);
+
+  /* ---- plaza: the ruler's hall, the market, the tower ---- */
+  if (tier === "village") {
+    commit(blueprintById(tier, "village_hall"), cx, cz - 11, 0, 0);
+    commit(blueprintById(tier, "watchtower"), cx + 10, cz - 10, 0, 0);
+    commit(blueprintById(tier, "market_stall"), cx + 10, cz + 10, 3, 0);
+    commit(blueprintById(tier, "market_stall"), cx - 10, cz - 10, 1, 0);
+  } else if (tier === "town") {
+    commit(blueprintById(tier, "town_hall"), cx, cz - 13, 0, 0);
+    commit(blueprintById(tier, "guild_hall"), cx, cz + 13, 2, 0);
+    commit(blueprintById(tier, "city_market"), cx + 11, cz + 5, 3, 0);
+    commit(blueprintById(tier, "city_market"), cx + 11, cz - 5, 3, 0);
+    commit(blueprintById(tier, "city_market"), cx - 11, cz + 5, 1, 0);
+  }
+
+  /* ---- districts: gardens in a castle, four quarters in a kingdom ---- */
+  if (tier === "castle") {
+    const gx = cx + Math.round(half * 0.52);
+    const gz = cz + Math.round(half * 0.52);
+    const garden = blueprintById(tier, "royal_gardens");
+    if (fits(gx, gz, garden.w, garden.d)) {
+      settlement.gardens.push({ x: gx, z: gz, w: garden.w, d: garden.d });
+      placed.push(rectOf(gx, gz, garden.w, garden.d));
+      remember(garden);
+    }
+  }
+  if (tier === "kingdom") {
+    const d = Math.round(half * 0.55);
+    const district = (ox: number, oz: number): { x: number; z: number } => {
+      const x = cx + ox * d;
+      const z = cz + oz * d;
+      settlement.districts.push({ x, z, half: 10 });
+      placed.push(rectOf(x, z, 21, 21));
+      return { x, z };
+    };
+    // Grand market: four gold-trimmed stalls around the trade guild.
+    const market = district(-1, -1);
+    commit(blueprintById(tier, "trade_guild"), market.x, market.z, facingIn(market.x, market.z), 0);
+    for (const [ox, oz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const) {
+      const sx = market.x + ox * 8;
+      const sz = market.z + oz * 8;
+      commit(blueprintById(tier, "grand_market"), sx, sz, facingIn(sx, sz), 0);
+    }
+    // Temple quarter, barracks quarter, warehouse quarter.
+    const templeQuarter = district(1, -1);
+    commit(blueprintById(tier, "temple"), templeQuarter.x, templeQuarter.z, facingIn(templeQuarter.x, templeQuarter.z), 0);
+    const garrison = district(-1, 1);
+    commit(blueprintById(tier, "barracks"), garrison.x, garrison.z, facingIn(garrison.x, garrison.z), 0);
+    const stores = district(1, 1);
+    commit(blueprintById(tier, "warehouse"), stores.x - 7, stores.z, facingIn(stores.x - 7, stores.z), 0);
+    commit(blueprintById(tier, "warehouse"), stores.x + 7, stores.z, facingIn(stores.x + 7, stores.z), 0);
+  }
+
+  /* ---- farms and parks (guaranteed green space) ---- */
+  const greenSpace: Record<HumanTier, Array<[number, number, number, number] | "garden">> = {
+    village: [[-24, 26, 13, 15], [26, -25, 15, 13]],
+    town: [[-27, 27, 13, 15]],
+    castle: [[-28, 27, 13, 15]],
+    kingdom: [[-40, -10, 13, 15], "garden"],
+  };
+  for (const entry of greenSpace[tier]) {
+    if (entry === "garden") {
+      const bp = blueprintById(tier, "royal_park");
+      const x = cx + 40;
+      const z = cz + 10;
+      if (fits(x, z, bp.w, bp.d)) {
+        settlement.gardens.push({ x, z, w: bp.w, d: bp.d });
+        placed.push(rectOf(x, z, bp.w, bp.d));
+        remember(bp);
+      }
+      continue;
+    }
+    const [ox, oz, w, d] = entry;
+    const x = cx + ox;
+    const z = cz + oz;
+    if (fits(x, z, w, d, 1)) settlement.farms.push({ x, z, w, d });
+  }
+
+  /* ---- ring slots: the guaranteed landmark houses ---- */
+  const guaranteed: Record<HumanTier, string[]> = {
+    village: [],
+    town: ["blacksmith", "inn"],
+    castle: ["barracks", "armoury", "stable", "granary", "chapel", "mage_tower", "guest_house", "commanders_house", "noble_house"],
+    kingdom: ["government", "university", "hospital", "harbour_master", "noble_estate"],
+  };
+  // Ring slots sit off the streets (22.5° off the axes) at three reaches.
+  const slots: Array<{ x: number; z: number }> = [];
+  for (let k = 0; k < 8; k += 1) {
+    const angle = Math.PI / 8 + (k * Math.PI) / 4;
+    const dx = Math.cos(angle);
+    const dz = Math.sin(angle);
+    for (const reach of [0.46, 0.64, 0.84]) {
+      slots.push({ x: cx + Math.round(reach * half * dx), z: cz + Math.round(reach * half * dz) });
+    }
+  }
+  for (const id of guaranteed[tier]) {
+    const bp = blueprintById(tier, id);
+    for (const slot of slots) {
+      if (Math.abs(slot.x) + (bp.w - 1) / 2 > limit || Math.abs(slot.z) + (bp.d - 1) / 2 > limit) continue;
+      // Kingdom landmarks must stand clear of the inner ward wall.
+      if (
+        tier === "kingdom" &&
+        Math.abs(slot.x) - (bp.w - 1) / 2 <= settlement.innerHalf + 1 &&
+        Math.abs(slot.z) - (bp.d - 1) / 2 <= settlement.innerHalf + 1
+      ) continue;
+      if (!fits(slot.x, slot.z, bp.w, bp.d)) continue;
+      commit(bp, slot.x, slot.z, facingIn(slot.x, slot.z));
+      break;
+    }
+  }
+
+  /* ---- street rows: houses lining the cross streets ---- */
+  const streetLateral = tier === "kingdom" ? 16 : tier === "castle" ? 7 : tier === "town" ? 6 : 5;
+  const zRowStart = tier === "kingdom" ? 17 : tier === "castle" ? 13 : tier === "town" ? 11 : 9;
+  const rowPool = rosterPool(tier, "row");
+  let buildingIndex = 0;
+  if (rowPool.length > 0) {
+    for (const side of [-1, 1]) {
+      for (const dir of [-1, 1]) {
+        // Rows beside the x-street: march along x (fits() keeps them off
+        // whatever stands on the plaza corner).
+        let along = 13;
+        while (true) {
+          buildingIndex += 1;
+          const bp = pickFrom(rowPool, r(buildingIndex * 3));
+          if (along + bp.w > limit + 1) break;
+          const centre = along + (bp.w - 1) / 2;
+          along += bp.w + 3;
+          if (r(buildingIndex * 3 + 2) > spec.occupancy) continue;
+          const x = cx + dir * centre;
+          const z = cz + side * (streetLateral + (bp.d - 1) / 2);
+          if (!fits(x, z, bp.w, bp.d)) continue;
+          commit(bp, x, z, side > 0 ? 2 : 0);
+        }
+        // Rows beside the z-street: march along z.
+        along = zRowStart;
+        while (true) {
+          buildingIndex += 1;
+          const bp = pickFrom(rowPool, r(buildingIndex * 3));
+          if (along + bp.d > limit + 1) break;
+          const centre = along + (bp.d - 1) / 2;
+          along += bp.d + 3;
+          if (r(buildingIndex * 3 + 2) > spec.occupancy) continue;
+          const x = cx + side * (streetLateral + (bp.w - 1) / 2);
+          const z = cz + dir * centre;
+          if (!fits(x, z, bp.w, bp.d)) continue;
+          commit(bp, x, z, side > 0 ? 3 : 1);
+        }
+      }
+    }
+  }
+
+  /* ---- block cottages between the streets, each with a path ---- */
+  const quadPool = rosterPool(tier, "quad");
+  const quadStart = tier === "kingdom" ? 24 : 20;
+  const step = tier === "village" ? 11 : 12;
+  let cottage = 0;
+  let farms = 0;
+  const farmGoal = tier === "village" ? 2 : 1;
+  for (const sx of [-1, 1]) {
+    for (const sz of [-1, 1]) {
+      for (let i = 0; i < 5; i += 1) {
+        for (let j = 0; j < 5; j += 1) {
+          cottage += 1;
+          const qx = quadStart + i * step;
+          const qz = quadStart + j * step;
+          const cellRoll = r(cottage + 600);
+          // Farming villages keep the first free block of each quarter as a field.
+          if (tier === "village" && i === 0 && j === 0 && farms < farmGoal && cellRoll < 0.7) {
+            const x = cx + sx * (qx + 2);
+            const z = cz + sz * (qz + 2);
+            if (fits(x, z, 11, 13, 1)) {
+              settlement.farms.push({ x, z, w: 11, d: 13 });
+              farms += 1;
+            }
+            continue;
+          }
+          if (cellRoll > spec.quadrantCottages) continue;
+          if (quadPool.length === 0) continue;
+          const bp = pickFrom(quadPool, r(cottage + 700));
+          if (qx + (bp.w + 1) / 2 + 1 > limit || qz + (bp.d + 1) / 2 + 1 > limit) continue;
+          const x = cx + sx * qx;
+          const z = cz + sz * qz;
+          if (!fits(x, z, bp.w, bp.d)) continue;
+          const facing: Facing = qz <= qx ? (sz > 0 ? 2 : 0) : (sx > 0 ? 3 : 1);
+          commit(bp, x, z, facing);
+          // A path from the door to the nearest street.
+          const reach = ((qz <= qx ? bp.d : bp.w) - 1) / 2 + 1;
+          if (qz <= qx) {
+            const doorZ = z - sz * reach;
+            const edgeZ = cz + sz * 3;
+            settlement.paths.push({ x0: x - 1, x1: x + 1, z0: Math.min(doorZ, edgeZ), z1: Math.max(doorZ, edgeZ) });
+          } else {
+            const doorX = x - sx * reach;
+            const edgeX = cx + sx * 3;
+            settlement.paths.push({ z0: z - 1, z1: z + 1, x0: Math.min(doorX, edgeX), x1: Math.max(doorX, edgeX) });
+          }
+        }
+      }
+    }
+  }
+  // Villages always farm at least twice - they are farming hamlets.
+  if (tier === "village" && farms < 1) {
+    const x = cx - 26;
+    const z = cz + 26;
+    if (fits(x, z, 13, 15, 1)) settlement.farms.push({ x, z, w: 13, d: 15 });
+  }
+
+  /* ---- defences: wall, moat, towers, gatehouses ---- */
+  if (tier === "kingdom") {
+    settlement.wall = { height: 16, block: ID.stone_bricks, palisade: false, gateHalfWidth: 5, gates: [0, 1, 2, 3] };
+    settlement.innerWall = { height: 10, block: ID.stone_bricks, palisade: false, gateHalfWidth: 3, gates: [0, 1, 2, 3] };
+    settlement.innerHalf = 15;
+    settlement.moat = true;
+  } else if (tier === "castle") {
+    settlement.wall = { height: 15, block: ID.stone_bricks, palisade: false, gateHalfWidth: 4, gates: [0, 1, 2, 3] };
+    settlement.moat = true;
+  } else if (tier === "town") {
+    settlement.wall = { height: 9, block: ID.spruce_wood, palisade: true, gateHalfWidth: 3, gates: [0, 1, 2, 3] };
+  }
+
+  if (settlement.wall && !settlement.wall.palisade) {
+    const corner = half - 1;
+    for (const sx of [-1, 1]) {
+      for (const sz of [-1, 1]) {
+        settlement.towers.push({
+          x: cx + sx * corner,
+          z: cz + sz * corner,
+          w: 9,
+          height: settlement.wall.height + 8,
+          wallBlock: ID.stone_bricks,
+          bandBlock: tier === "kingdom" ? ID.marble : ID.cobblestone,
+          roofBlock: ID.roof,
+          roofRise: 5,
+        });
+      }
+    }
+  }
+  if (settlement.wall && !settlement.wall.palisade) {
+    const edge = half - 1;
+    const flank = settlement.wall.gateHalfWidth + 6;
+    for (const [ox, oz] of [
+      [-flank, edge], [flank, edge], [-flank, -edge], [flank, -edge],
+      [edge, -flank], [edge, flank], [-edge, -flank], [-edge, flank],
+    ] as const) {
+      settlement.towers.push({
+        x: cx + ox,
+        z: cz + oz,
+        w: 7,
+        height: settlement.wall.height + 5,
+        wallBlock: ID.stone_bricks,
+        bandBlock: ID.marble,
+        roofBlock: ID.roof,
+        roofRise: 4,
+        doors: true,
+      });
+    }
+  }
+  if (tier === "town") {
+    // A stone tower over each palisade gate.
+    for (const [ox, oz] of [[0, 1], [0, -1], [1, 0], [-1, 0]] as const) {
+      settlement.towers.push({
+        x: cx + ox * half,
+        z: cz + oz * half,
+        w: 7,
+        height: 11,
+        wallBlock: ID.stone_bricks,
+        bandBlock: ID.cobblestone,
+        roofBlock: ID.roof,
+        roofRise: 4,
+        doors: true,
+      });
+    }
+  }
+  if (tier === "kingdom") {
+    // Four small towers on the corners of the inner ward.
+    const ward = settlement.innerHalf - 1;
+    for (const sx of [-1, 1]) {
+      for (const sz of [-1, 1]) {
+        settlement.towers.push({
+          x: cx + sx * ward,
+          z: cz + sz * ward,
+          w: 7,
+          height: 14,
+          wallBlock: ID.stone_bricks,
+          bandBlock: ID.marble,
+          roofBlock: ID.roof,
+          roofRise: 4,
+        });
+      }
+    }
+  }
+  if (tier === "castle" || tier === "kingdom") {
+    // Gatehouses straddle the wall; stamped last so their arch cuts through.
+    const gate = blueprintById(tier, "gatehouse");
+    for (const [ox, oz] of [[0, 1], [0, -1], [1, 0], [-1, 0]] as const) {
+      const alongX = ox !== 0;
+      const facing: Facing = ox > 0 ? 3 : ox < 0 ? 1 : oz > 0 ? 2 : 0;
+      settlement.gates.push(
+        make(gate, cx + ox * half, cz + oz * half, facing, {
+          w: alongX ? 9 : 13,
+          d: alongX ? 13 : 9,
+          passage: alongX ? "x" : "z",
+        }),
+      );
+    }
+    remember(gate);
+  }
+
+  settlement.landmarks = landmarks;
+}
+
+/* ------------------------------------------------------------------ */
+/* Layout: the non-human factions (unchanged styles)                   */
+/* ------------------------------------------------------------------ */
+
+function layoutFaction(settlement: Settlement, spec: KindSpec, regionX: number, regionZ: number, seed: number): void {
   const { faction, kind, radius: half } = settlement;
   const style = styleFor(faction, kind);
   const r = (index: number) => hash2(regionX * 131 + index, regionZ * 137 + index * 7, seed + 9100);
@@ -406,6 +891,7 @@ function layout(settlement: Settlement, spec: KindSpec, regionX: number, regionZ
     w,
     d,
     wall: big ? 8 : 6,
+    stories: 1,
     facing,
     roof: big && faction === "dwarves" ? "flat" : style.roofShape,
     wallBlock: pick(style.walls, r(index + 400)),
@@ -415,45 +901,37 @@ function layout(settlement: Settlement, spec: KindSpec, regionX: number, regionZ
     foundation: style.foundation,
     chimney: style.chimney,
     glazed: faction !== "orcs",
+    blueprint: big ? "hall" : "cottage",
+    accent: 0,
+    open: false,
+    turret: 0,
+    spire: false,
+    forge: false,
+    furniture: w >= 15 || d >= 15 ? 2 : 1,
   });
 
   settlement.feature =
     faction === "elves" ? "tree" :
     faction === "dwarves" ? "hall" :
     faction === "orcs" || kind === "lodge" ? "fire" :
-    faction === "mages" ? "mage" :
-    kind === "kingdom" ? "keep" : "well";
-  settlement.streetBlock = kind === "city" || kind === "kingdom" ? ID.cobblestone : ID.path;
-  settlement.plazaBlock = kind === "city" || kind === "kingdom" || faction === "dwarves" ? ID.stone_bricks : ID.cobblestone;
+    faction === "mages" ? "mage" : "well";
+  settlement.streetBlock = ID.path;
+  settlement.plazaBlock = faction === "dwarves" ? ID.stone_bricks : ID.cobblestone;
 
   // The dwarven great hall sits on the plaza where other peoples have a well.
   if (settlement.feature === "hall") {
     settlement.buildings.push(makeBuilding(cx, cz - 1, 21, 13, 0, 900, true));
   }
 
-  // The royal keep rises on the plaza of a kingdom: tall stone walls, a great
-  // door facing the main gate, and flanking towers on its corners.
-  if (settlement.feature === "keep") {
-    const keep = makeBuilding(cx, cz, 21, 17, 0, 901, true);
-    keep.wall = 12;
-    keep.wallBlock = ID.stone_bricks;
-    keep.frameBlock = ID.limestone;
-    keep.roofBlock = ID.roof;
-    keep.glazed = true;
-    settlement.buildings.push(keep);
-  }
-
   const limit = half - 5;
-  // Kingdoms keep their houses clear of the inner ward wall around the keep.
-  const streetLateral = kind === "kingdom" ? 16 : 5;
-  const zRowStart = kind === "kingdom" ? 17 : 9;
+  const streetLateral = 5;
+  const zRowStart = 9;
   const rowDepth = (index: number) => oddSize(r(index), faction === "orcs" ? [7, 9] : [9, 11]);
   const rowWidth = (index: number) => oddSize(r(index), faction === "orcs" ? [7, 9] : [9, 11, 13]);
   let buildingIndex = 0;
 
   for (const side of [-1, 1]) {
     for (const dir of [-1, 1]) {
-      // x-street row: houses at z = side * offset, marching along x.
       let along = 19;
       while (true) {
         buildingIndex += 1;
@@ -467,7 +945,6 @@ function layout(settlement: Settlement, spec: KindSpec, regionX: number, regionZ
           makeBuilding(cx + dir * centre, cz + side * (streetLateral + (d - 1) / 2), w, d, side > 0 ? 2 : 0, buildingIndex),
         );
       }
-      // z-street row: houses at x = side * offset, marching along z.
       along = zRowStart;
       while (true) {
         buildingIndex += 1;
@@ -484,7 +961,6 @@ function layout(settlement: Settlement, spec: KindSpec, regionX: number, regionZ
     }
   }
 
-  // Quadrant cottages (and, for farming villages, a field), each joined to the nearest street.
   let farms = 0;
   let cottage = 0;
   const step = faction === "orcs" ? 11 : 13;
@@ -497,7 +973,7 @@ function layout(settlement: Settlement, spec: KindSpec, regionX: number, regionZ
           const qz = 24 + j * step;
           if (qx + 5 > half - 4 || qz + 5 > half - 4) continue;
           const cellRoll = r(cottage + 600);
-          if (faction === "freefolk" && kind !== "city" && i === 0 && j === 0 && farms < 3 && cellRoll < 0.75) {
+          if (faction === "freefolk" && i === 0 && j === 0 && farms < 3 && cellRoll < 0.75) {
             settlement.farms.push({ x: cx + sx * 24, z: cz + sz * 26, w: 11, d: 15 });
             farms += 1;
             continue;
@@ -508,15 +984,14 @@ function layout(settlement: Settlement, spec: KindSpec, regionX: number, regionZ
           const z = cz + sz * qz;
           const reach = (size - 1) / 2 + 1;
           if (qz <= qx) {
-            // Nearer to the x-street: door faces it along z.
             settlement.buildings.push(makeBuilding(x, z, size, size, sz > 0 ? 2 : 0, 1000 + cottage));
             const doorZ = z - sz * reach;
-            const edgeZ = cz + sz * (kind === "kingdom" ? 15 : 3);
+            const edgeZ = cz + sz * 3;
             settlement.paths.push({ x0: x - 1, x1: x + 1, z0: Math.min(doorZ, edgeZ), z1: Math.max(doorZ, edgeZ) });
           } else {
             settlement.buildings.push(makeBuilding(x, z, size, size, sx > 0 ? 3 : 1, 1000 + cottage));
             const doorX = x - sx * reach;
-            const edgeX = cx + sx * (kind === "kingdom" ? 15 : 3);
+            const edgeX = cx + sx * 3;
             settlement.paths.push({ z0: z - 1, z1: z + 1, x0: Math.min(doorX, edgeX), x1: Math.max(doorX, edgeX) });
           }
         }
@@ -524,19 +999,8 @@ function layout(settlement: Settlement, spec: KindSpec, regionX: number, regionZ
     }
   }
 
-  // Walls and towers.
-  if (kind === "kingdom") {
-    // Curtain wall: 16 blocks (8 m) of crenellated stone, four gatehouses,
-    // and an inner ward wall that rings the keep alone.
-    settlement.wall = { height: 16, block: ID.stone_bricks, palisade: false, gateHalfWidth: 5, gates: [0, 1, 2, 3] };
-    settlement.innerWall = { height: 10, block: ID.stone_bricks, palisade: false, gateHalfWidth: 3, gates: [0, 1, 2, 3] };
-    settlement.innerHalf = 14;
-  } else if (kind === "city") {
-    settlement.wall = { height: 14, block: ID.stone_bricks, palisade: false, gateHalfWidth: 4, gates: [0, 1, 2, 3] };
-  } else if (kind === "hold") {
+  if (kind === "hold") {
     settlement.wall = { height: 12, block: ID.stone_bricks, palisade: false, gateHalfWidth: 4, gates: [0, 2] };
-  } else if (kind === "town") {
-    settlement.wall = { height: 8, block: ID.spruce_wood, palisade: true, gateHalfWidth: 3, gates: [0, 1, 2, 3] };
   } else if (kind === "camp") {
     settlement.wall = { height: 7, block: ID.spruce_wood, palisade: true, gateHalfWidth: 3, gates: [Math.floor(r(77) * 4) as Facing] };
   }
@@ -557,38 +1021,6 @@ function layout(settlement: Settlement, spec: KindSpec, regionX: number, regionZ
       }
     }
   }
-  if (kind === "kingdom" && settlement.wall) {
-    const edge = half - 1;
-    const flank = settlement.wall.gateHalfWidth + 6;
-    // Twin towers on each side of every gate, then four more around the keep.
-    for (const [ox, oz] of [
-      [-flank, edge], [flank, edge], [-flank, -edge], [flank, -edge],
-      [edge, -flank], [edge, flank], [-edge, -flank], [-edge, flank],
-    ] as const) {
-      settlement.towers.push({
-        x: cx + ox,
-        z: cz + oz,
-        w: 7,
-        height: settlement.wall.height + 5,
-        wallBlock: ID.stone_bricks,
-        bandBlock: ID.marble,
-        roofBlock: ID.roof,
-        roofRise: 4,
-      });
-    }
-    for (const [ox, oz] of [[-11, -9], [11, -9], [-11, 9], [11, 9]] as const) {
-      settlement.towers.push({
-        x: cx + ox,
-        z: cz + oz,
-        w: 7,
-        height: 22,
-        wallBlock: ID.stone_bricks,
-        bandBlock: ID.limestone,
-        roofBlock: ID.roof,
-        roofRise: 5,
-      });
-    }
-  }
   if (settlement.feature === "mage") {
     settlement.towers.push({
       x: cx,
@@ -603,14 +1035,23 @@ function layout(settlement: Settlement, spec: KindSpec, regionX: number, regionZ
   }
 }
 
+function layout(settlement: Settlement, spec: KindSpec, regionX: number, regionZ: number, seed: number): void {
+  if (isHumanTier(settlement.kind)) layoutHuman(settlement, spec, regionX, regionZ, seed);
+  else layoutFaction(settlement, spec, regionX, regionZ, seed);
+}
+
+/* ------------------------------------------------------------------ */
+/* Site choice + caching                                               */
+/* ------------------------------------------------------------------ */
+
 function makeSettlement(terrain: Terrain, seed: number, regionX: number, regionZ: number): Settlement | null {
   if (hash2(regionX, regionZ, seed + 8201) < 0.3) return null;
 
   const faction = chooseFaction(hash2(regionX, regionZ, seed + 8219));
   const tier = hash2(regionX, regionZ, seed + 8291);
-  // Only one region in about six becomes a kingdom, and only freefolk land;
+  // Roughly one region in six becomes a kingdom, and only freefolk land;
   // `scoreSite` then insists the ground is a broad, flat, fertile plain.
-  const kingdom = faction === "freefolk" && hash2(regionX, regionZ, seed + 8293) > 0.82 && tier > 0.4;
+  const kingdom = faction === "freefolk" && hash2(regionX, regionZ, seed + 8293) > 0.84 && tier > 0.35;
   const spec = kindFor(faction, tier, kingdom);
   const centerX = regionX * REGION_SIZE + REGION_SIZE / 2 +
     Math.floor((hash2(regionX, regionZ, seed + 8231) - 0.5) * 16);
@@ -648,11 +1089,16 @@ function makeSettlement(terrain: Terrain, seed: number, regionX: number, regionZ
     centerZ: best.z,
     buildings: [],
     farms: [],
+    gardens: [],
     paths: [],
+    districts: [],
     wall: null,
     innerWall: null,
     innerHalf: 0,
+    moat: false,
     towers: [],
+    gates: [],
+    landmarks: [],
     feature: "well",
     streetBlock: ID.path,
     plazaBlock: ID.cobblestone,
@@ -742,12 +1188,99 @@ export function settlementGround(
 
 const DIRS: ReadonlyArray<readonly [number, number]> = [[0, 1], [1, 0], [0, -1], [-1, 0]];
 
+export interface StairCell {
+  x: number;
+  y: number;
+  z: number;
+}
+
+/**
+ * The walk-up staircase inside a multi-storey building: six one-block steps
+ * hugging the left wall (relative to the door), climbing from the back corner
+ * toward the front. Empty for one-storey buildings and for towers too small
+ * to hold a flight - those are lookouts, reached by flight.
+ */
+export function stairCells(b: Building, ground: number): StairCell[] {
+  if (b.stories < 2 || b.open) return [];
+  const hx = (b.w - 1) / 2;
+  const hz = (b.d - 1) / 2;
+  const run = (b.facing === 0 || b.facing === 2 ? b.d : b.w) - 2;
+  if (run < 6) return [];
+  const cells: StairCell[] = [];
+  for (let j = 0; j < 6; j += 1) {
+    const y = ground + 1 + j;
+    if (b.facing === 0) cells.push({ x: b.x - hx + 1, y, z: b.z - hz + 1 + j });
+    else if (b.facing === 2) cells.push({ x: b.x - hx + 1, y, z: b.z + hz - 1 - j });
+    else if (b.facing === 1) cells.push({ x: b.x - hx + 1 + j, y, z: b.z - hz + 1 });
+    else cells.push({ x: b.x + hx - 1 - j, y, z: b.z - hz + 1 });
+  }
+  return cells;
+}
+
+/** Market stall: paved floor, corner posts, a back wall, a counter and a canopy. */
+function stampStall(writer: ChunkWriter, b: Building, ground: number): void {
+  const hx = (b.w - 1) / 2;
+  const hz = (b.d - 1) / 2;
+  const top = ground + 6;
+  for (let dx = -hx; dx <= hx; dx += 1) {
+    for (let dz = -hz; dz <= hz; dz += 1) {
+      const x = b.x + dx;
+      const z = b.z + dz;
+      if (!writer.inside(x, z)) continue;
+      const onX = Math.abs(dx) === hx;
+      const onZ = Math.abs(dz) === hz;
+      writer.set(x, ground, z, onX || onZ ? b.foundation : b.floorBlock);
+      for (let y = ground + 1; y < top; y += 1) writer.set(x, y, z, 0);
+      const corner = onX && onZ;
+      if (corner) {
+        for (let y = ground + 1; y <= top; y += 1) writer.set(x, y, z, b.frameBlock);
+        continue;
+      }
+      const onBack =
+        (b.facing === 0 && dz === -hz) || (b.facing === 2 && dz === hz) ||
+        (b.facing === 1 && dx === -hx) || (b.facing === 3 && dx === hx);
+      if (onBack) for (let y = ground + 1; y <= ground + 5; y += 1) writer.set(x, y, z, b.wallBlock);
+    }
+  }
+  // Counter along the open side, with a gap to walk in.
+  const counter = (dx: number, dz: number): void => {
+    if (Math.abs(dx) > hx - 1 || Math.abs(dz) > hz - 1) return;
+    if ((b.facing === 0 || b.facing === 2) && Math.abs(dx) < 2) return;
+    if ((b.facing === 1 || b.facing === 3) && Math.abs(dz) < 2) return;
+    writer.set(b.x + dx, ground + 1, b.z + dz, ID.table);
+  };
+  if (b.facing === 0) for (let dx = -hx + 1; dx <= hx - 1; dx += 1) counter(dx, hz - 1);
+  else if (b.facing === 2) for (let dx = -hx + 1; dx <= hx - 1; dx += 1) counter(dx, -hz + 1);
+  else if (b.facing === 1) for (let dz = -hz + 1; dz <= hz - 1; dz += 1) counter(hx - 1, dz);
+  else for (let dz = -hz + 1; dz <= hz - 1; dz += 1) counter(-hx + 1, dz);
+
+  // Canopy with a one-block overhang; the trim ring takes the tier accent.
+  for (let dx = -hx - 1; dx <= hx + 1; dx += 1) {
+    for (let dz = -hz - 1; dz <= hz + 1; dz += 1) {
+      const x = b.x + dx;
+      const z = b.z + dz;
+      if (!writer.inside(x, z)) continue;
+      const outer = Math.abs(dx) === hx + 1 || Math.abs(dz) === hz + 1;
+      writer.set(x, top, z, outer && b.accent ? b.accent : b.roofBlock);
+    }
+  }
+}
+
 function stampBuilding(writer: ChunkWriter, b: Building, ground: number): void {
   const hx = (b.w - 1) / 2;
   const hz = (b.d - 1) / 2;
   if (!writer.overlaps(b.x - hx - 3, b.z - hz - 3, b.x + hx + 3, b.z + hz + 3)) return;
+  if (b.open) {
+    stampStall(writer, b, ground);
+    return;
+  }
+
   const top = ground + b.wall;
   const ridgeAlongX = b.w >= b.d;
+  const stairs = stairCells(b, ground);
+  const stairColumns = new Set(stairs.map((cell) => `${cell.x},${cell.z}`));
+  const stairKeys = new Set(stairs.map((cell) => `${cell.x},${cell.y},${cell.z}`));
+  const grand = b.w >= 13 || b.d >= 13 || b.stories >= 3;
 
   for (let dx = -hx; dx <= hx; dx += 1) {
     for (let dz = -hz; dz <= hz; dz += 1) {
@@ -767,18 +1300,25 @@ function stampBuilding(writer: ChunkWriter, b: Building, ground: number): void {
       const onDoorWall =
         (b.facing === 0 && dz === hz) || (b.facing === 2 && dz === -hz) ||
         (b.facing === 1 && dx === hx) || (b.facing === 3 && dx === -hx);
-      const doorCell = onDoorWall && Math.abs(along) <= 1 && !corner;
+      const doorHalf = Math.max(1, Math.min(wallLength - 2, grand ? 2 : 1));
+      const doorCell = onDoorWall && Math.abs(along) <= doorHalf && !corner;
       writer.set(x, ground, z, b.foundation);
       for (let wy = 1; wy <= b.wall; wy += 1) {
         const y = ground + wy;
+        // Gatehouse archway: open through the ground floor along the passage.
+        if (b.passage && wy <= 5 && (b.passage === "z" ? Math.abs(dx) <= 2 : Math.abs(dz) <= 2)) {
+          writer.set(x, y, z, 0);
+          continue;
+        }
         if (doorCell && wy <= 5) {
           // A hung wooden door: opaque so it reads as a door, but walk-through.
           writer.set(x, y, z, ID.door);
           continue;
         }
-        let block = corner ? b.frameBlock : b.wallBlock;
+        const local = ((wy - 1) % 6) + 1;
+        let block = b.accent && local === 1 ? b.accent : corner ? b.frameBlock : b.wallBlock;
         const a = Math.abs(along);
-        const windowRow = wy === 3 || wy === 4;
+        const windowRow = local === 3 || local === 4;
         const windowColumn = a >= 2 && a <= wallLength - 2 && (a % 4 === 2 || a % 4 === 3);
         if (b.glazed && !corner && windowRow && windowColumn && !(onDoorWall && a <= 2)) block = ID.glass;
         writer.set(x, y, z, block);
@@ -786,21 +1326,26 @@ function stampBuilding(writer: ChunkWriter, b: Building, ground: number): void {
     }
   }
 
-  // Furniture against the wall opposite the door: a table with a chair on
-  // each side. Halls and keeps get a long banquet table instead. Every house
-  // in every settlement is furnished this way - and the player can craft and
-  // place the very same chair, table and door anywhere.
+  // Furniture against the wall opposite the door (never where the stairs go).
   const interiorLimitX = hx - 1;
   const interiorLimitZ = hz - 1;
   const place = (dx: number, dz: number, id: number): void => {
     if (Math.abs(dx) > interiorLimitX || Math.abs(dz) > interiorLimitZ) return;
-    writer.set(b.x + dx, ground + 1, b.z + dz, id);
+    const x = b.x + dx;
+    const z = b.z + dz;
+    if (stairKeys.has(`${x},${ground + 1},${z}`)) return;
+    writer.set(x, ground + 1, z, id);
   };
   const alongDoor = b.facing === 0 || b.facing === 2;
   const backRow =
     b.facing === 0 ? -hz + 1 : b.facing === 2 ? hz - 1 : b.facing === 3 ? hx - 1 : -hx + 1;
   const chairRow = backRow < 0 ? backRow + 1 : backRow - 1;
-  if (b.w >= 15 || b.d >= 15) {
+  if (b.forge) {
+    // The blacksmith's forge: a coal fire banked against the back wall.
+    place(0, backRow, ID.coal_ore);
+    place(-1, backRow, ID.cobblestone);
+    place(1, backRow, ID.cobblestone);
+  } else if (b.furniture === 2) {
     const span = Math.min(Math.floor((b.w >= b.d ? hx : hz) - 1), 7);
     for (let d = -span; d <= span; d += 1) {
       if (alongDoor) place(d, backRow, ID.table);
@@ -810,17 +1355,35 @@ function stampBuilding(writer: ChunkWriter, b: Building, ground: number): void {
       if (alongDoor) place(d, chairRow, ID.chair);
       else place(chairRow, d, ID.chair);
     }
-  } else if (alongDoor) {
-    place(0, backRow, ID.table);
-    place(-2, backRow, ID.chair);
-    place(2, backRow, ID.chair);
-  } else {
-    place(backRow, 0, ID.table);
-    place(backRow, -2, ID.chair);
-    place(backRow, 2, ID.chair);
+  } else if (b.furniture === 1) {
+    if (alongDoor) {
+      place(0, backRow, ID.table);
+      place(-2, backRow, ID.chair);
+      place(2, backRow, ID.chair);
+    } else {
+      place(backRow, 0, ID.table);
+      place(backRow, -2, ID.chair);
+      place(backRow, 2, ID.chair);
+    }
   }
 
-  // Roof: gable (ridge along the longer side), hip, or flat with battlements.
+  // Floor slabs for the upper storeys, with the stairwell left open.
+  for (let k = 1; k < b.stories; k += 1) {
+    const y = ground + 6 * k;
+    if (y > top) break;
+    for (let dx = -hx + 1; dx <= hx - 1; dx += 1) {
+      for (let dz = -hz + 1; dz <= hz - 1; dz += 1) {
+        const x = b.x + dx;
+        const z = b.z + dz;
+        if (!writer.inside(x, z)) continue;
+        if (stairColumns.has(`${x},${z}`)) continue;
+        writer.set(x, y, z, b.floorBlock);
+      }
+    }
+  }
+  for (const cell of stairs) writer.set(cell.x, cell.y, cell.z, b.floorBlock);
+
+  // Roof: gable, hip, flat with battlements, mansard skirt, or a stepped dome.
   const rx = hx + 1;
   const rz = hz + 1;
   for (let dx = -rx; dx <= rx; dx += 1) {
@@ -832,6 +1395,15 @@ function stampBuilding(writer: ChunkWriter, b: Building, ground: number): void {
         if (Math.abs(dx) === rx || Math.abs(dz) === rz) continue;
         writer.set(x, top + 1, z, b.roofBlock);
         if ((Math.abs(dx) === hx || Math.abs(dz) === hz) && (dx + dz) % 2 === 0) writer.set(x, top + 2, z, b.roofBlock);
+        continue;
+      }
+      if (b.roof === "dome" || b.roof === "mansard") {
+        const inset = Math.min(rx - Math.abs(dx), rz - Math.abs(dz));
+        const span = Math.max(1, Math.min(rx, rz));
+        const rise = b.roof === "dome"
+          ? Math.round(0.65 * span * Math.sin((Math.min(1, inset / span) * Math.PI) / 2))
+          : Math.min(inset === 0 ? 1 : 2 + (inset - 1) * 2, Math.max(rx, rz));
+        for (let y = top + 1; y <= top + 1 + rise; y += 1) writer.set(x, y, z, b.roofBlock);
         continue;
       }
       const rise = b.roof === "hip"
@@ -848,12 +1420,69 @@ function stampBuilding(writer: ChunkWriter, b: Building, ground: number): void {
     }
   }
 
-  // Chimney against the gable end, rising past the ridge.
-  if (b.chimney !== 0 && b.roof === "gable") {
+  // Chimney against the gable end, rising past the ridge; forges always vent.
+  if (b.chimney !== 0 && (b.roof === "gable" || b.roof === "mansard" || b.forge)) {
     const px = ridgeAlongX ? b.x + hx + 1 : b.x;
     const pz = ridgeAlongX ? b.z : b.z + hz + 1;
-    const ridge = top + (ridgeAlongX ? rz : rx);
+    const ridge = b.roof === "gable" ? top + (ridgeAlongX ? rz : rx) : top + 5;
     for (let y = ground + 1; y <= ridge + 2; y += 1) writer.set(px, y, pz, b.chimney);
+  }
+
+  // Roof-top turrets: the watchtower's lookout, the keep's and palace's corner
+  // turrets, the mage tower's spire room. Each gets a small pyramid and finial.
+  if (b.turret) {
+    const spots: Array<[number, number]> = b.turret === 1
+      ? [[0, 0]]
+      : [[-(hx - 1), -(hz - 1)], [hx - 1, -(hz - 1)], [-(hx - 1), hz - 1], [hx - 1, hz - 1]];
+    const tw = b.turret === 1 ? (Math.min(b.w, b.d) >= 11 ? 5 : 3) : 3;
+    const th = (tw - 1) / 2;
+    const rise = 7;
+    for (const [ox, oz] of spots) {
+      for (let dx = -th; dx <= th; dx += 1) {
+        for (let dz = -th; dz <= th; dz += 1) {
+          const x = b.x + ox + dx;
+          const z = b.z + oz + dz;
+          if (!writer.inside(x, z)) continue;
+          const edge = Math.max(Math.abs(dx), Math.abs(dz));
+          if (edge < th) {
+            for (let y = top + 1; y <= top + rise; y += 1) writer.set(x, y, z, 0);
+            continue;
+          }
+          for (let wy = 1; wy <= rise; wy += 1) {
+            const corner = Math.abs(dx) === th && Math.abs(dz) === th;
+            const slit = !corner && wy === 4;
+            writer.set(x, top + wy, z, slit ? ID.glass : corner ? b.frameBlock : b.wallBlock);
+          }
+        }
+      }
+      for (let dx = -th - 1; dx <= th + 1; dx += 1) {
+        for (let dz = -th - 1; dz <= th + 1; dz += 1) {
+          const x = b.x + ox + dx;
+          const z = b.z + oz + dz;
+          if (!writer.inside(x, z)) continue;
+          const edge = Math.max(Math.abs(dx), Math.abs(dz));
+          if (edge > th + 1) continue;
+          const lift = edge <= th ? Math.max(1, Math.round(((th + 1 - edge) * 5) / (th + 1))) : 0;
+          for (let y = top + rise + 1; y <= top + rise + lift; y += 1) writer.set(x, y, z, b.roofBlock);
+          if (edge === th + 1) writer.set(x, top + rise, z, b.roofBlock);
+        }
+      }
+      writer.set(b.x + ox, top + rise + 6, b.z + oz, b.accent || b.roofBlock);
+    }
+  }
+
+  // Chapel spire: a stepped pyramid over the crossing, with a finial.
+  if (b.spire) {
+    for (let dx = -1; dx <= 1; dx += 1) {
+      for (let dz = -1; dz <= 1; dz += 1) {
+        const x = b.x + dx;
+        const z = b.z + dz;
+        if (!writer.inside(x, z)) continue;
+        const rise = Math.max(Math.abs(dx), Math.abs(dz)) === 0 ? 8 : 5;
+        for (let y = top + 1; y <= top + rise; y += 1) writer.set(x, y, z, b.roofBlock);
+      }
+    }
+    writer.set(b.x, top + 9, b.z, b.accent || b.roofBlock);
   }
 }
 
@@ -884,6 +1513,31 @@ function stampWell(writer: ChunkWriter, cx: number, cz: number, ground: number):
   for (let dx = -1; dx <= 1; dx += 1) {
     for (let dz = -1; dz <= 1; dz += 1) writer.set(cx + dx, ground + 8, cz + dz, ID.thatch);
   }
+}
+
+/** Town square fountain: a stone basin you can wade in, with a pillar. */
+function stampFountain(writer: ChunkWriter, cx: number, cz: number, ground: number, grand: boolean): void {
+  const radius = grand ? 4 : 3;
+  const rim = grand ? ID.marble : ID.cobblestone;
+  if (!writer.overlaps(cx - radius, cz - radius, cx + radius, cz + radius)) return;
+  for (let dx = -radius; dx <= radius; dx += 1) {
+    for (let dz = -radius; dz <= radius; dz += 1) {
+      const x = cx + dx;
+      const z = cz + dz;
+      if (!writer.inside(x, z)) continue;
+      if (Math.max(Math.abs(dx), Math.abs(dz)) === radius) {
+        writer.set(x, ground, z, rim);
+        writer.set(x, ground + 1, z, rim);
+      } else {
+        writer.set(x, ground - 1, z, rim);
+        writer.set(x, ground, z, ID.water);
+        writer.set(x, ground + 1, z, 0);
+      }
+    }
+  }
+  const height = grand ? 4 : 3;
+  for (let y = ground + 1; y <= ground + height; y += 1) writer.set(cx, y, cz, rim);
+  writer.set(cx, ground + height + 1, cz, grand ? ID.gold : ID.roof);
 }
 
 function stampFire(writer: ChunkWriter, cx: number, cz: number, ground: number): void {
@@ -931,6 +1585,40 @@ function stampFarm(writer: ChunkWriter, farm: Farm, ground: number): void {
       writer.set(x, ground, z, ID.farmland);
       writer.set(x, ground + 1, z, Math.abs(dz) === hz || Math.abs(dx) === hx ? 0 : ID.wheat);
     }
+  }
+}
+
+/**
+ * Royal gardens and parks: a clipped hedge with an opening on every side, a
+ * path ring, flowers in the lawn, and a fountain in the middle.
+ */
+function stampGarden(writer: ChunkWriter, g: Garden, ground: number, seed: number): void {
+  const hx = (g.w - 1) / 2;
+  const hz = (g.d - 1) / 2;
+  if (!writer.overlaps(g.x - hx - 1, g.z - hz - 1, g.x + hx + 1, g.z + hz + 1)) return;
+  for (let dx = -hx; dx <= hx; dx += 1) {
+    for (let dz = -hz; dz <= hz; dz += 1) {
+      const x = g.x + dx;
+      const z = g.z + dz;
+      if (!writer.inside(x, z)) continue;
+      writer.set(x, ground + 1, z, 0);
+      const dist = Math.max(Math.abs(dx), Math.abs(dz));
+      const doorway = Math.abs(dx) <= 1 || Math.abs(dz) <= 1;
+      if (dist === hx && !doorway) {
+        writer.set(x, ground + 1, z, ID.leaves);
+        if (Math.abs(dx) === hx && Math.abs(dz) === hz) writer.set(x, ground + 2, z, ID.leaves);
+      } else if (dist === hx - 2) {
+        writer.set(x, ground, z, ID.path);
+      } else if (dist < hx - 2 && hash2(x, z, seed + 4441) < 0.14) {
+        writer.set(x, ground + 1, z, ID.flower);
+      }
+    }
+  }
+  if (g.w >= 15) {
+    stampFountain(writer, g.x, g.z, ground, g.w >= 17);
+  } else {
+    for (let y = ground + 1; y <= ground + 5; y += 1) writer.set(g.x, y, g.z, ID.wood);
+    leafBlob(writer, g.x, ground + 8, g.z, 4, 3, ID.leaves, seed, 0.14);
   }
 }
 
@@ -991,9 +1679,10 @@ function stampTower(writer: ChunkWriter, t: TowerSpec, ground: number): void {
       }
       if (edge === h) {
         const corner = Math.abs(dx) === h && Math.abs(dz) === h;
-        const doorCell = dz === h && Math.abs(dx) <= 1;
+        const doorCell = Math.abs(dx) <= 1 || Math.abs(dz) <= 1;
+        const open = t.doors ? doorCell : dz === h && Math.abs(dx) <= 1;
         for (let wy = 1; wy <= t.height; wy += 1) {
-          if (doorCell && wy <= 5) {
+          if (open && wy <= 5) {
             writer.set(x, ground + wy, z, ID.door);
             continue;
           }
@@ -1010,6 +1699,48 @@ function stampTower(writer: ChunkWriter, t: TowerSpec, ground: number): void {
     }
   }
   writer.set(t.x, ground + t.height + t.roofRise + 1, t.z, ID.glass);
+}
+
+/**
+ * The moat around a castle or kingdom: a four-block channel two blocks below
+ * the street, crossed by a paved bridge with low rails at each of the four
+ * gates. Carved before walls and towers so they can stand on its bank.
+ */
+function stampMoat(writer: ChunkWriter, s: Settlement, ground: number): void {
+  if (!s.wall) return;
+  const cx = s.centerX;
+  const cz = s.centerZ;
+  const half = s.radius;
+  const walkHalf = 3;
+  for (let dx = -(half + 4); dx <= half + 4; dx += 1) {
+    for (let dz = -(half + 4); dz <= half + 4; dz += 1) {
+      const cheb = Math.max(Math.abs(dx), Math.abs(dz));
+      if (cheb < half + 1 || cheb > half + 4) continue;
+      const x = cx + dx;
+      const z = cz + dz;
+      if (!writer.inside(x, z)) continue;
+      const bridge =
+        (Math.abs(dx) <= walkHalf && Math.abs(dz) >= half - 2) ||
+        (Math.abs(dz) <= walkHalf && Math.abs(dx) >= half - 2);
+      if (bridge) continue;
+      for (let y = ground - 1; y <= ground + 2; y += 1) writer.set(x, y, z, 0);
+      writer.set(x, ground - 2, z, ID.water);
+      writer.set(x, ground - 3, z, ID.water);
+      writer.set(x, ground - 4, z, ID.gravel);
+    }
+  }
+  // Bridges: deck from just inside the wall to past the channel, with rails.
+  for (const [ox, oz] of DIRS) {
+    for (let cross = -walkHalf; cross <= walkHalf; cross += 1) {
+      for (let along = half - 2; along <= half + 4; along += 1) {
+        const x = cx + (ox !== 0 ? ox * along : cross);
+        const z = cz + (oz !== 0 ? oz * along : cross);
+        if (!writer.inside(x, z)) continue;
+        writer.set(x, ground, z, ID.stone_bricks);
+        writer.set(x, ground + 1, z, Math.abs(cross) === walkHalf ? s.wall!.block : 0);
+      }
+    }
+  }
 }
 
 function groundCover(s: Settlement, dx: number, dz: number): number {
@@ -1029,15 +1760,25 @@ export function stampSettlements(writer: ChunkWriter, terrain: Terrain, seed: nu
   for (const s of settlementsTouching(terrain, startX, startZ, endX, endZ)) {
     const ground = s.baseY;
     const half = s.radius;
-    if (!writer.overlaps(s.centerX - half - 2, s.centerZ - half - 2, s.centerX + half + 2, s.centerZ + half + 2)) continue;
+    if (!writer.overlaps(s.centerX - half - 6, s.centerZ - half - 6, s.centerX + half + 6, s.centerZ + half + 6)) continue;
 
-    // 1. Streets and plaza paving, clearing any plants above them.
+    // 1. Streets, plaza, district paving and paths, clearing any plants above.
     for (let x = Math.max(s.centerX - half, startX); x <= Math.min(s.centerX + half, endX); x += 1) {
       for (let z = Math.max(s.centerZ - half, startZ); z <= Math.min(s.centerZ + half, endZ); z += 1) {
         const block = groundCover(s, x - s.centerX, z - s.centerZ);
         if (block === 0) continue;
         writer.set(x, ground, z, block);
         writer.set(x, ground + 1, z, 0);
+      }
+    }
+    for (const district of s.districts) {
+      const dh = district.half;
+      if (!writer.overlaps(district.x - dh, district.z - dh, district.x + dh, district.z + dh)) continue;
+      for (let x = Math.max(district.x - dh, startX); x <= Math.min(district.x + dh, endX); x += 1) {
+        for (let z = Math.max(district.z - dh, startZ); z <= Math.min(district.z + dh, endZ); z += 1) {
+          writer.set(x, ground, z, s.plazaBlock);
+          writer.set(x, ground + 1, z, 0);
+        }
       }
     }
     for (const path of s.paths) {
@@ -1054,18 +1795,33 @@ export function stampSettlements(writer: ChunkWriter, terrain: Terrain, seed: nu
       }
     }
 
-    // 2. Farms, centrepiece, buildings, walls and towers.
+    // 2. Moat and bridges (before anything is built on the bank).
+    if (s.moat) stampMoat(writer, s, ground);
+
+    // 3. Farms and gardens.
     for (const farm of s.farms) stampFarm(writer, farm, ground);
+    for (const garden of s.gardens) stampGarden(writer, garden, ground, seed);
+
+    // 4. The centrepiece (well, fountain, great tree, bonfire, ...). Keeps,
+    //    palaces and halls are ordinary buildings and come with step 5.
     if (s.feature === "well") stampWell(writer, s.centerX, s.centerZ, ground);
+    else if (s.feature === "fountain") stampFountain(writer, s.centerX, s.centerZ, ground, false);
     else if (s.feature === "fire") stampFire(writer, s.centerX, s.centerZ, ground);
     else if (s.feature === "tree") stampGreatTree(writer, s.centerX, s.centerZ, ground, seed);
+
+    // 5. Buildings.
     for (const building of s.buildings) stampBuilding(writer, building, ground);
+
+    // 6. Walls: curtain first, then the kingdom's inner ward.
     stampWall(writer, s, ground);
-    // The inner ward of a kingdom: its own wall around the keep, gated on
-    // every street so the town flows through it like a real bailey.
     if (s.innerWall && s.innerHalf > 0) {
       stampRing(writer, s.centerX, s.centerZ, s.innerHalf, s.innerWall, s.baseY + 13, ground);
     }
+
+    // 7. Towers (they stand on the wall line and the moat bank).
     for (const tower of s.towers) stampTower(writer, tower, ground);
+
+    // 8. Gatehouses last: their archway cuts through the wall.
+    for (const gate of s.gates) stampBuilding(writer, gate, ground);
   }
 }

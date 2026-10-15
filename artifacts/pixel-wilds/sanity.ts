@@ -23,6 +23,7 @@ import {
 import { PLAYER_EYE_HEIGHT } from "./src/game/world";
 import { createPlayerMotion as createMotion, updatePlayerMotion as stepMotion } from "./src/game/physics";
 import { CRAFTING_RECIPES, applyCraft, canCraft } from "./src/game/crafting";
+import { stairCells, type Building } from "./src/game/settlements";
 
 let failures = 0;
 function check(name: string, ok: boolean, detail = ""): void {
@@ -88,13 +89,93 @@ interface Input {
 }
 const idle: Input = { forward: 0, side: 0, jump: false, sprint: false, descend: false };
 
-function run(motion: ReturnType<typeof createMotion>, input: Input, frames: number, yaw = 0): number {
+function runIn(
+  w: typeof world,
+  motion: ReturnType<typeof createMotion>,
+  input: Input,
+  frames: number,
+  yaw = 0,
+): number {
   let maxY = -Infinity;
   for (let i = 0; i < frames; i += 1) {
-    stepMotion(world, motion, input, yaw, 1 / 60);
+    stepMotion(w, motion, input, yaw, 1 / 60);
     maxY = Math.max(maxY, motion.y - PLAYER_EYE_HEIGHT);
   }
   return maxY;
+}
+
+function run(motion: ReturnType<typeof createMotion>, input: Input, frames: number, yaw = 0): number {
+  return runIn(world, motion, input, frames, yaw);
+}
+
+/** Water blocks in the moat channel around a settlement (chebyshev band). */
+function countMoatWater(
+  w: typeof world,
+  centerX: number,
+  centerZ: number,
+  baseY: number,
+  radius: number,
+): number {
+  let water = 0;
+  for (let dx = -radius - 4; dx <= radius + 4; dx += 1) {
+    for (let dz = -radius - 4; dz <= radius + 4; dz += 1) {
+      const cheb = Math.max(Math.abs(dx), Math.abs(dz));
+      if (cheb < radius + 1 || cheb > radius + 4) continue;
+      for (let y = baseY - 3; y <= baseY - 1; y += 1) {
+        if (getBlockId(w, centerX + dx, y, centerZ + dz) === ID.water) water += 1;
+      }
+    }
+  }
+  return water;
+}
+
+/** True when the +z gatehouse's archway is open from its front to its back. */
+function gatehousePassageOpen(
+  w: typeof world,
+  centerX: number,
+  centerZ: number,
+  half: number,
+  baseY: number,
+): boolean {
+  for (const dx of [-2, 0, 2]) {
+    for (const dzOffset of [-4, 0, 4]) {
+      for (let y = baseY + 1; y <= baseY + 5; y += 1) {
+        if (getBlockId(w, centerX + dx, y, centerZ + half + dzOffset) !== 0) return false;
+      }
+    }
+  }
+  return true;
+}
+
+/**
+ * Walk a player up a building's staircase: side onto the first step, then
+ * straight up the run. Returns the highest feet position reached.
+ */
+function walkUpStairs(w: typeof world, b: Building, baseY: number): number {
+  const stairs = stairCells(b, baseY);
+  if (stairs.length < 6) return -Infinity;
+  const first = stairs[0];
+  const feet = baseY + 1 + PLAYER_EYE_HEIGHT;
+  let start: { x: number; y: number; z: number };
+  let phaseOne: Input;
+  let phaseOneYaw: number;
+  let phaseTwoYaw: number;
+  if (b.facing === 0 || b.facing === 2) {
+    // Ramp hugs the -x wall; step onto its base from the room, then walk up.
+    start = { x: first.x + 1.5, y: feet, z: first.z + 0.5 };
+    phaseOne = { ...idle, side: -1 };
+    phaseOneYaw = 0;
+    phaseTwoYaw = b.facing === 0 ? Math.PI : 0;
+  } else {
+    start = { x: first.x + 0.5, y: feet, z: first.z + 1.5 };
+    phaseOne = { ...idle, forward: 1 };
+    phaseOneYaw = 0;
+    phaseTwoYaw = b.facing === 1 ? -Math.PI / 2 : Math.PI / 2;
+  }
+  const walker = createMotion(w, start);
+  const climbed = runIn(w, walker, phaseOne, 50, phaseOneYaw);
+  const high = runIn(w, walker, { ...idle, forward: 1 }, 170, phaseTwoYaw);
+  return Math.max(climbed, high);
 }
 
 /* ---------------- autojump ---------------- */
