@@ -8,7 +8,7 @@
     "build": "vite build --config vite.config.ts",
     "serve": "vite preview --config vite.config.ts --host 0.0.0.0",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "tsx --test src/game/settlement-hierarchy.test.ts src/game/hierarchy-streaming.test.ts src/game/world.test.ts"
+    "test": "tsx --test src/game/settlement-hierarchy.test.ts src/game/hierarchy-streaming.test.ts src/game/world.test.ts src/game/world-scale.test.ts"
   },
   "devDependencies": {
     "@hookform/resolvers": "^3.10.0",
