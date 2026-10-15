@@ -2234,12 +2234,14 @@ function stampHierarchyHouseNodes(writer: ChunkWriter, terrain: Terrain, seed: n
     }
 
     if (node.level !== "house") continue;
-    const archetype = Number(node.metadata.archetypeIndex) || 0;
-    const size = archetype === 0 ? 7 : archetype === 1 ? 9 : archetype === 2 ? 9 : archetype === 3 ? 11 : 7;
-    const depth = archetype === 2 ? 11 : archetype === 3 ? 9 : size;
-    const stories = archetype === 3 ? 2 : archetype === 4 ? 2 : 1;
+    const archetype = Math.max(0, Math.min(4, Math.floor(Number(node.metadata.archetypeIndex) || 0)));
+    const blueprintIds = ["simple_home", "farmers_cottage", "fishermans_hut", "woodcutters_cabin", "bakers_house"] as const;
+    const bp = blueprintById("village", blueprintIds[archetype]);
+    const size = bp.w;
+    const depth = bp.d;
+    const stories = bp.stories;
     // The query includes distant road endpoints; only terrain-sample houses
-    // whose actual footprint can intersect this chunk.
+    // whose actual blueprint footprint can intersect this chunk.
     if (x + Math.ceil(size / 2) < chunkMinX || x - Math.ceil(size / 2) > chunkMaxX ||
         z + Math.ceil(depth / 2) < chunkMinZ || z - Math.ceil(depth / 2) > chunkMaxZ) continue;
     const samples = [
@@ -2255,16 +2257,21 @@ function stampHierarchyHouseNodes(writer: ChunkWriter, terrain: Terrain, seed: n
     const sortedHouseHeights = [...houseHeights].sort((a, b) => a - b);
     const ground = sortedHouseHeights[Math.floor(sortedHouseHeights.length / 2)];
     if (ground <= SEA_LEVEL + 2 || ground + stories * 6 + 8 >= 192) continue;
-    const timber = archetype === 4 ? ID.dark_planks : ID.planks;
-    const roof = archetype === 0 ? ID.thatch : archetype === 2 ? ID.birch_wood : ID.roof;
-    const building: Building = {
-      x, z, w: size, d: depth, wall: stories * 6, stories, facing: archetype % 4 as Facing,
-      roof: archetype === 3 ? "hip" : "gable", wallBlock: timber, frameBlock: ID.wood,
-      roofBlock: roof, floorBlock: ID.planks, foundation: ID.cobblestone,
-      chimney: archetype >= 2 ? ID.cobblestone : 0, glazed: true,
-      blueprint: `hierarchy-house-${archetype}`, accent: 0, open: false,
-      turret: archetype === 3 ? 1 : 0, spire: false, forge: false, furniture: 1,
-    };
+
+    // Use the same blueprint roster as hand-designed villages, so hierarchy
+    // homes inherit their real footprints, wall palettes, roof forms and facades.
+    const palette = tierPalette("village", bp.style);
+    const building = applyVictorianFacade({
+      x, z, w: bp.w, d: bp.d, wall: bp.stories * 6, stories: bp.stories,
+      facing: archetype % 4 as Facing, roof: bp.roof,
+      wallBlock: pickFrom(palette.walls, hash2(x, z, seed + archetype * 37)),
+      frameBlock: palette.frame, roofBlock: tierRoofBlock("village"),
+      floorBlock: palette.floor, foundation: palette.foundation,
+      chimney: bp.chimney || bp.forge ? ID.cobblestone : 0, glazed: true,
+      blueprint: `hierarchy-${bp.id}`, accent: accentBlock(bp.accent),
+      open: !!bp.open, turret: bp.turret ?? 0, spire: !!bp.spire,
+      forge: !!bp.forge, passage: bp.passage, furniture: bp.furniture,
+    }, bp.facadeVariant, bp.windowCount, bp.corniceBlock, bp.gableTrim, bp.hasDormers, bp.bayWindowWidth);
     stampBuilding(writer, building, ground);
   }
 }
