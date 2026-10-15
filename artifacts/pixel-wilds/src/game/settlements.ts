@@ -1990,7 +1990,10 @@ export function resolveHierarchyPlan(source: HierarchyPlan, terrain: Terrain): H
     return major.some((other) => other.ownerId !== parentId &&
       Math.abs(x - other.x) < halfW + other.halfW + 4 && Math.abs(z - other.z) < halfD + other.halfD + 4);
   };
+  const offsetCache = new Map<number, Array<[number, number]>>();
   const offsets = (radiusMax: number): Array<[number, number]> => {
+    const cached = offsetCache.get(radiusMax);
+    if (cached) return cached;
     const result: Array<[number, number]> = [[0, 0]];
     for (let radius = 16; radius <= radiusMax; radius += 16) {
       const steps = Math.max(8, Math.round((Math.PI * 2 * radius) / 32));
@@ -1999,6 +2002,7 @@ export function resolveHierarchyPlan(source: HierarchyPlan, terrain: Terrain): H
         result.push([Math.round(Math.cos(angle) * radius), Math.round(Math.sin(angle) * radius)]);
       }
     }
+    offsetCache.set(radiusMax, result);
     return result;
   };
   const assess = (x: number, z: number, halfW: number, halfD: number, maxSpread: number, maxHeight: number) => {
@@ -2042,6 +2046,10 @@ export function resolveHierarchyPlan(source: HierarchyPlan, terrain: Terrain): H
         else score -= Math.min(elevation, 36) * 0.08;
       }
       if (!best || score < best.score) best = { x, z, ground: site.ground, score };
+      const preferredSpread = node.level === "city" ? 4 : node.level === "town" ? 3
+        : node.level === "village" ? 3 : 12;
+      const nearEnough = Math.hypot(dx, dz) <= (node.level === "castle" ? 160 : 96);
+      if (site.spread <= preferredSpread && nearEnough) break;
     }
     if (!best) { node.metadata.placementValid = false; continue; }
     node.x = best.x; node.z = best.z;
