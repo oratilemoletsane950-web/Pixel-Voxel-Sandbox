@@ -2168,8 +2168,17 @@ function stampHierarchyHouseNodes(writer: ChunkWriter, terrain: Terrain, seed: n
       const nearby = Math.abs(x - chunkMinX) <= 520 + CHUNK_SIZE && Math.abs(z - chunkMinZ) <= 520 + CHUNK_SIZE;
       if (nearby) {
         const sample = terrain.natural(x, z);
-        if (sample.water <= 0 && sample.riverDist >= sample.riverHalfWidth + 3 &&
-            sample.ground > SEA_LEVEL + 2 && sample.ground + 28 < 192) {
+        const citySamples = [
+        sample,
+        terrain.natural(x - 12, z - 12),
+        terrain.natural(x + 12, z - 12),
+        terrain.natural(x - 12, z + 12),
+        terrain.natural(x + 12, z + 12),
+      ];
+      const cityHeights = citySamples.map((site) => site.ground);
+      const citySpread = Math.max(...cityHeights) - Math.min(...cityHeights);
+      if (citySamples.every((site) => site.water <= 0 && site.riverDist >= site.riverHalfWidth + 3) &&
+            citySpread <= 8 && sample.ground > SEA_LEVEL + 2 && sample.ground + 28 < 192) {
           const plazaRadius = 15;
           for (let px = Math.max(x - plazaRadius, chunkMinX); px <= Math.min(x + plazaRadius, chunkMaxX); px += 1) {
             for (let pz = Math.max(z - plazaRadius, chunkMinZ); pz <= Math.min(z + plazaRadius, chunkMaxZ); pz += 1) {
@@ -2341,7 +2350,10 @@ function stampHierarchyHouseNodes(writer: ChunkWriter, terrain: Terrain, seed: n
       if (ground <= SEA_LEVEL + 2 || ground + stories * 6 + 8 >= 192) continue;
 
       const score = spread * 10 + Math.hypot(offsetX, offsetZ);
-      if (!bestFallback || score < bestFallback.score) bestFallback = { x: siteX, z: siteZ, ground, score };
+      if (!overlapsHouse && !overlapsMajorStructure &&
+          (!bestFallback || score < bestFallback.score)) {
+        bestFallback = { x: siteX, z: siteZ, ground, score };
+      }
       if (!overlapsHouse && !overlapsMajorStructure && spread <= 4) {
         chosen = { x: siteX, z: siteZ, ground };
         break;
@@ -2352,16 +2364,13 @@ function stampHierarchyHouseNodes(writer: ChunkWriter, terrain: Terrain, seed: n
     if (!chosen && bestFallback) {
       chosen = { x: bestFallback.x, z: bestFallback.z, ground: bestFallback.ground };
     }
-    // A village's planned residential count is a hard rendering requirement. If
-    // the surrounding search finds no dry site (for example, a tiny island or
-    // river delta), retain the house on a deterministic raised build pad rather
-    // than silently dropping it. The pad clears the footprint while stamping,
-    // so water/vegetation cannot leave the interior flooded.
-    if (!chosen) {
-      const sample = terrain.natural(x, z);
-      const safeGround = Math.max(SEA_LEVEL + 3, Math.min(sample.ground, 192 - stories * 6 - 10));
-      chosen = { x, z, ground: safeGround };
+    // Never force a house onto water, a steep footprint, or another structure.
+    // If the bounded terrain search cannot find a safe, non-overlapping site,
+    // omit this house rather than corrupting the world layout with a raised pad.
+    if (!chosen && bestFallback) {
+      chosen = { x: bestFallback.x, z: bestFallback.z, ground: bestFallback.ground };
     }
+    if (!chosen) continue;
     const siteX = chosen.x;
     const siteZ = chosen.z;
     const ground = chosen.ground;
