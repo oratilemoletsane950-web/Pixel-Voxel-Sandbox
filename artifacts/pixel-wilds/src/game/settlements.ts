@@ -177,8 +177,7 @@ interface Farm {
 }
 
 interface Garden {
-  x: number;
-  z: number;  w: number;
+  x: number;  z: number;  w: number;
   d: number;
 }
 
@@ -357,8 +356,7 @@ function scoreSite(
   z: number,
 ): { score: number; baseY: number } {
   const half = spec.half;
-  // Probe the whole footprint (centre, half-way ring, and the edge/corners of the square).  // Anything wet in there rejects the site; the outer apron may be wet.
-  const probes: Array<[number, number]> = [[0, 0]];
+  // Probe the whole footprint (centre, half-way ring, and the edge/corners of the square).  // Anything wet in there rejects the site; the outer apron may be wet.  const probes: Array<[number, number]> = [[0, 0]];
   for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]]) {
     probes.push([dx * half * 0.5, dz * half * 0.5]);
     probes.push([dx * half, dz * half]);
@@ -537,8 +535,7 @@ function layoutHuman(settlement: Settlement, spec: KindSpec, regionX: number, re
       accent: accentBlock(bp.accent),
       open: !!bp.open,
       turret: bp.turret ?? 0,      spire: !!bp.spire,
-      forge: !!bp.forge,
-      passage: bp.passage,
+      forge: !!bp.forge,      passage: bp.passage,
       furniture: bp.furniture,
       ...extra,
     }, bp.facadeVariant, bp.windowCount, bp.corniceBlock, bp.gableTrim, bp.hasDormers, bp.bayWindowWidth);
@@ -717,8 +714,7 @@ function layoutHuman(settlement: Settlement, spec: KindSpec, regionX: number, re
   }
   /* ---- block cottages between the streets, each with a path ---- */
   const quadPool = rosterPool(tier, "quad");
-  const quadStart = tier === "kingdom" ? 24 : 20;
-  const step = tier === "village" ? 11 : 12;
+  const quadStart = tier === "kingdom" ? 24 : 20;  const step = tier === "village" ? 11 : 12;
   let cottage = 0;
   let farms = 0;
   const farmGoal = tier === "village" ? 2 : 1;
@@ -897,8 +893,7 @@ function layoutFaction(settlement: Settlement, spec: KindSpec, regionX: number, 
   ): Building => ({    x,
     z,
     w,
-    d,
-    wall: big ? 8 : 6,
+    d,    wall: big ? 8 : 6,
     stories: 1,
     facing,
     roof: big && faction === "dwarves" ? "flat" : style.roofShape,
@@ -1077,8 +1072,7 @@ function makeSettlement(terrain: Terrain, seed: number, regionX: number, regionZ
   if (!best || best.score < 2.2) return null;
 
   const id = `${seed}:${regionX}:${regionZ}`;
-  const name = `${pick(nameStarts, hash2(regionX, regionZ, seed + 8297))}${pick(
-    nameEnds,
+  const name = `${pick(nameStarts, hash2(regionX, regionZ, seed + 8297))}${pick(    nameEnds,
     hash2(regionZ, regionX, seed + 8311),
   )}`;
   const settlement: Settlement = {
@@ -1257,8 +1251,7 @@ function stampStall(writer: ChunkWriter, b: Building, ground: number): void {
   };
   if (b.facing === 0) for (let dx = -hx + 1; dx <= hx - 1; dx += 1) counter(dx, hz - 1);
   else if (b.facing === 2) for (let dx = -hx + 1; dx <= hx - 1; dx += 1) counter(dx, -hz + 1);
-  else if (b.facing === 1) for (let dz = -hz + 1; dz <= hz - 1; dz += 1) counter(hx - 1, dz);
-  else for (let dz = -hz + 1; dz <= hz - 1; dz += 1) counter(-hx + 1, dz);
+  else if (b.facing === 1) for (let dz = -hz + 1; dz <= hz - 1; dz += 1) counter(hx - 1, dz);  else for (let dz = -hz + 1; dz <= hz - 1; dz += 1) counter(-hx + 1, dz);
 
   // Canopy with a one-block overhang; the trim ring takes the tier accent.
   for (let dx = -hx - 1; dx <= hx + 1; dx += 1) {
@@ -1335,7 +1328,10 @@ function stampBuilding(writer: ChunkWriter, b: Building, ground: number): void {
   // Victorian bay windows project one block from the front facade. The
   // glass is kept at eye level on each storey, with a sill and lintel.
   if (b.bayWindowWidth && b.bayWindowWidth > 0) {
-    const width = Math.min(Math.floor(b.bayWindowWidth), Math.max(1, Math.floor((b.facing === 0 || b.facing === 2 ? hx : hz) - 1)));
+    const width = Math.min(
+      Math.floor((b.bayWindowWidth - 1) / 2),
+      Math.max(0, Math.floor((b.facing === 0 || b.facing === 2 ? hx : hz) - 1)),
+    );
     for (let offset = -width; offset <= width; offset += 1) {
       for (let storey = 0; storey < b.stories; storey += 1) {
         const y0 = ground + storey * 6 + 2;
@@ -1437,8 +1433,7 @@ function stampBuilding(writer: ChunkWriter, b: Building, ground: number): void {
     const y = ground + 6 * k;
     if (y > top) break;
     for (let dx = -hx + 1; dx <= hx - 1; dx += 1) {
-      for (let dz = -hz + 1; dz <= hz - 1; dz += 1) {
-        const x = b.x + dx;
+      for (let dz = -hz + 1; dz <= hz - 1; dz += 1) {        const x = b.x + dx;
         const z = b.z + dz;
         if (!writer.inside(x, z)) continue;
         if (stairColumns.has(`${x},${z}`)) continue;
@@ -1617,8 +1612,7 @@ function stampFire(writer: ChunkWriter, cx: number, cz: number, ground: number):
 
 function stampGreatTree(writer: ChunkWriter, cx: number, cz: number, ground: number, seed: number): void {
   if (!writer.overlaps(cx - 20, cz - 20, cx + 20, cz + 20)) return;
-  const height = 42;
-  for (let y = ground + 1; y <= ground + height; y += 1) {
+  const height = 42;  for (let y = ground + 1; y <= ground + height; y += 1) {
     const radius = y < ground + 6 ? 3 : y < ground + 12 ? 2 : 1;
     for (let dx = -radius; dx <= radius; dx += 1) {
       for (let dz = -radius; dz <= radius; dz += 1) {
@@ -1797,8 +1791,7 @@ function stampMoat(writer: ChunkWriter, s: Settlement, ground: number): void {
     for (let cross = -walkHalf; cross <= walkHalf; cross += 1) {
       for (let along = half - 2; along <= half + 4; along += 1) {
         const x = cx + (ox !== 0 ? ox * along : cross);
-        const z = cz + (oz !== 0 ? oz * along : cross);
-        if (!writer.inside(x, z)) continue;
+        const z = cz + (oz !== 0 ? oz * along : cross);        if (!writer.inside(x, z)) continue;
         writer.set(x, ground, z, ID.stone_bricks);
         writer.set(x, ground + 1, z, Math.abs(cross) === walkHalf ? s.wall!.block : 0);
       }
