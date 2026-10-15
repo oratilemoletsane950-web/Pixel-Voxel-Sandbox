@@ -2024,8 +2024,8 @@ export function resolveHierarchyPlan(source: HierarchyPlan, terrain: Terrain): H
     const anchorX = Math.round(original.x + (parent && originalParent ? parent.x - originalParent.x : 0));
     const anchorZ = Math.round(original.z + (parent && originalParent ? parent.z - originalParent.z : 0));
     const size = node.level === "city" ? 20 : node.level === "town" ? 55 : node.level === "village" ? 10 : 66;
-    const radiusMax = node.level === "city" ? 384 : node.level === "town" ? 256 : node.level === "village" ? 128 : 160;
-    const maxSpread = node.level === "city" ? 10 : node.level === "town" ? 8 : node.level === "village" ? 7 : 24;
+    const radiusMax = node.level === "city" ? 384 : node.level === "town" ? 256 : node.level === "village" ? 128 : 320;
+    const maxSpread = node.level === "city" ? 10 : node.level === "town" ? 8 : node.level === "village" ? 7 : 36;
     const maxHeight = node.level === "city" ? 32 : node.level === "town" ? 30 : node.level === "village" ? 12 : 52;
     let best: { x: number; z: number; ground: number; score: number } | null = null;
     for (const [dx, dz] of offsets(radiusMax)) {
