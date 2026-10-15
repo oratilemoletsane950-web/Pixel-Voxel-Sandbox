@@ -16,6 +16,7 @@ import type { HeightRecord, Terrain } from "./terrain";
 import { leafBlob } from "./trees";
 import { hierarchyNodesInBounds, hierarchyPlanFor } from "./hierarchy-streaming";
 import type { HierarchyPlan, SettlementNode } from "./settlement-hierarchy";
+import type { HierarchyPlan, SettlementNode } from "./settlement-hierarchy";
 
 /**
  * Settlements (1 block = 0.5 m).
@@ -2010,7 +2011,6 @@ function resolveHierarchyPlan(source: HierarchyPlan, terrain: Terrain): Hierarch
   const byId = new Map(nodes.map((node) => [node.id, node]));
   const originalById = new Map(source.nodes.map((node) => [node.id, node]));
   const major: ResolvedFootprint[] = [];
-  const houseSites: ResolvedFootprint[] = [];
   const buckets = new Map<string, ResolvedFootprint[]>();
   const bucketSize = 64;
   const bucketKey = (x: number, z: number) => Math.floor(x / bucketSize) + ":" + Math.floor(z / bucketSize);
@@ -2019,7 +2019,6 @@ function resolveHierarchyPlan(source: HierarchyPlan, terrain: Terrain): Hierarch
     const bucket = buckets.get(key);
     if (bucket) bucket.push(site);
     else buckets.set(key, [site]);
-    houseSites.push(site);
   };
   const overlaps = (x: number, z: number, halfW: number, halfD: number, parentId: string | null) => {
     for (let bx = Math.floor((x - halfW - 20) / bucketSize); bx <= Math.floor((x + halfW + 20) / bucketSize); bx += 1) {
@@ -2152,7 +2151,7 @@ function stampHierarchyHouseNodes(writer: ChunkWriter, terrain: Terrain, seed: n
   const start = getSettlement(terrain, 0, 0);
   const originX = start?.kind === "kingdom" ? start.centerX : 0;
   const originZ = start?.kind === "kingdom" ? start.centerZ : 0;
-  const plan = hierarchyPlanFor(seed, { originX, originZ });
+  const plan = resolvedHierarchyPlanFor(terrain, seed, originX, originZ);
   const chunkMinX = writer.startX;
   const chunkMinZ = writer.startZ;
   const chunkMaxX = chunkMinX + CHUNK_SIZE - 1;
@@ -2160,22 +2159,7 @@ function stampHierarchyHouseNodes(writer: ChunkWriter, terrain: Terrain, seed: n
   // Pull endpoints far enough away to draw the roads crossing this chunk.
   const nodes = hierarchyNodesInBounds(plan, chunkMinX, chunkMinZ, chunkMaxX, chunkMaxZ, 520);
   const byId = new Map(plan.nodes.map((node) => [node.id, node]));
-  // Global, deterministic reservations shared across all villages in this query.
-  // Reservations include major hierarchy footprints, so relocated houses cannot
-  // spill into town walls, city civic centres, or castle enclosures.
-  type ReservedFootprint = { x: number; z: number; halfW: number; halfD: number; ownerId: string; level: string };
-  const reservedFootprints: ReservedFootprint[] = [];
-  for (const node of nodes) {
-    const footprint = node.level === "city" ? 20
-      : node.level === "town" ? 52
-      : node.level === "castle" ? 64
-      : 0;
-    if (footprint > 0) reservedFootprints.push({
-      x: Math.round(node.x), z: Math.round(node.z), halfW: footprint, halfD: footprint,
-      ownerId: node.id, level: node.level,
-    });
-  }
-  const reservedHouseSites: ReservedFootprint[] = [];
+  // All positions and footprints are resolved once for the full world before chunk stamping.
 
   const stampRoad = (fromX: number, fromZ: number, toX: number, toZ: number, width: number): void => {
     const minX = Math.max(Math.min(fromX, toX) - width, chunkMinX);
@@ -2312,27 +2296,16 @@ function stampHierarchyHouseNodes(writer: ChunkWriter, terrain: Terrain, seed: n
     const z = Math.round(node.z);
 
     if (node.level === "city") {
-      // A city gets a civic landmark and radial links to its five town centres.
-      const nearby = Math.abs(x - chunkMinX) <= 520 + CHUNK_SIZE && Math.abs(z - chunkMinZ) <= 520 + CHUNK_SIZE;
-      if (nearby) {
-        const sample = terrain.natural(x, z);
-        const citySamples = [
-        sample,
-        terrain.natural(x - 12, z - 12),
-        terrain.natural(x + 12, z - 12),
-        terrain.natural(x - 12, z + 12),
-        terrain.natural(x + 12, z + 12),
-      ];
-      const cityHeights = citySamples.map((site) => site.ground);
-      const citySpread = Math.max(...cityHeights) - Math.min(...cityHeights);
-      if (citySamples.every((site) => site.water <= 0 && site.riverDist >= site.riverHalfWidth + 3) &&
-            citySpread <= 8 && sample.ground > SEA_LEVEL + 2 && sample.ground + 28 < 192) {
+      if (node.metadata.placementValid === true) {
+        const ground = Number(node.metadata.resolvedGround);
+        const nearby = Math.abs(x - chunkMinX) <= 520 + CHUNK_SIZE && Math.abs(z - chunkMinZ) <= 520 + CHUNK_SIZE;
+        if (nearby && Number.isFinite(ground)) {
           const plazaRadius = 15;
           for (let px = Math.max(x - plazaRadius, chunkMinX); px <= Math.min(x + plazaRadius, chunkMaxX); px += 1) {
             for (let pz = Math.max(z - plazaRadius, chunkMinZ); pz <= Math.min(z + plazaRadius, chunkMaxZ); pz += 1) {
               if (Math.abs(px - x) <= 9 && Math.abs(pz - z) <= 8) continue;
-              writer.set(px, sample.ground, pz, ID.stone_bricks);
-              writer.set(px, sample.ground + 1, pz, 0);
+              writer.set(px, ground, pz, ID.stone_bricks);
+              writer.set(px, ground + 1, pz, 0);
             }
           }
           const hall: Building = {
@@ -2342,34 +2315,28 @@ function stampHierarchyHouseNodes(writer: ChunkWriter, terrain: Terrain, seed: n
             glazed: true, blueprint: "hierarchy-city-hall", accent: ID.dark_planks,
             open: false, turret: 1, spire: false, forge: false, furniture: 2,
           };
-          stampBuilding(writer, hall, sample.ground);
+          stampBuilding(writer, hall, ground);
         }
       }
       for (const townId of node.children) {
         const town = byId.get(townId);
-        if (town?.level === "town") stampRoad(x, z, Math.round(town.x), Math.round(town.z), 5);
+        if (node.metadata.placementValid === true && town?.level === "town" && town.metadata.placementValid === true) {
+          stampRoad(x, z, Math.round(town.x), Math.round(town.z), 5);
+        }
       }
       continue;
     }
 
     if (node.level === "town") {
-      // Main streets connect the town square to its village neighbourhoods.
+      if (node.metadata.placementValid !== true) continue;
+      const ground = Number(node.metadata.resolvedGround);
+      if (!Number.isFinite(ground)) continue;
       for (const villageId of node.children) {
         const village = byId.get(villageId);
-        if (village?.level === "village") stampRoad(x, z, Math.round(village.x), Math.round(village.z), 3);
+        if (village?.level === "village" && village.metadata.placementValid === true) {
+          stampRoad(x, z, Math.round(village.x), Math.round(village.z), 3);
+        }
       }
-
-      const samples = [terrain.natural(x, z), terrain.natural(x - 7, z - 6),
-        terrain.natural(x + 7, z - 6), terrain.natural(x - 7, z + 6), terrain.natural(x + 7, z + 6)];
-      if (samples.some((sample) => sample.water > 0 || sample.riverDist < sample.riverHalfWidth + 3)) continue;
-      const heights = samples.map((sample) => sample.ground);
-      if (Math.max(...heights) - Math.min(...heights) > 3) continue;
-      const sortedHeights = [...heights].sort((a, b) => a - b);
-      const ground = sortedHeights[Math.floor(sortedHeights.length / 2)];
-      if (ground <= SEA_LEVEL + 2 || ground + 24 >= 192) continue;
-
-      // Stone curtain wall with crenellated corner towers and four open gatehouses.
-      stampTownFortifications(x, z, ground);
       const plazaRadius = 11;
       for (let px = Math.max(x - plazaRadius, chunkMinX); px <= Math.min(x + plazaRadius, chunkMaxX); px += 1) {
         for (let pz = Math.max(z - plazaRadius, chunkMinZ); pz <= Math.min(z + plazaRadius, chunkMaxZ); pz += 1) {
@@ -2378,6 +2345,7 @@ function stampHierarchyHouseNodes(writer: ChunkWriter, terrain: Terrain, seed: n
           writer.set(px, ground + 1, pz, 0);
         }
       }
+      stampTownFortifications(x, z, ground);
       const hall: Building = {
         x, z, w: 15, d: 13, wall: 12, stories: 2, facing: 0, roof: "hip",
         wallBlock: ID.cobblestone, frameBlock: ID.dark_planks, roofBlock: ID.roof,
@@ -2390,15 +2358,15 @@ function stampHierarchyHouseNodes(writer: ChunkWriter, terrain: Terrain, seed: n
     }
 
     if (node.level === "castle") {
-      const searchRadius = Number(node.metadata.strategicRadius) || 88;
-      if (Math.abs(x - chunkMinX) > searchRadius + 64 + CHUNK_SIZE ||
-          Math.abs(z - chunkMinZ) > searchRadius + 64 + CHUNK_SIZE) continue;
+      if (node.metadata.placementValid !== true) continue;
+      const searchRadius = Number(node.metadata.strategicRadius) || 160;
+      if (Math.abs(x - chunkMinX) > searchRadius + 72 + CHUNK_SIZE ||
+          Math.abs(z - chunkMinZ) > searchRadius + 72 + CHUNK_SIZE) continue;
       const archetype = String(node.metadata.archetype ?? "concentric");
-      const site = chooseCastleSite(terrain, x, z, archetype, searchRadius);
-      if (!site) continue;
-      const castleX = site.x;
-      const castleZ = site.z;
-      const ground = site.ground;
+      const castleX = x;
+      const castleZ = z;
+      const ground = Number(node.metadata.resolvedGround);
+      if (!Number.isFinite(ground)) continue;
       const style = castleLayout(archetype);
 
       if (style.moat) {
@@ -2453,74 +2421,16 @@ function stampHierarchyHouseNodes(writer: ChunkWriter, terrain: Terrain, seed: n
     }
 
     if (node.level !== "house") continue;
+    if (node.metadata.placementValid !== true) continue;
     const archetype = Math.max(0, Math.min(4, Math.floor(Number(node.metadata.archetypeIndex) || 0)));
     const blueprintIds = ["simple_home", "farmers_cottage", "fishermans_hut", "woodcutters_cabin", "bakers_house"] as const;
     const bp = blueprintById("village", blueprintIds[archetype]);
-    const size = bp.w;
-    const depth = bp.d;
-    const stories = bp.stories;
-    // Resolve unsuitable planned sites by searching deterministic nearby candidates.
-    // Each node picks the same site in every chunk, preserving seamless boundaries.
-    const halfW = Math.ceil(size / 2);
-    const halfD = Math.ceil(depth / 2);
-    const candidateOffsets: Array<[number, number]> = [[0, 0]];
-    for (let radius = 4; radius <= 160; radius += 4) {
-      for (let step = 0; step < 16; step += 1) {
-        const angle = (Math.PI * 2 * step) / 16;
-        candidateOffsets.push([Math.round(Math.cos(angle) * radius), Math.round(Math.sin(angle) * radius)]);
-      }
-    }
-    let chosen: { x: number; z: number; ground: number } | null = null;
-    let bestFallback: { x: number; z: number; ground: number; score: number } | null = null;
-
-    for (const [offsetX, offsetZ] of candidateOffsets) {
-      const siteX = x + offsetX;
-      const siteZ = z + offsetZ;
-      const overlapsHouse = reservedHouseSites.some((other) =>
-        Math.abs(siteX - other.x) < halfW + other.halfW + 3 &&
-        Math.abs(siteZ - other.z) < halfD + other.halfD + 3);
-      const overlapsMajorStructure = reservedFootprints.some((other) =>
-        other.ownerId !== node.parentId &&
-        Math.abs(siteX - other.x) < halfW + other.halfW + 4 &&
-        Math.abs(siteZ - other.z) < halfD + other.halfD + 4);
-      const samples = [
-        terrain.natural(siteX, siteZ),
-        terrain.natural(siteX - halfW, siteZ - halfD),
-        terrain.natural(siteX + halfW, siteZ - halfD),
-        terrain.natural(siteX - halfW, siteZ + halfD),
-        terrain.natural(siteX + halfW, siteZ + halfD),
-      ];
-      if (samples.some((sample) => sample.water > 0 || sample.riverDist < sample.riverHalfWidth + 2)) continue;
-      const heights = samples.map((sample) => sample.ground);
-      const spread = Math.max(...heights) - Math.min(...heights);
-      const sorted = [...heights].sort((a, b) => a - b);
-      const ground = sorted[Math.floor(sorted.length / 2)];
-      if (ground <= SEA_LEVEL + 2 || ground + stories * 6 + 8 >= 192) continue;
-
-      const score = spread * 10 + Math.hypot(offsetX, offsetZ);
-      if (!overlapsHouse && !overlapsMajorStructure &&
-          (!bestFallback || score < bestFallback.score)) {
-        bestFallback = { x: siteX, z: siteZ, ground, score };
-      }
-      if (!overlapsHouse && !overlapsMajorStructure && spread <= 4) {
-        chosen = { x: siteX, z: siteZ, ground };
-        break;
-      }
-    }
-    // Never force a house onto water, a steep footprint, or another structure.
-    // If the bounded terrain search cannot find a safe, non-overlapping site,
-    // omit this house rather than corrupting the world layout with a raised pad.
-    if (!chosen && bestFallback) {
-      chosen = { x: bestFallback.x, z: bestFallback.z, ground: bestFallback.ground };
-    }
-    if (!chosen) continue;
-    const siteX = chosen.x;
-    const siteZ = chosen.z;
-    const ground = chosen.ground;
-    reservedHouseSites.push({
-      x: siteX, z: siteZ, halfW, halfD, ownerId: node.id, level: "house",
-    });
-    // The final site may shift into a neighbouring chunk, so check overlap only now.
+    const halfW = Math.ceil(bp.w / 2);
+    const halfD = Math.ceil(bp.d / 2);
+    const siteX = x;
+    const siteZ = z;
+    const ground = Number(node.metadata.resolvedGround);
+    if (!Number.isFinite(ground)) continue;
     if (siteX + halfW < chunkMinX || siteX - halfW > chunkMaxX ||
         siteZ + halfD < chunkMinZ || siteZ - halfD > chunkMaxZ) continue;
 
