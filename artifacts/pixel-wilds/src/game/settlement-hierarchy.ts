@@ -121,11 +121,12 @@ export function createHierarchyPlan(seed: number, options: HierarchyOptions = {}
   const kingdomId = `kingdom-${seed >>> 0}`;
   const kingdom = add(kingdomId, generatedName(seed, 1, "kingdom"), "kingdom", null, originX, originZ, { seed });
   const cityCount = intBetween(seed, 10, 5, 8);
-  const cityRing = 1500;
+  // Keep each city's full town-and-village footprint separate from its neighbours.
+  const cityRing = 2800;
 
   for (let ci = 0; ci < cityCount; ci += 1) {
     const angle = (Math.PI * 2 * ci) / cityCount + (hash(seed, 20 + ci) - 0.5) * 0.24;
-    const radius = cityRing * (0.72 + hash(seed, 40 + ci) * 0.42);
+    const radius = cityRing;
     const cityId = `${kingdomId}-city-${ci + 1}`;
     const city = add(cityId, generatedName(seed, 100 + ci, "city"), "city", kingdomId,
       originX + Math.cos(angle) * radius, originZ + Math.sin(angle) * radius,
@@ -133,8 +134,8 @@ export function createHierarchyPlan(seed: number, options: HierarchyOptions = {}
     void city;
 
     for (let ti = 0; ti < 5; ti += 1) {
-      const townAngle = (Math.PI * 2 * ti) / 5 + hash(seed, 200 + ci * 10 + ti) * 0.3;
-      const townRadius = 240 + hash(seed, 300 + ci * 10 + ti) * 180;
+      const townAngle = (Math.PI * 2 * ti) / 5 + (hash(seed, 200 + ci * 10 + ti) - 0.5) * 0.15;
+      const townRadius = 450 + hash(seed, 300 + ci * 10 + ti) * 50;
       const townId = `${cityId}-town-${ti + 1}`;
       const town = add(townId, generatedName(seed, 400 + ci * 10 + ti, "town"), "town", cityId,
         city.x + Math.cos(townAngle) * townRadius, city.z + Math.sin(townAngle) * townRadius,
@@ -142,8 +143,8 @@ export function createHierarchyPlan(seed: number, options: HierarchyOptions = {}
 
       const villageCount = intBetween(seed, 500 + ci * 100 + ti, 5, 8);
       for (let vi = 0; vi < villageCount; vi += 1) {
-        const villageAngle = (Math.PI * 2 * vi) / villageCount + hash(seed, 600 + ci * 100 + ti * 10 + vi) * 0.28;
-        const villageRadius = 90 + hash(seed, 700 + ci * 100 + ti * 10 + vi) * 100;
+        const villageAngle = (Math.PI * 2 * vi) / villageCount + (hash(seed, 600 + ci * 100 + ti * 10 + vi) - 0.5) * 0.1;
+        const villageRadius = 140 + hash(seed, 700 + ci * 100 + ti * 10 + vi) * 30;
         const villageId = `${townId}-village-${vi + 1}`;
         const village = add(villageId, generatedName(seed, 800 + ci * 100 + ti * 10 + vi, "village"), "village", townId,
           town.x + Math.cos(villageAngle) * villageRadius, town.z + Math.sin(villageAngle) * villageRadius,
