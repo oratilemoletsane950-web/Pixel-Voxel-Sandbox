@@ -71,6 +71,17 @@ export function listSavedWorldSeeds(): number[] {
     }
     const active = Number(window.localStorage.getItem(ACTIVE_WORLD_KEY));
     if (Number.isSafeInteger(active) && active >= 0 && window.localStorage.getItem(worldStorageKey(active))) seeds.add(active);
+    const legacy = window.localStorage.getItem(STORAGE_KEY);
+    if (legacy) {
+      try {
+        const parsed: unknown = JSON.parse(legacy);
+        if (isRecord(parsed) && Number.isSafeInteger(parsed.seed) && (parsed.seed as number) >= 0) {
+          seeds.add(parsed.seed as number);
+        }
+      } catch {
+        // Ignore corrupt legacy metadata; individual slots remain usable.
+      }
+    }
   } catch {
     // Storage may be disabled; an empty list is safer than crashing the menu.
   }
