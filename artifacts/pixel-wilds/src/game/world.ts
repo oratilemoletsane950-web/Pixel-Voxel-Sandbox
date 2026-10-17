@@ -258,7 +258,16 @@ function applyEdits(world: WorldData, chunk: Chunk): void {
   const startZ = chunk.cz * CHUNK_SIZE;
   for (const [key, type] of Object.entries(edits)) {
     const cell = parseBlockKey(key);
-    if (!cell || cell.y < 0 || cell.y >= WORLD_HEIGHT) continue;
+    if (
+      !cell ||
+      cell.y < 0 ||
+      cell.y >= WORLD_HEIGHT ||
+      cell.x < startX ||
+      cell.x >= startX + CHUNK_SIZE ||
+      cell.z < startZ ||
+      cell.z >= startZ + CHUNK_SIZE ||
+      (type !== null && !isWorldBlockType(type))
+    ) continue;
     chunk.blocks[chunkIndex(cell.x - startX, cell.y, cell.z - startZ)] = type === null ? AIR : BLOCK_ID[type];
   }
   recountChunk(chunk);
@@ -373,7 +382,12 @@ export function setBlock(
   z: number,
   type: WorldBlockType | null,
 ): WorldData {
-  if (y < 0 || y > MAX_BUILD_HEIGHT) return world;
+  if (
+    ![x, y, z].every(Number.isSafeInteger) ||
+    y < 0 ||
+    y > MAX_BUILD_HEIGHT ||
+    (type !== null && !isWorldBlockType(type))
+  ) return world;
   const chunk = getChunk(world, x, z);
   if (!chunk) return world;
   const lx = x - chunk.cx * CHUNK_SIZE;
@@ -531,14 +545,31 @@ function readEdits(value: unknown): WorldData["edits"] {
   const result: WorldData["edits"] = {};
   if (!isRecord(value)) return result;
   for (const [chunk, raw] of Object.entries(value)) {
-    if (!isRecord(raw)) continue;
+    const chunkParts = chunk.split(",").map(Number);
+    if (
+      chunkParts.length !== 2 ||
+      !chunkParts.every(Number.isSafeInteger) ||
+      !isRecord(raw)
+    ) continue;
+    const [cx, cz] = chunkParts as [number, number];
+    const startX = cx * CHUNK_SIZE;
+    const startZ = cz * CHUNK_SIZE;
     const entries: Record<string, WorldBlockType | null> = {};
     for (const [key, block] of Object.entries(raw)) {
-      if (!parseBlockKey(key)) continue;
+      const cell = parseBlockKey(key);
+      if (
+        !cell ||
+        cell.y < 0 ||
+        cell.y >= WORLD_HEIGHT ||
+        cell.x < startX ||
+        cell.x >= startX + CHUNK_SIZE ||
+        cell.z < startZ ||
+        cell.z >= startZ + CHUNK_SIZE
+      ) continue;
       if (block === null) entries[key] = null;
       else if (isWorldBlockType(block)) entries[key] = block;
     }
-    result[chunk] = entries;
+    if (Object.keys(entries).length > 0) result[chunk] = entries;
   }
   return result;
 }
@@ -550,14 +581,22 @@ function readEdits(value: unknown): WorldData["edits"] {
  */
 export function loadWorld(centerX = 0, centerZ = 0, radius = 3, requestedSeed?: number): WorldData {
   const center = getChunkCoordinates(centerX, centerZ);
+  const validRequestedSeed = requestedSeed !== undefined &&
+    Number.isSafeInteger(requestedSeed) && requestedSeed >= 0 && requestedSeed <= 2_147_483_647;
   try {
     const activeSeed = requestedSeed ?? Number(window.localStorage.getItem(ACTIVE_WORLD_KEY));
-    const saved = Number.isSafeInteger(activeSeed) && activeSeed >= 0
+    const saved = Number.isSafeInteger(activeSeed) && activeSeed >= 0 && activeSeed <= 2_147_483_647
       ? window.localStorage.getItem(worldStorageKey(activeSeed)) ?? (requestedSeed === undefined ? window.localStorage.getItem(STORAGE_KEY) : null)
-      : window.localStorage.getItem(STORAGE_KEY);
+      : requestedSeed === undefined ? window.localStorage.getItem(STORAGE_KEY) : null;
     if (saved) {
       const parsed: unknown = JSON.parse(saved);
-      if (isRecord(parsed) && Number.isSafeInteger(parsed.seed)) {
+      if (
+        isRecord(parsed) &&
+        Number.isSafeInteger(parsed.seed) &&
+        (parsed.seed as number) >= 0 &&
+        (parsed.seed as number) <= 2_147_483_647 &&
+        (!validRequestedSeed || parsed.seed === requestedSeed)
+      ) {
         const world: WorldData = { seed: parsed.seed as number, chunks: {}, edits: readEdits(parsed.edits) };
         return ensureChunks(world, center.x, center.z, radius);
       }
@@ -565,7 +604,9 @@ export function loadWorld(centerX = 0, centerZ = 0, radius = 3, requestedSeed?: 
   } catch (error) {
     console.warn("Saved world could not be read; creating a new world.", error);
   }
-  const world = createWorld(undefined, centerX, centerZ, radius);
+  // If a selected slot disappeared or is corrupt while the world menu is open,
+  // preserve that requested seed instead of silently entering a different world.
+  const world = createWorld(validRequestedSeed ? requestedSeed : undefined, centerX, centerZ, radius);
   try {
     saveWorld(world);
   } catch (error) {
