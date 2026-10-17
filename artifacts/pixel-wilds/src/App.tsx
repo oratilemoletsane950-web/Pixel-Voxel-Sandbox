@@ -1400,6 +1400,28 @@ function App() {
 
   return (
     <main className="game-shell" data-testid="game-world">
+      {!selectedWorld && (
+        <div role="dialog" aria-modal="true" aria-labelledby="saved-worlds-title" data-testid="world-selection-screen" style={{ position: 'fixed', inset: 0, zIndex: 50, display: 'grid', placeItems: 'center', padding: 20, background: 'rgba(8, 12, 10, 0.96)', color: '#f3f1e8', overflowY: 'auto' }}>
+          <section style={{ width: 'min(560px, 100%)', padding: 24, borderRadius: 18, background: '#202a23', border: '1px solid rgba(255,255,255,.18)', boxShadow: '0 24px 80px rgba(0,0,0,.45)' }}>
+            <h1 id="saved-worlds-title" style={{ marginTop: 0 }}>Choose your world</h1>
+            <p style={{ color: '#c7d0c7', lineHeight: 1.5 }}>World terrain and the starting area are generated before you enter. Select a saved world or create a new one.</p>
+            {savedWorldSeeds.length === 0 ? <p>No saved worlds yet. Create your first world below.</p> : (
+              <div style={{ display: 'grid', gap: 8, margin: '18px 0' }}>
+                {savedWorldSeeds.map((seed) => (
+                  <div key={seed} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: 10, borderRadius: 10, background: '#111914', border: '1px solid #46564a' }}>
+                    <div style={{ flex: 1 }}><strong>World {seed}</strong><div style={{ fontSize: 12, color: '#aeb9ad' }}>Seed {seed}</div></div>
+                    <button type="button" onClick={() => selectSavedWorld(seed)} style={{ padding: '9px 12px', borderRadius: 8, border: 0, background: '#d4e0a7', color: '#1b281c', fontWeight: 700, cursor: 'pointer' }}>Play</button>
+                    <button type="button" onClick={() => removeSavedWorld(seed)} aria-label={`Delete world ${seed}`} style={{ padding: '9px 12px', borderRadius: 8, border: '1px solid #8b5c54', background: 'transparent', color: '#ffd4c9', cursor: 'pointer' }}>Delete</button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <button type="button" onClick={() => { setSeedInput(''); setWorldMenuOpen(true); }} style={{ padding: '11px 15px', borderRadius: 9, border: 0, background: '#d4e0a7', color: '#1b281c', fontWeight: 700, cursor: 'pointer' }}>Create a world</button>
+            {savedWorldSeeds.length > 0 && <button type="button" onClick={clearSavedWorlds} style={{ marginLeft: 10, padding: '11px 15px', borderRadius: 9, border: '1px solid #8b5c54', background: 'transparent', color: '#ffd4c9', cursor: 'pointer' }}>Delete all worlds</button>}
+            {creatingWorld && <p role="status">Generating world and safe starting area…</p>}
+          </section>
+        </div>
+      )}
       {supportsWebGL !== true ? (
         <VoxelFallback
           world={world}
