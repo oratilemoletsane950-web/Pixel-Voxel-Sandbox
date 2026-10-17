@@ -1026,6 +1026,8 @@ function App() {
   const [target, setTarget] = useState<AimTarget | null>(null);
   const [started, setStarted] = useState(false);
   const [rulesOpen, setRulesOpen] = useState(false);
+  const [worldMenuOpen, setWorldMenuOpen] = useState(false);
+  const [seedInput, setSeedInput] = useState('');
   const [craftOpen, setCraftOpen] = useState(false);
   const [flying, setFlying] = useState(false);
   const [saveState, setSaveState] = useState<'saved' | 'unsaved'>('saved');
@@ -1301,6 +1303,27 @@ function App() {
     savePlayerState();
   }, [savePlayerState]);
 
+  const createSeededWorld = (rawSeed: string) => {
+    const trimmed = rawSeed.trim();
+    const seed = trimmed ? Number(trimmed) : Math.floor(Math.random() * 2_147_000_000);
+    if (!Number.isSafeInteger(seed) || seed < 0 || seed > 2_147_483_647) {
+      showNotice('Seed must be a whole number from 0 to 2147483647');
+      return;
+    }
+    try {
+      // Save the current world first; each seed receives its own persistent slot.
+      saveWorld(worldRef.current);
+      const freshWorld = createWorld(seed, 0, 0, 5);
+      saveWorld(freshWorld);
+      // Player inventory/position are scoped to the active world, not carried across seeds.
+      localStorage.removeItem(SAVE_KEY);
+      setWorldMenuOpen(false);
+      window.location.reload();
+    } catch {
+      showNotice('Could not create the world in browser storage');
+    }
+  };
+
   const beginExplore = () => {
     setStarted(true);
     if (supportsWebGL !== true || window.matchMedia('(pointer: coarse)').matches) return;
@@ -1415,6 +1438,12 @@ function App() {
         </div>
 
         <div className="world-card">
+          <small>WORLD SEED</small>
+          <strong data-testid="status-world-seed">{world.seed}</strong>
+          <button className="rules-toggle" type="button" onClick={() => { setSeedInput(String(world.seed)); setWorldMenuOpen(true); }}>
+            Create / load world
+          </button>
+
           <small>somewhere out there</small>
           <strong>Marigold Reach</strong>
           <p>Make a path. Leave it brighter.</p>
@@ -1468,6 +1497,24 @@ function App() {
           </div>
         )}
 
+        {worldMenuOpen && (
+          <div role="dialog" aria-modal="true" aria-labelledby="world-seed-title" style={{ position: 'fixed', inset: 0, zIndex: 30, display: 'grid', placeItems: 'center', padding: 20, background: 'rgba(8, 12, 10, 0.76)', backdropFilter: 'blur(8px)' }}>
+            <section style={{ width: 'min(440px, 100%)', padding: 24, borderRadius: 18, color: '#f3f1e8', background: '#202a23', border: '1px solid rgba(255,255,255,.18)', boxShadow: '0 24px 80px rgba(0,0,0,.45)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+                <h2 id="world-seed-title" style={{ margin: 0 }}>Create a world</h2>
+                <button type="button" aria-label="Close world creator" onClick={() => setWorldMenuOpen(false)} style={{ fontSize: 22, color: 'inherit', background: 'transparent', border: 0, cursor: 'pointer' }}>×</button>
+              </div>
+              <p style={{ lineHeight: 1.55, color: '#c7d0c7' }}>A seed generates a repeatable landscape. Use the same seed to revisit the same terrain, or choose a new seed for different land, biomes, rivers and settlement locations. Each seed has its own saved block edits.</p>
+              <label htmlFor="world-seed-input" style={{ display: 'block', margin: '16px 0 6px', fontSize: 13, letterSpacing: '.06em' }}>WORLD SEED (0–2147483647)</label>
+              <input id="world-seed-input" data-testid="input-world-seed" type="number" min="0" max="2147483647" step="1" value={seedInput} onChange={(event) => setSeedInput(event.target.value)} placeholder="Enter a seed number" style={{ boxSizing: 'border-box', width: '100%', padding: '12px 14px', borderRadius: 9, border: '1px solid #647668', background: '#111914', color: '#fff', font: 'inherit' }} />
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 16 }}>
+                <button type="button" onClick={() => createSeededWorld(seedInput)} style={{ padding: '11px 15px', borderRadius: 9, border: 0, background: '#d4e0a7', color: '#1b281c', fontWeight: 700, cursor: 'pointer' }}>Create this seed</button>
+                <button type="button" onClick={() => createSeededWorld('')} style={{ padding: '11px 15px', borderRadius: 9, border: '1px solid #647668', background: 'transparent', color: '#f3f1e8', cursor: 'pointer' }}>Random world</button>
+              </div>
+              <p style={{ marginBottom: 0, fontSize: 12, color: '#aeb9ad' }}>Creating a world reloads the game. Save your current landscape first if you have made changes.</p>
+            </section>
+          </div>
+        )}
         <aside
           className="world-rules-panel"
           id="world-generation-rules"
