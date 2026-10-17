@@ -234,7 +234,12 @@ function initialWorld(position: Position | null = null): WorldData {
   let loaded: WorldData;
   // A small area loads immediately; the rest streams in a few chunks at a time.
   try {
-    loaded = loadWorld(x, z, 5);
+    // Do not silently create/save a default world before the player chooses
+    // one. The temporary terrain only keeps the renderer initialized behind
+    // the startup selector; it is not added to the saved-world list.
+    loaded = listSavedWorldSeeds().length > 0
+      ? loadWorld(x, z, 5)
+      : createWorld(undefined, x, z, 5);
   } catch {
     loaded = createWorld(undefined, x, z, 5);
   }
