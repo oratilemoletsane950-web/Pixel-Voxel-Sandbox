@@ -1026,7 +1026,7 @@ function App() {
   const [target, setTarget] = useState<AimTarget | null>(null);
   const [started, setStarted] = useState(false);
   const [rulesOpen, setRulesOpen] = useState(false);
-  const [worldMenuOpen, setWorldMenuOpen] = useState(false);
+  const [worldMenuOpen, setWorldMenuOpen] = useState(false);\n  const [savedWorldSeeds, setSavedWorldSeeds] = useState<number[]>(() => listSavedWorldSeeds());\n  const [selectedWorld, setSelectedWorld] = useState(false);\n  const [creatingWorld, setCreatingWorld] = useState(false);
   const [seedInput, setSeedInput] = useState('');
   const [craftOpen, setCraftOpen] = useState(false);
   const [flying, setFlying] = useState(false);
@@ -1310,21 +1310,77 @@ function App() {
       showNotice('Seed must be a whole number from 0 to 2147483647');
       return;
     }
+    setCreatingWorld(true);
     try {
-      // Save the current world first; each seed receives its own persistent slot.
-      saveWorld(worldRef.current);
-      const freshWorld = createWorld(seed, 0, 0, 5);
+      // Generate the spawn region before making the world selectable. The
+      // kingdom's full local chunk ring is prepared before the player is spawned.
+      let freshWorld = createWorld(seed, 0, 0, 5);
+      const kingdom = startingKingdomNear(freshWorld) ?? humanSettlementNear(freshWorld, 0, 0);
+      if (kingdom) {
+        const center = getChunkCoordinates(kingdom.x, kingdom.z);
+        freshWorld = ensureChunks(freshWorld, center.x, center.z, 8);
+      }
       saveWorld(freshWorld);
-      // Player inventory/position are scoped to the active world, not carried across seeds.
       localStorage.removeItem(SAVE_KEY);
+      setSavedWorldSeeds(listSavedWorldSeeds());
       setWorldMenuOpen(false);
       window.location.reload();
     } catch {
-      showNotice('Could not create the world in browser storage');
+      setCreatingWorld(false);
+      showNotice('World creation failed. No world was selected; check browser storage and try again.');
+    }
+  };
+
+  const selectSavedWorld = (seed: number) => {
+    try {
+      // Loading/generating the spawn ring is synchronous and completes before
+      // reload; the game then resolves a fresh safe spawn for this seed.
+      let selected = loadWorld(0, 0, 5, seed);
+      const kingdom = startingKingdomNear(selected) ?? humanSettlementNear(selected, 0, 0);
+      if (kingdom) {
+        const center = getChunkCoordinates(kingdom.x, kingdom.z);
+        selected = ensureChunks(selected, center.x, center.z, 8);
+      }
+      saveWorld(selected);
+      localStorage.removeItem(SAVE_KEY);
+      setSelectedWorld(true);
+      window.location.reload();
+    } catch {
+      showNotice('Could not load that world safely. It remains in the list.');
+    }
+  };
+
+  const removeSavedWorld = (seed: number) => {
+    try {
+      deleteSavedWorld(seed);
+      setSavedWorldSeeds(listSavedWorldSeeds());
+      if (world.seed === seed) {
+        localStorage.removeItem(SAVE_KEY);
+        setSelectedWorld(false);
+        window.location.reload();
+      }
+    } catch {
+      showNotice('Could not delete that world from browser storage.');
+    }
+  };
+
+  const clearSavedWorlds = () => {
+    try {
+      deleteAllSavedWorlds();
+      localStorage.removeItem(SAVE_KEY);
+      setSavedWorldSeeds([]);
+      setSelectedWorld(false);
+      window.location.reload();
+    } catch {
+      showNotice('Could not clear saved worlds from browser storage.');
     }
   };
 
   const beginExplore = () => {
+    if (!selectedWorld) {
+      showNotice('Select or create a world before entering.');
+      return;
+    }
     setStarted(true);
     if (supportsWebGL !== true || window.matchMedia('(pointer: coarse)').matches) return;
     const canvas = document.querySelector('.game-canvas canvas') as HTMLCanvasElement | null;
