@@ -1433,7 +1433,7 @@ function App() {
           </section>
         </div>
       )}
-      {supportsWebGL !== true ? (
+      {selectedWorld && (supportsWebGL !== true ? (
         <VoxelFallback
           world={world}
           onTarget={setTarget}
@@ -1473,7 +1473,7 @@ function App() {
             paused={craftOpen}
           />
         </Canvas>
-      )}
+      ))}
 
       <div className="hud">
         <div className="brand-lockup" aria-label="Pixel Wilds">
