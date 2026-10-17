@@ -1031,7 +1031,10 @@ function App() {
   const [target, setTarget] = useState<AimTarget | null>(null);
   const [started, setStarted] = useState(false);
   const [rulesOpen, setRulesOpen] = useState(false);
-  const [worldMenuOpen, setWorldMenuOpen] = useState(false);\n  const [savedWorldSeeds, setSavedWorldSeeds] = useState<number[]>(() => listSavedWorldSeeds());\n  const [selectedWorld, setSelectedWorld] = useState(false);\n  const [creatingWorld, setCreatingWorld] = useState(false);
+  const [worldMenuOpen, setWorldMenuOpen] = useState(false);
+  const [savedWorldSeeds, setSavedWorldSeeds] = useState<number[]>(() => listSavedWorldSeeds());
+  const [selectedWorld, setSelectedWorld] = useState(false);
+  const [creatingWorld, setCreatingWorld] = useState(false);
   const [seedInput, setSeedInput] = useState('');
   const [craftOpen, setCraftOpen] = useState(false);
   const [flying, setFlying] = useState(false);
