@@ -73,6 +73,13 @@ export type SettlementHook = (
 
 const MAX_CACHE = 60000;
 
+/** Evict one oldest entry at a time instead of clearing the entire cache in one frame. */
+function evictOldest<K, V>(cache: Map<K, V>, limit: number): void {
+  if (cache.size < limit) return;
+  const oldest = cache.keys().next();
+  if (!oldest.done) cache.delete(oldest.value);
+}
+
 interface RiverHit {
   dist: number;
   half: number;
@@ -82,9 +89,9 @@ interface RiverHit {
 }
 
 export class Terrain {
-  private naturalCache = new Map<number, HeightRecord>();
-  private heightCache = new Map<number, HeightRecord>();
-  private columnCache = new Map<number, Column>();
+  private naturalCache = new Map<string, HeightRecord>();
+  private heightCache = new Map<string, HeightRecord>();
+  private columnCache = new Map<string, Column>();
   hook: SettlementHook | null = null;
 
   constructor(readonly seed: number) {}
@@ -98,7 +105,7 @@ export class Terrain {
     const cached = this.naturalCache.get(key);
     if (cached) return cached;
     const record = this.computeNatural(x, z);
-    if (this.naturalCache.size >= MAX_CACHE) this.naturalCache.clear();
+    evictOldest(this.naturalCache, MAX_CACHE);
     this.naturalCache.set(key, record);
     return record;
   }
@@ -198,7 +205,7 @@ export class Terrain {
     if (cached) return cached;
     // Keep terrain purely geological. Settlement terraforming is disabled.
     const record = this.natural(x, z);
-    if (this.heightCache.size >= MAX_CACHE) this.heightCache.clear();
+    evictOldest(this.heightCache, MAX_CACHE);
     this.heightCache.set(key, record);
     return record;
   }
@@ -221,7 +228,7 @@ export class Terrain {
     const cached = this.columnCache.get(key);
     if (cached) return cached;
     const column = this.computeColumn(x, z);
-    if (this.columnCache.size >= MAX_CACHE) this.columnCache.clear();
+    evictOldest(this.columnCache, MAX_CACHE);
     this.columnCache.set(key, column);
     return column;
   }
