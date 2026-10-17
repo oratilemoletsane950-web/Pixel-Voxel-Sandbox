@@ -14,6 +14,7 @@ import {
   findSpawnPoint,
   getBiomeAt,
   getBlock,
+  isChunkLoadedAt,
   getChunkCoordinates,
   getLoadedBlockCount,
   getLoadedChunkCount,
@@ -1206,6 +1207,15 @@ function App() {
   }, [showNotice, setWorldEdited]);
 
   const placeBlock = useCallback((cell: BlockCell, adjacent: AimTarget['adjacent']) => {
+    const currentWorld = worldRef.current;
+    if (adjacent.y < 0 || adjacent.y > MAX_BUILD_HEIGHT) {
+      showNotice('Build height reached');
+      return;
+    }
+    if (!isChunkLoadedAt(currentWorld, adjacent.x, adjacent.z)) {
+      showNotice('That area is still loading');
+      return;
+    }
     if (inventory[selected] < 1) {
       showNotice(`Out of ${BLOCK_META[selected].label.toLowerCase()}`);
       return;
