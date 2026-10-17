@@ -251,12 +251,12 @@ function initialWorld(position: Position | null = null): WorldData {
   // A brand-new world opens at the nearest village, town, castle or kingdom,
   // with its chunks already generated, so a settlement is the first thing
   // you see instead of empty wilderness.
-  // Spawn in wilderness while settlement generation is disabled.
+  // Settlement generation is disabled; start in the naturally generated wilderness.
   return loaded;
 }
 
 function findSpawn(world: WorldData): Position {
-  // Natural-world spawn: no settlement lookup or pre-generated building area.
+  // Spawn in wilderness rather than searching for a settlement.
   return findSpawnPoint(world, 0, 0);
 }
 
@@ -1035,8 +1035,6 @@ function App() {
   const [rulesOpen, setRulesOpen] = useState(false);
   const [worldMenuOpen, setWorldMenuOpen] = useState(false);
   const [savedWorldSeeds, setSavedWorldSeeds] = useState<number[]>(() => listSavedWorldSeeds());
-  type AppScreen = 'welcome' | 'worlds' | 'create-world' | 'world-ready' | 'game';
-  const [screen, setScreen] = useState<AppScreen>('welcome');
   const [selectedWorld, setSelectedWorld] = useState(false);
   const [creatingWorld, setCreatingWorld] = useState(false);
   const [seedInput, setSeedInput] = useState('');
@@ -1343,16 +1341,9 @@ function App() {
       }
       saveWorld(freshWorld);
       localStorage.removeItem(SAVE_KEY);
-      setWorld(freshWorld);
-      worldRef.current = freshWorld;
-      setPlayerPosition(null);
-      setInventory({ ...DEFAULT_INVENTORY });
-      streamCenter.current = getChunkCoordinates(kingdom?.x ?? 0, kingdom?.z ?? 0);
       setSavedWorldSeeds(listSavedWorldSeeds());
-      setSelectedWorld(true);
       setWorldMenuOpen(false);
-      setCreatingWorld(false);
-      setScreen('world-ready');
+      window.location.reload();
     } catch {
       setCreatingWorld(false);
       showNotice('World creation failed. No world was selected; check browser storage and try again.');
@@ -1377,9 +1368,6 @@ function App() {
       setInventory({ ...DEFAULT_INVENTORY });
       streamCenter.current = getChunkCoordinates(kingdom?.x ?? 0, kingdom?.z ?? 0);
       setSelectedWorld(true);
-      setStarted(true);
-      setWorldMenuOpen(false);
-      setScreen('game');
     } catch {
       showNotice('Could not load that world safely. It remains in the list.');
     }
@@ -1392,7 +1380,7 @@ function App() {
       if (world.seed === seed) {
         localStorage.removeItem(SAVE_KEY);
         setSelectedWorld(false);
-        setScreen('worlds');
+        window.location.reload();
       }
     } catch {
       showNotice('Could not delete that world from browser storage.');
@@ -1405,7 +1393,7 @@ function App() {
       localStorage.removeItem(SAVE_KEY);
       setSavedWorldSeeds([]);
       setSelectedWorld(false);
-      setScreen('worlds');
+      window.location.reload();
     } catch {
       showNotice('Could not clear saved worlds from browser storage.');
     }
@@ -1428,103 +1416,6 @@ function App() {
   const coordinates = playerPosition
     ? `${Math.floor(playerPosition.x)} · ${Math.floor(playerPosition.y)} · ${Math.floor(playerPosition.z)}`
     : 'ROAM FREE';
-
-  if (screen !== 'game') {
-    const screenStyle = {
-      minHeight: '100dvh',
-      display: 'grid',
-      placeItems: 'center',
-      padding: 24,
-      boxSizing: 'border-box' as const,
-      background: 'radial-gradient(ellipse at top, #304638 0%, #111914 58%, #090d0a 100%)',
-      color: '#f3f1e8',
-      fontFamily: 'inherit',
-    };
-    const panelStyle = {
-      width: 'min(640px, 100%)',
-      padding: 28,
-      borderRadius: 20,
-      background: 'rgba(32, 42, 35, .96)',
-      border: '1px solid rgba(255,255,255,.18)',
-      boxShadow: '0 24px 80px rgba(0,0,0,.45)',
-      boxSizing: 'border-box' as const,
-    };
-    const primaryStyle = {
-      padding: '12px 18px',
-      borderRadius: 9,
-      border: 0,
-      background: '#d4e0a7',
-      color: '#1b281c',
-      fontWeight: 700,
-      cursor: 'pointer',
-    };
-    return (
-      <main style={screenStyle} data-testid={`screen-${screen}`}>
-        <section style={panelStyle}>
-          <div className="brand-lockup" aria-label="Pixel Wilds" style={{ marginBottom: 28 }}>
-            <div className="brand-stamp" aria-hidden="true"><span /></div>
-            <div><div className="brand-name">pixel wilds</div><div className="brand-kicker">a pocket wilderness</div></div>
-          </div>
-          {screen === 'welcome' && (
-            <>
-              <p style={{ color: '#d4e0a7', letterSpacing: '.14em', fontSize: 12, fontWeight: 700 }}>YOUR WORLD IS WAITING</p>
-              <h1 style={{ fontSize: 'clamp(36px, 7vw, 58px)', lineHeight: 1.04, margin: '12px 0' }}>The wild is yours.</h1>
-              <p style={{ color: '#c7d0c7', lineHeight: 1.6 }}>Build a home, discover living settlements, and shape a wilderness that belongs to you.</p>
-              <button type="button" style={primaryStyle} data-testid="button-play" onClick={() => { setSavedWorldSeeds(listSavedWorldSeeds()); setScreen('worlds'); }}>Play <span aria-hidden="true">→</span></button>
-            </>
-          )}
-          {screen === 'worlds' && (
-            <>
-              <h1 style={{ marginTop: 0 }}>Your worlds</h1>
-              <p style={{ color: '#c7d0c7', lineHeight: 1.5 }}>Choose a saved world to continue, or create a new landscape.</p>
-              {savedWorldSeeds.length === 0 ? <p>No saved worlds yet. Create your first world.</p> : (
-                <div style={{ display: 'grid', gap: 8, margin: '18px 0' }}>
-                  {savedWorldSeeds.map((seed) => (
-                    <div key={seed} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: 10, borderRadius: 10, background: '#111914', border: '1px solid #46564a' }}>
-                      <div style={{ flex: 1 }}><strong>World {seed}</strong><div style={{ fontSize: 12, color: '#aeb9ad' }}>Seed {seed}</div></div>
-                      <button type="button" style={primaryStyle} onClick={() => selectSavedWorld(seed)}>Play</button>
-                      <button type="button" onClick={() => removeSavedWorld(seed)} aria-label={`Delete world ${seed}`} style={{ padding: '9px 12px', borderRadius: 8, border: '1px solid #8b5c54', background: 'transparent', color: '#ffd4c9', cursor: 'pointer' }}>Delete</button>
-                    </div>
-                  ))}
-                </div>
-              )}
-              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                <button type="button" style={primaryStyle} onClick={() => { setSeedInput(''); setCreatingWorld(false); setScreen('create-world'); }}>Create a world</button>
-                {savedWorldSeeds.length > 0 && <button type="button" onClick={clearSavedWorlds} style={{ padding: '11px 15px', borderRadius: 9, border: '1px solid #8b5c54', background: 'transparent', color: '#ffd4c9', cursor: 'pointer' }}>Delete all worlds</button>}
-              </div>
-              <button type="button" onClick={() => setScreen('welcome')} style={{ marginTop: 18, background: 'transparent', border: 0, color: '#c7d0c7', cursor: 'pointer' }}>← Back</button>
-            </>
-          )}
-          {screen === 'create-world' && (
-            <>
-              <h1 style={{ marginTop: 0 }}>Create a world</h1>
-              <p style={{ color: '#c7d0c7', lineHeight: 1.5 }}>Choose a seed for a repeatable landscape, or generate a random world. Your world will be prepared before you enter it.</p>
-              <label htmlFor="screen-world-seed" style={{ display: 'block', margin: '16px 0 6px', fontSize: 13, letterSpacing: '.06em' }}>WORLD SEED (0–2147483647)</label>
-              <input id="screen-world-seed" data-testid="input-world-seed" type="number" min="0" max="2147483647" step="1" value={seedInput} onChange={(event) => setSeedInput(event.target.value)} placeholder="Enter a seed number" style={{ boxSizing: 'border-box', width: '100%', padding: '12px 14px', borderRadius: 9, border: '1px solid #647668', background: '#111914', color: '#fff', font: 'inherit' }} />
-              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 16 }}>
-                <button type="button" style={primaryStyle} disabled={creatingWorld} onClick={() => createSeededWorld(seedInput)}>{creatingWorld ? 'Generating…' : 'Generate world'}</button>
-                <button type="button" disabled={creatingWorld} onClick={() => createSeededWorld('')} style={{ padding: '11px 15px', borderRadius: 9, border: '1px solid #647668', background: 'transparent', color: '#f3f1e8', cursor: 'pointer' }}>Random world</button>
-              </div>
-              {notice && <p role="alert" style={{ color: '#ffd4c9' }}>{notice}</p>}
-              <button type="button" onClick={() => setScreen('worlds')} style={{ marginTop: 18, background: 'transparent', border: 0, color: '#c7d0c7', cursor: 'pointer' }}>← Back to worlds</button>
-            </>
-          )}
-          {screen === 'world-ready' && (
-            <>
-              <h1 style={{ marginTop: 0 }}>Your world is ready</h1>
-              <p style={{ color: '#c7d0c7', lineHeight: 1.5 }}>World {world.seed} has been generated and saved. Enter when you're ready to explore.</p>
-              <div style={{ padding: 16, margin: '18px 0', borderRadius: 12, background: '#111914', border: '1px solid #46564a' }}>
-                <strong>World seed: {world.seed}</strong>
-                <p style={{ color: '#aeb9ad', marginBottom: 0 }}>Terrain, starting settlement, and nearby chunks are prepared.</p>
-              </div>
-              <button type="button" style={primaryStyle} data-testid="button-play-generated-world" onClick={() => { setStarted(true); setScreen('game'); }}>Play this world →</button>
-              <button type="button" onClick={() => setScreen('worlds')} style={{ marginLeft: 12, background: 'transparent', border: 0, color: '#c7d0c7', cursor: 'pointer' }}>Back to worlds</button>
-            </>
-          )}
-        </section>
-      </main>
-    );
-  }
 
   return (
     <main className="game-shell" data-testid="game-world">
@@ -1651,8 +1542,8 @@ function App() {
         <div className="world-card">
           <small>WORLD SEED</small>
           <strong data-testid="status-world-seed">{world.seed}</strong>
-          <button className="rules-toggle" type="button" onClick={() => { setSavedWorldSeeds(listSavedWorldSeeds()); setSeedInput(''); setScreen('worlds'); }}>
-            Change world
+          <button className="rules-toggle" type="button" onClick={() => { setSeedInput(String(world.seed)); setWorldMenuOpen(true); }}>
+            Create / load world
           </button>
 
           <small>somewhere out there</small>
@@ -1747,7 +1638,7 @@ function App() {
           <p><b>Rock:</b> pink granite in the high country, pale limestone in low basins, stone elsewhere; coal and iron veins sit inside the rock, and bedrock lies at the bottom.</p>
           <p><b>Rivers &amp; lakes:</b> rivers wind through low ground with flat water, banks of sand, gravel, clay or mud, and freeze in the cold. Basins below sea level fill with water.</p>
           <p><b>Trees:</b> ten kinds with their own trunks - oaks and birches in mixed woods, pine belts with bare lower trunks, spruce in the cold, giant redwoods with 3 x 3 bases in old stands, palms leaning off beaches, willows trailing leaves in swamps, cactus in deserts.</p>
-          <p><b>Settlements and buildings:</b> generation is temporarily disabled while the natural terrain and ecology system is rebuilt. The world currently generates wilderness only.</p>
+          <p><b>Settlements and buildings:</b> generation is disabled while the natural terrain and ecology systems are rebuilt. The world currently generates wilderness only.</p>
           <p><b>Crafting:</b> press <kbd className="keycap">C</kbd> for the workbench - planks from logs, doors, chairs and tables from planks, dressed stone, marble, bricks, roof tiles and glass from what you gather. Place them anywhere you like.</p>
           <p><b>Everywhere:</b> 16×16 chunks stream in around you out to the view distance you choose; terrain comes from the seed, and your edits persist.</p>
         </aside>
