@@ -251,15 +251,13 @@ function initialWorld(position: Position | null = null): WorldData {
   // A brand-new world opens at the nearest village, town, castle or kingdom,
   // with its chunks already generated, so a settlement is the first thing
   // you see instead of empty wilderness.
-  const settlement = startingKingdomNear(loaded) ?? humanSettlementNear(loaded, 0, 0);
-  if (!settlement) return loaded;
-  const center = getChunkCoordinates(settlement.x, settlement.z);
-  return ensureChunks(loaded, center.x, center.z, 7, 400);
+  // Spawn in wilderness while settlement generation is disabled.
+  return loaded;
 }
 
 function findSpawn(world: WorldData): Position {
-  const settlement = startingKingdomNear(world) ?? humanSettlementNear(world, 0, 0);
-  return findSpawnPoint(world, settlement?.x ?? 0, settlement?.z ?? 0);
+  // Natural-world spawn: no settlement lookup or pre-generated building area.
+  return findSpawnPoint(world, 0, 0);
 }
 
 function getHotbarIndexFromCode(code: string): number {
@@ -1749,8 +1747,7 @@ function App() {
           <p><b>Rock:</b> pink granite in the high country, pale limestone in low basins, stone elsewhere; coal and iron veins sit inside the rock, and bedrock lies at the bottom.</p>
           <p><b>Rivers &amp; lakes:</b> rivers wind through low ground with flat water, banks of sand, gravel, clay or mud, and freeze in the cold. Basins below sea level fill with water.</p>
           <p><b>Trees:</b> ten kinds with their own trunks - oaks and birches in mixed woods, pine belts with bare lower trunks, spruce in the cold, giant redwoods with 3 x 3 bases in old stands, palms leaning off beaches, willows trailing leaves in swamps, cactus in deserts.</p>
-          <p><b>Settlements:</b> four designs, each with its own roster of houses - <b>villages</b> (well, hall, watchtower, market stalls, thatched roofs, farms), <b>towns</b> (three-storey town hall and guild hall, inns, forges, row houses, palisade with gate towers), <b>castles</b> (moat, gatehouses, curtain wall, five-storey keep, garrison, royal gardens) and <b>kingdoms</b> (moat, double walls, a domed palace, and paved districts for market, temple, barracks and warehouses). Multi-storey houses have stairs you can walk up; tall pieces like the watchtower are lookouts reached by flight. Every house gets a door, a table and chairs - and there are no mobs, just the buildings for you to explore.</p>
-          <p><b>Finding them:</b> a new world spawns you in the nearest settlement, and the card top-right always shows the nearest one with its distance and compass direction.</p>
+          <p><b>Settlements and buildings:</b> generation is temporarily disabled while the natural terrain and ecology system is rebuilt. The world currently generates wilderness only.</p>
           <p><b>Crafting:</b> press <kbd className="keycap">C</kbd> for the workbench - planks from logs, doors, chairs and tables from planks, dressed stone, marble, bricks, roof tiles and glass from what you gather. Place them anywhere you like.</p>
           <p><b>Everywhere:</b> 16×16 chunks stream in around you out to the view distance you choose; terrain comes from the seed, and your edits persist.</p>
         </aside>
