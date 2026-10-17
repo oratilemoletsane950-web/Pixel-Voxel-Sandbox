@@ -7,9 +7,11 @@ import {
   createWorld,
   ensureChunks,
   findSpawnPoint,
+  getBlock,
   getBlockId,
   getChunk,
   getChunkCoordinates,
+  setBlock,
   type WorldData,
 } from "./world";
 
@@ -43,4 +45,31 @@ test("streamed chunks regenerate deterministically when revisited", () => {
   const after = bytesAt(world, 0, 0);
   assert.equal(before.length, CHUNK_SIZE * CHUNK_SIZE * WORLD_HEIGHT);
   assert.deepEqual(after, before);
+});
+
+
+test("saved edits cannot spill into neighbouring chunks", () => {
+  const world: WorldData = {
+    seed: 12345,
+    chunks: {},
+    edits: {
+      "0,0": {
+        "1,5,1": "gold",
+        // A malformed save must not write into chunk 1,0 via a wrapped array index.
+        "16,5,0": "gold",
+      },
+    },
+  };
+  const loaded = ensureChunks(world, 0, 0, 0, 1);
+  assert.equal(getBlock(loaded, 1, 5, 1), "gold");
+  assert.equal(getBlockId(loaded, 16, 5, 0), 0, "out-of-chunk edit must be ignored");
+});
+
+test("block edits reject fractional coordinates and invalid vertical bounds", () => {
+  const world = createWorld(8675309, 0, 0, 1);
+  const before = getBlockId(world, 1, 5, 1);
+  assert.equal(setBlock(world, 1.5, 5, 1, "gold"), world);
+  assert.equal(setBlock(world, 1, 5.5, 1, "gold"), world);
+  assert.equal(setBlock(world, 1, WORLD_HEIGHT, 1, "gold"), world);
+  assert.equal(getBlockId(world, 1, 5, 1), before);
 });
