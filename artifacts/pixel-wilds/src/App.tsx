@@ -1449,6 +1449,7 @@ function App() {
           }}
         >
           <GameWorld
+            key={world.seed}
             world={world}
             onTarget={setTarget}
             onMine={mineBlock}
@@ -1580,7 +1581,7 @@ function App() {
         )}
 
         {worldMenuOpen && (
-          <div role="dialog" aria-modal="true" aria-labelledby="world-seed-title" style={{ position: 'fixed', inset: 0, zIndex: 30, display: 'grid', placeItems: 'center', padding: 20, background: 'rgba(8, 12, 10, 0.76)', backdropFilter: 'blur(8px)' }}>
+          <div role="dialog" aria-modal="true" aria-labelledby="world-seed-title" style={{ position: 'fixed', inset: 0, zIndex: 60, display: 'grid', placeItems: 'center', padding: 20, background: 'rgba(8, 12, 10, 0.76)', backdropFilter: 'blur(8px)' }}>
             <section style={{ width: 'min(440px, 100%)', padding: 24, borderRadius: 18, color: '#f3f1e8', background: '#202a23', border: '1px solid rgba(255,255,255,.18)', boxShadow: '0 24px 80px rgba(0,0,0,.45)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
                 <h2 id="world-seed-title" style={{ margin: 0 }}>Create a world</h2>
