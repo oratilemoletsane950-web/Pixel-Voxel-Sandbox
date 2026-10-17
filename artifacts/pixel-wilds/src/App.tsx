@@ -1379,6 +1379,7 @@ function App() {
       setInventory({ ...DEFAULT_INVENTORY });
       streamCenter.current = getChunkCoordinates(kingdom?.x ?? 0, kingdom?.z ?? 0);
       setSelectedWorld(true);
+      setStarted(true);
       setWorldMenuOpen(false);
       setScreen('game');
     } catch {
@@ -1518,7 +1519,7 @@ function App() {
                 <strong>World seed: {world.seed}</strong>
                 <p style={{ color: '#aeb9ad', marginBottom: 0 }}>Terrain, starting settlement, and nearby chunks are prepared.</p>
               </div>
-              <button type="button" style={primaryStyle} data-testid="button-play-generated-world" onClick={() => setScreen('game')}>Play this world →</button>
+              <button type="button" style={primaryStyle} data-testid="button-play-generated-world" onClick={() => { setStarted(true); setScreen('game'); }}>Play this world →</button>
               <button type="button" onClick={() => setScreen('worlds')} style={{ marginLeft: 12, background: 'transparent', border: 0, color: '#c7d0c7', cursor: 'pointer' }}>Back to worlds</button>
             </>
           )}
