@@ -1652,8 +1652,8 @@ function App() {
         <div className="world-card">
           <small>WORLD SEED</small>
           <strong data-testid="status-world-seed">{world.seed}</strong>
-          <button className="rules-toggle" type="button" onClick={() => { setSeedInput(String(world.seed)); setWorldMenuOpen(true); }}>
-            Create / load world
+          <button className="rules-toggle" type="button" onClick={() => { setSavedWorldSeeds(listSavedWorldSeeds()); setSeedInput(''); setScreen('worlds'); }}>
+            Change world
           </button>
 
           <small>somewhere out there</small>
