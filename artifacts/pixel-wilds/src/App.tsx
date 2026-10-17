@@ -1343,8 +1343,12 @@ function App() {
       }
       saveWorld(selected);
       localStorage.removeItem(SAVE_KEY);
+      setWorld(selected);
+      worldRef.current = selected;
+      setPlayerPosition(null);
+      setInventory({ ...DEFAULT_INVENTORY });
+      streamCenter.current = getChunkCoordinates(kingdom?.x ?? 0, kingdom?.z ?? 0);
       setSelectedWorld(true);
-      window.location.reload();
     } catch {
       showNotice('Could not load that world safely. It remains in the list.');
     }
