@@ -27,7 +27,7 @@ import type { Column, Terrain } from "./terrain";
  * Redwoods are also the only trunk with a 3 x 3 base.
  */
 
-const CELL = 7;
+const CELL = 6;
 const MARGIN = 9;
 
 type Species =
@@ -44,6 +44,8 @@ type Species =
 
 function pickSpecies(column: Column, x: number, z: number, seed: number): Species | null {
   const roll = hash2(x, z, seed + 2807);
+  const groveDensity = valueNoise(x - 27, z + 13, 38, seed + 2821);
+  const exposure = valueNoise(x + 71, z - 41, 17, seed + 2823);
   const pick = hash2(x, z, seed + 2809);
   // Which wood dominates this patch of country (0 = birch grove, 1 = conifers).
   const stand = valueNoise(x, z, 14, seed + 2813);
@@ -53,7 +55,7 @@ function pickSpecies(column: Column, x: number, z: number, seed: number): Specie
 
   switch (column.biome) {
     case "forest":
-      if (!growsOnSoil || roll > 0.82) return null;
+      if (!growsOnSoil || roll > 0.48 + groveDensity * 0.43 || (exposure < 0.22 && roll > 0.24)) return null;
       if (column.temperature < 0.45 && pick > 0.5) return "spruce";
       if (stand < 0.3) return pick < 0.25 ? "oak" : "birch";
       if (stand > 0.74) return pick < 0.3 ? "redwood" : pick < 0.62 ? "pine" : "oak";
@@ -68,12 +70,12 @@ function pickSpecies(column: Column, x: number, z: number, seed: number): Specie
       if (roll < 0.14) return "shrub";
       return null;
     case "taiga":
-      if (!growsOnSoil || roll >= 0.7) return null;
+      if (!growsOnSoil || roll >= 0.38 + groveDensity * 0.48) return null;
       return stand > 0.62 && pick < 0.7 ? "pine" : "spruce";
     case "tundra":
       return growsOnSoil && roll < 0.06 ? "spruce" : null;
     case "swamp":
-      if (!growsOnSoil || roll >= 0.4) return null;
+      if (!growsOnSoil || roll >= 0.28 + groveDensity * 0.35) return null;
       return pick < 0.4 ? "willow" : "swamp_oak";
     case "desert":
       return top === ID.sand && roll < 0.07 ? "cactus" : null;
@@ -118,12 +120,14 @@ export function leafBlob(
 function stampOak(writer: ChunkWriter, x: number, y0: number, z: number, seed: number, swamp: boolean): void {
   const size = hash2(x, z, seed + 3791);
   const trunk = Math.min(MAX_BUILD_HEIGHT - y0 - 7, swamp ? 9 + Math.floor(size * 4) : 13 + Math.floor(size * 8));
-  const radius = swamp ? 5.4 : 4 + (size > 0.6 ? 1 : 0.4);
+  const radius = swamp ? 5.4 + size * 1.1 : 3.4 + size * 2.2;
   for (let y = y0 + 1; y <= y0 + trunk; y += 1) writer.set(x, y, z, ID.wood);
-  // Root flare and a couple of limbs for a less pole-like trunk.
+  // Irregular root flare and buttress roots make trunks feel anchored in soil.
   if (!swamp) {
-    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
-      if (hash2(x + dx, z + dz, seed + 3811) > 0.45) writer.set(x + dx, y0 + 1, z + dz, ID.wood);
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, 1], [1, -1], [-1, -1]] as const) {
+      const chance = hash2(x + dx * 3, z + dz * 5, seed + 3811);
+      if (chance > 0.34) writer.set(x + dx, y0 + 1, z + dz, ID.wood);
+      if (Math.abs(dx) + Math.abs(dz) === 1 && chance > 0.62) writer.set(x + dx * 2, y0 + 1, z + dz * 2, ID.wood);
     }
   }
   const limbY = y0 + Math.floor(trunk * 0.62);
