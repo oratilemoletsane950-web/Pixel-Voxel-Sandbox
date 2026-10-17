@@ -57,6 +57,8 @@ export interface WorldData {
 }
 
 const STORAGE_KEY = "pixel-wilds-world-v3";
+const ACTIVE_WORLD_KEY = `${STORAGE_KEY}:active`;
+const worldStorageKey = (seed: number) => `${STORAGE_KEY}:seed:${seed}`;
 
 export function blockKey(x: number, y: number, z: number): string {
   return `${x},${y},${z}`;
@@ -434,7 +436,12 @@ export function findSpawnPoint(
 /* ------------------------------------------------------------------ */
 
 export function saveWorld(world: WorldData): void {
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ seed: world.seed, edits: world.edits }));
+  const serialized = JSON.stringify({ seed: world.seed, edits: world.edits });
+  // Keep a separate save slot for each seed, plus a pointer to the active world.
+  window.localStorage.setItem(worldStorageKey(world.seed), serialized);
+  window.localStorage.setItem(ACTIVE_WORLD_KEY, String(world.seed));
+  // Keep the legacy key readable for older builds.
+  window.localStorage.setItem(STORAGE_KEY, serialized);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -462,10 +469,13 @@ function readEdits(value: unknown): WorldData["edits"] {
  * different terrain model, so they cannot be mapped onto the new 0.5 m world;
  * they are left untouched in storage and a fresh world is started.
  */
-export function loadWorld(centerX = 0, centerZ = 0, radius = 3): WorldData {
+export function loadWorld(centerX = 0, centerZ = 0, radius = 3, requestedSeed?: number): WorldData {
   const center = getChunkCoordinates(centerX, centerZ);
   try {
-    const saved = window.localStorage.getItem(STORAGE_KEY);
+    const activeSeed = requestedSeed ?? Number(window.localStorage.getItem(ACTIVE_WORLD_KEY));
+    const saved = Number.isSafeInteger(activeSeed) && activeSeed >= 0
+      ? window.localStorage.getItem(worldStorageKey(activeSeed)) ?? (requestedSeed === undefined ? window.localStorage.getItem(STORAGE_KEY) : null)
+      : window.localStorage.getItem(STORAGE_KEY);
     if (saved) {
       const parsed: unknown = JSON.parse(saved);
       if (isRecord(parsed) && Number.isSafeInteger(parsed.seed)) {
