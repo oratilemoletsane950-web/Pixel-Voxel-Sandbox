@@ -23,6 +23,7 @@ import {
 } from "./chunk";
 import { hash2 } from "./noise";
 import { Terrain, type Biome } from "./terrain";
+import type { Settlement } from "./settlements";
 import { hasFlower, placeVegetation } from "./trees";
 
 export { BLOCK_TYPES, WORLD_BLOCK_TYPES, CHUNK_SIZE, MAX_BUILD_HEIGHT };
@@ -146,7 +147,7 @@ export function getTerrain(seed: number): Terrain {
 }
 
 /** Settlement generation is intentionally disabled while the natural-world system is rebuilt. */
-export function getSettlementsNear(_seed: number, _x: number, _z: number, _radius: number): never[] {
+export function getSettlementsNear(_seed: number, _x: number, _z: number, _radius: number): Settlement[] {
   return [];
 }
 
