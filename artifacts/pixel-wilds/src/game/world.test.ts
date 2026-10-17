@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { IS_SOLID } from "./blocks";
+import { ID, IS_SOLID } from "./blocks";
+import { columnKey } from "./noise";
 import { CHUNK_SIZE, WORLD_HEIGHT } from "./chunk";
 import {
   createWorld,
@@ -11,6 +12,7 @@ import {
   getBlockId,
   getChunk,
   getChunkCoordinates,
+  getTerrain,
   setBlock,
   type WorldData,
 } from "./world";
@@ -72,4 +74,43 @@ test("block edits reject fractional coordinates and invalid vertical bounds", ()
   assert.equal(setBlock(world, 1, 5.5, 1, "gold"), world);
   assert.equal(setBlock(world, 1, WORLD_HEIGHT, 1, "gold"), world);
   assert.equal(getBlockId(world, 1, 5, 1), before);
+});
+
+
+test("terrain columns expose deterministic normalized environmental inputs", () => {
+  const terrain = getTerrain(424242);
+  const first = terrain.column(12, -31);
+  const second = terrain.column(12, -31);
+  assert.deepEqual(first, second);
+  for (const value of [first.sunlight, first.windExposure, first.soilFertility]) {
+    assert.ok(value >= 0 && value <= 1, "environment values must be normalized");
+  }
+  assert.ok(["organic", "loam", "clay", "sand", "rock"].includes(first.soilComposition));
+});
+
+test("world generation builds a solid bedrock base and coherent surface strata", () => {
+  const world = createWorld(987654, 0, 0, 1);
+  const terrain = getTerrain(world.seed);
+  for (const [x, z] of [[0, 0], [3, 7], [-4, 2], [15, -1]] as const) {
+    const column = terrain.column(x, z);
+    assert.equal(getBlockId(world, x, 0, z), ID.bedrock, "every column starts with bedrock");
+    if (column.ground > 2) {
+      assert.equal(getBlockId(world, x, column.ground, z), column.top, "surface block matches terrain classification");
+      assert.notEqual(getBlockId(world, x, column.ground - 1, z), 0, "subsurface is filled below the surface");
+    }
+    if (column.water > column.ground) {
+      assert.equal(getBlockId(world, x, column.water, z), column.temperature < 0.36 ? ID.ice : ID.water);
+    }
+  }
+});
+
+test("world seeds reject unsafe values at the generation boundary", () => {
+  assert.throws(() => createWorld(-1, 0, 0, 0), RangeError);
+  assert.throws(() => createWorld(1.5, 0, 0, 0), RangeError);
+  assert.throws(() => createWorld(2_147_483_648, 0, 0, 0), RangeError);
+});
+
+test("column cache keys remain unique outside the old packed-coordinate range", () => {
+  assert.notEqual(columnKey(0, 0), columnKey(0, 2_200_000));
+  assert.notEqual(columnKey(-2_000_000, 5), columnKey(-1_999_999, 5));
 });
