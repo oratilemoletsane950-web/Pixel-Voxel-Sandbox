@@ -22,6 +22,7 @@ import {
   type Chunk,
 } from "./chunk";
 import { hash2 } from "./noise";
+import { generateGeologicalLayers, normalizeWorldSeed } from "./worldgen";
 import { Terrain, type Biome } from "./terrain";
 import type { Settlement } from "./settlements";
 import { hasFlower, placeVegetation } from "./trees";
@@ -133,6 +134,7 @@ export function parseBlockKey(key: string): { x: number; y: number; z: number } 
 const terrains = new Map<number, Terrain>();
 
 export function getTerrain(seed: number): Terrain {
+  normalizeWorldSeed(seed);
   let terrain = terrains.get(seed);
   if (!terrain) {
     terrain = new Terrain(seed);
@@ -209,32 +211,17 @@ function generateChunk(terrain: Terrain, cx: number, cz: number): Chunk {
   const writer = new ChunkWriter(chunk);
   const { blocks } = chunk;
 
+  // Explicit stage order: geology/bedrock -> hydrology -> ore -> surface ecology.
+  generateGeologicalLayers(writer, terrain, seed);
+
+  // Ground-cover stage is kept separate from the geological column pass.
   for (let lx = 0; lx < CHUNK_SIZE; lx += 1) {
     for (let lz = 0; lz < CHUNK_SIZE; lz += 1) {
       const x = writer.startX + lx;
       const z = writer.startZ + lz;
       const column = terrain.column(x, z);
-      const base = (lx * CHUNK_SIZE + lz) * WORLD_HEIGHT;
-      const { ground } = column;
-
-      blocks[base] = ID.bedrock;
-      for (let y = 1; y <= ground; y += 1) {
-        const depth = ground - y;
-        let id: number;
-        if (y === 1 && hash2(x, z, seed + 5) < 0.5) id = ID.bedrock; // rough bedrock floor
-        else if (depth === 0) id = column.top;
-        else if (depth <= column.soilDepth) id = column.soil;
-        else if (depth <= column.soilDepth + column.midDepth) id = column.mid || column.rock;
-        else id = column.rock;
-        blocks[base + y] = id;
-      }
-      if (column.water > ground) {
-        for (let y = ground + 1; y <= column.water; y += 1) {
-          // Surface water freezes in cold climates (colder than taiga).
-          blocks[base + y] = column.temperature < 0.36 && y === column.water ? ID.ice : ID.water;
-        }
-      } else if (hasFlower(column, x, z, seed)) {
-        blocks[base + ground + 1] = ID.flower;
+      if (column.water <= column.ground && hasFlower(column, x, z, seed)) {
+        writer.setIfAir(x, column.ground + 1, z, ID.flower);
       }
     }
   }
@@ -331,6 +318,7 @@ export function createWorld(
   centerZ = 0,
   radius = 3,
 ): WorldData {
+  seed = normalizeWorldSeed(seed);
   const world: WorldData = { seed, chunks: {}, edits: {} };
   const center = getChunkCoordinates(centerX, centerZ);
   return ensureChunks(world, center.x, center.z, radius);

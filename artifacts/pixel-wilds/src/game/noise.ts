@@ -45,6 +45,8 @@ export function valueNoise(x: number, z: number, scale: number, seed: number): n
 }
 
 /** Numeric key for an (x, z) column so caches avoid building strings. */
-export function columnKey(x: number, z: number): number {
-  return (x + 1048576) * 2097152 + (z + 1048576);
+export function columnKey(x: number, z: number): string {
+  // String keys remain collision-free at large positive or negative world
+  // coordinates; the former packed-number key collided outside its fixed range.
+  return `${x},${z}`;
 }

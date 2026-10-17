@@ -58,6 +58,11 @@ export interface Column extends HeightRecord {
   temperature: number;
   moisture: number;
   frozen: boolean;
+  /** Shared deterministic environmental inputs for geology and ecology. */
+  sunlight: number;
+  windExposure: number;
+  soilFertility: number;
+  soilComposition: "organic" | "loam" | "clay" | "sand" | "rock";
 }
 
 export type SettlementHook = (
@@ -68,6 +73,13 @@ export type SettlementHook = (
 
 const MAX_CACHE = 60000;
 
+/** Evict one oldest entry at a time instead of clearing the entire cache in one frame. */
+function evictOldest<K, V>(cache: Map<K, V>, limit: number): void {
+  if (cache.size < limit) return;
+  const oldest = cache.keys().next();
+  if (!oldest.done) cache.delete(oldest.value);
+}
+
 interface RiverHit {
   dist: number;
   half: number;
@@ -77,9 +89,9 @@ interface RiverHit {
 }
 
 export class Terrain {
-  private naturalCache = new Map<number, HeightRecord>();
-  private heightCache = new Map<number, HeightRecord>();
-  private columnCache = new Map<number, Column>();
+  private naturalCache = new Map<string, HeightRecord>();
+  private heightCache = new Map<string, HeightRecord>();
+  private columnCache = new Map<string, Column>();
   hook: SettlementHook | null = null;
 
   constructor(readonly seed: number) {}
@@ -93,7 +105,7 @@ export class Terrain {
     const cached = this.naturalCache.get(key);
     if (cached) return cached;
     const record = this.computeNatural(x, z);
-    if (this.naturalCache.size >= MAX_CACHE) this.naturalCache.clear();
+    evictOldest(this.naturalCache, MAX_CACHE);
     this.naturalCache.set(key, record);
     return record;
   }
@@ -193,7 +205,7 @@ export class Terrain {
     if (cached) return cached;
     // Keep terrain purely geological. Settlement terraforming is disabled.
     const record = this.natural(x, z);
-    if (this.heightCache.size >= MAX_CACHE) this.heightCache.clear();
+    evictOldest(this.heightCache, MAX_CACHE);
     this.heightCache.set(key, record);
     return record;
   }
@@ -216,7 +228,7 @@ export class Terrain {
     const cached = this.columnCache.get(key);
     if (cached) return cached;
     const column = this.computeColumn(x, z);
-    if (this.columnCache.size >= MAX_CACHE) this.columnCache.clear();
+    evictOldest(this.columnCache, MAX_CACHE);
     this.columnCache.set(key, column);
     return column;
   }
@@ -253,6 +265,16 @@ export class Terrain {
 
     const frozen = temperature < 0.22;
     const dryDesert = temperature > 0.62 && moisture < 0.46;
+    // These normalized fields form a shared environment model. They are
+    // continuous, seeded inputs rather than hand-authored placement markers.
+    const sunlight = clamp01(0.92 - Math.min(0.58, slope * 0.075) - (ground > SEA_LEVEL + 65 ? 0.12 : 0));
+    const windExposure = clamp01(0.18 + 0.52 * vn(x + 211, z - 97, 260, s + 733) + Math.min(0.3, Math.max(0, elev) / 240) + slope * 0.025);
+    const soilFertility = clamp01(0.15 + moisture * 0.48 + vn(x - 17, z + 41, 95, s + 739) * 0.32 - Math.max(0, elev - 30) / 180 - slope * 0.035);
+    const soilComposition: Column["soilComposition"] =
+      slope >= 3 || elev > 62 ? "rock" :
+      dryDesert || sediment < 0.24 || (ground <= SEA_LEVEL + 4 && patch > 0.76) ? "sand" :
+      moisture > 0.65 && ground <= SEA_LEVEL + 8 ? "clay" :
+      soilFertility > 0.62 ? "organic" : "loam";
     const forestiness = 0.48 * moisture + 0.32 * vn(x - 200, z + 61, 170, s + 701) + 0.20 * vn(x + 17, z - 43, 43, s + 703);
 
     const column: Column = {
@@ -268,6 +290,10 @@ export class Terrain {
       temperature,
       moisture,
       frozen,
+      sunlight,
+      windExposure,
+      soilFertility,
+      soilComposition,
     };
 
     /* ---- Underwater: river beds and lake / sea floors ---- */
