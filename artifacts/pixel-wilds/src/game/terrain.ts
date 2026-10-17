@@ -138,15 +138,16 @@ export class Terrain {
 
   private computeNatural(x: number, z: number): HeightRecord {
     const s = this.seed;
-    const lowland = 0.56 * vn(x, z, 240, s) + 0.44 * vn(x, z, 96, s + 91);
+    const lowland = 0.48 * vn(x, z, 320, s) + 0.34 * vn(x, z, 128, s + 91) + 0.18 * vn(x + 43, z - 67, 48, s + 95);
     const continental = vn(x + 300, z - 150, 700, s + 17);
     const mountainField = vn(x + 226, z - 134, 420, s + 503);
     const mountain = smoothstep((mountainField - 0.58) / 0.3);
     const ridge = 1 - Math.abs(2 * vn(x - 164, z + 86, 150, s + 509) - 1);
     const rise = Math.pow(mountain, 1.4) * (34 + Math.pow(ridge, 0.72) * 104);
     const broad = 24 + lowland * 48 + (continental - 0.5) * 20 + rise;
-    const fine = (0.6 * vn(x, z, 36, s + 177) + 0.4 * vn(x, z, 14, s + 251) - 0.5) * 10;
-    const rough = (vn(x, z, 20, s + 311) - 0.5) * 21 * mountain;
+    const fine = (0.46 * vn(x, z, 52, s + 177) + 0.34 * vn(x, z, 21, s + 251) + 0.20 * vn(x + 17, z - 29, 7, s + 257) - 0.5) * 13;
+    const ridgedDetail = 1 - Math.abs(2 * vn(x + 71, z - 33, 31, s + 317) - 1);
+    const rough = ((vn(x, z, 20, s + 311) - 0.5) * 21 + (0.5 - ridgedDetail) * 8) * mountain;
     let natural = Math.round(broad + fine * (1 - 0.4 * mountain) + rough);
     natural = Math.max(4, Math.min(MAX_BUILD_HEIGHT - 24, natural));
 
@@ -190,12 +191,8 @@ export class Terrain {
     const key = columnKey(x, z);
     const cached = this.heightCache.get(key);
     if (cached) return cached;
-    const natural = this.natural(x, z);
-    let record = natural;
-    if (this.hook) {
-      const adjusted = this.hook(x, z, natural);
-      if (adjusted) record = { ...natural, ...adjusted };
-    }
+    // Keep terrain purely geological. Settlement terraforming is disabled.
+    const record = this.natural(x, z);
     if (this.heightCache.size >= MAX_CACHE) this.heightCache.clear();
     this.heightCache.set(key, record);
     return record;
@@ -243,8 +240,8 @@ export class Terrain {
 
     const { temperature, moisture } = this.climate(x, z, ground);
     const elev = ground - SEA_LEVEL;
-    const patch = vn(x - 91, z + 44, 9, s + 613);
-    const sediment = vn(x + 17, z - 23, 18, s + 611);
+    const patch = 0.68 * vn(x - 91, z + 44, 18, s + 613) + 0.32 * vn(x + 12, z - 9, 5, s + 619);
+    const sediment = 0.7 * vn(x + 17, z - 23, 24, s + 611) + 0.3 * vn(x - 31, z + 17, 7, s + 621);
     const geology = vn(x + 51, z + 12, 160, s + 211);
     const roll = hash2(x, z, s + 617);
 
@@ -256,7 +253,7 @@ export class Terrain {
 
     const frozen = temperature < 0.22;
     const dryDesert = temperature > 0.62 && moisture < 0.46;
-    const forestiness = 0.6 * moisture + 0.4 * vn(x - 200, z + 61, 90, s + 701);
+    const forestiness = 0.48 * moisture + 0.32 * vn(x - 200, z + 61, 170, s + 701) + 0.20 * vn(x + 17, z - 43, 43, s + 703);
 
     const column: Column = {
       ...rec,
