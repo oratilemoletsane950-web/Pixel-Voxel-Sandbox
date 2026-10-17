@@ -21,6 +21,9 @@ import {
   getVisibleBlocksNear,
   loadWorld,
   saveWorld,
+  listSavedWorldSeeds,
+  deleteSavedWorld,
+  deleteAllSavedWorlds,
   setBlock,
   type BlockCell,
   type BlockType,
@@ -234,7 +237,12 @@ function initialWorld(position: Position | null = null): WorldData {
   let loaded: WorldData;
   // A small area loads immediately; the rest streams in a few chunks at a time.
   try {
-    loaded = loadWorld(x, z, 5);
+    // Do not silently create/save a default world before the player chooses
+    // one. The temporary terrain only keeps the renderer initialized behind
+    // the startup selector; it is not added to the saved-world list.
+    loaded = listSavedWorldSeeds().length > 0
+      ? loadWorld(x, z, 5)
+      : createWorld(undefined, x, z, 5);
   } catch {
     loaded = createWorld(undefined, x, z, 5);
   }
@@ -1027,6 +1035,9 @@ function App() {
   const [started, setStarted] = useState(false);
   const [rulesOpen, setRulesOpen] = useState(false);
   const [worldMenuOpen, setWorldMenuOpen] = useState(false);
+  const [savedWorldSeeds, setSavedWorldSeeds] = useState<number[]>(() => listSavedWorldSeeds());
+  const [selectedWorld, setSelectedWorld] = useState(false);
+  const [creatingWorld, setCreatingWorld] = useState(false);
   const [seedInput, setSeedInput] = useState('');
   const [craftOpen, setCraftOpen] = useState(false);
   const [flying, setFlying] = useState(false);
@@ -1310,21 +1321,81 @@ function App() {
       showNotice('Seed must be a whole number from 0 to 2147483647');
       return;
     }
+    setCreatingWorld(true);
     try {
-      // Save the current world first; each seed receives its own persistent slot.
-      saveWorld(worldRef.current);
-      const freshWorld = createWorld(seed, 0, 0, 5);
+      // Generate the spawn region before making the world selectable. The
+      // kingdom's full local chunk ring is prepared before the player is spawned.
+      let freshWorld = createWorld(seed, 0, 0, 5);
+      const kingdom = startingKingdomNear(freshWorld) ?? humanSettlementNear(freshWorld, 0, 0);
+      if (kingdom) {
+        const center = getChunkCoordinates(kingdom.x, kingdom.z);
+        freshWorld = ensureChunks(freshWorld, center.x, center.z, 8);
+      }
       saveWorld(freshWorld);
-      // Player inventory/position are scoped to the active world, not carried across seeds.
       localStorage.removeItem(SAVE_KEY);
+      setSavedWorldSeeds(listSavedWorldSeeds());
       setWorldMenuOpen(false);
       window.location.reload();
     } catch {
-      showNotice('Could not create the world in browser storage');
+      setCreatingWorld(false);
+      showNotice('World creation failed. No world was selected; check browser storage and try again.');
+    }
+  };
+
+  const selectSavedWorld = (seed: number) => {
+    try {
+      // Loading/generating the spawn ring is synchronous and completes before
+      // reload; the game then resolves a fresh safe spawn for this seed.
+      let selected = loadWorld(0, 0, 5, seed);
+      const kingdom = startingKingdomNear(selected) ?? humanSettlementNear(selected, 0, 0);
+      if (kingdom) {
+        const center = getChunkCoordinates(kingdom.x, kingdom.z);
+        selected = ensureChunks(selected, center.x, center.z, 8);
+      }
+      saveWorld(selected);
+      localStorage.removeItem(SAVE_KEY);
+      setWorld(selected);
+      worldRef.current = selected;
+      setPlayerPosition(null);
+      setInventory({ ...DEFAULT_INVENTORY });
+      streamCenter.current = getChunkCoordinates(kingdom?.x ?? 0, kingdom?.z ?? 0);
+      setSelectedWorld(true);
+    } catch {
+      showNotice('Could not load that world safely. It remains in the list.');
+    }
+  };
+
+  const removeSavedWorld = (seed: number) => {
+    try {
+      deleteSavedWorld(seed);
+      setSavedWorldSeeds(listSavedWorldSeeds());
+      if (world.seed === seed) {
+        localStorage.removeItem(SAVE_KEY);
+        setSelectedWorld(false);
+        window.location.reload();
+      }
+    } catch {
+      showNotice('Could not delete that world from browser storage.');
+    }
+  };
+
+  const clearSavedWorlds = () => {
+    try {
+      deleteAllSavedWorlds();
+      localStorage.removeItem(SAVE_KEY);
+      setSavedWorldSeeds([]);
+      setSelectedWorld(false);
+      window.location.reload();
+    } catch {
+      showNotice('Could not clear saved worlds from browser storage.');
     }
   };
 
   const beginExplore = () => {
+    if (!selectedWorld) {
+      showNotice('Select or create a world before entering.');
+      return;
+    }
     setStarted(true);
     if (supportsWebGL !== true || window.matchMedia('(pointer: coarse)').matches) return;
     const canvas = document.querySelector('.game-canvas canvas') as HTMLCanvasElement | null;
@@ -1340,6 +1411,28 @@ function App() {
 
   return (
     <main className="game-shell" data-testid="game-world">
+      {!selectedWorld && (
+        <div role="dialog" aria-modal="true" aria-labelledby="saved-worlds-title" data-testid="world-selection-screen" style={{ position: 'fixed', inset: 0, zIndex: 50, display: 'grid', placeItems: 'center', padding: 20, background: 'rgba(8, 12, 10, 0.96)', color: '#f3f1e8', overflowY: 'auto' }}>
+          <section style={{ width: 'min(560px, 100%)', padding: 24, borderRadius: 18, background: '#202a23', border: '1px solid rgba(255,255,255,.18)', boxShadow: '0 24px 80px rgba(0,0,0,.45)' }}>
+            <h1 id="saved-worlds-title" style={{ marginTop: 0 }}>Choose your world</h1>
+            <p style={{ color: '#c7d0c7', lineHeight: 1.5 }}>World terrain and the starting area are generated before you enter. Select a saved world or create a new one.</p>
+            {savedWorldSeeds.length === 0 ? <p>No saved worlds yet. Create your first world below.</p> : (
+              <div style={{ display: 'grid', gap: 8, margin: '18px 0' }}>
+                {savedWorldSeeds.map((seed) => (
+                  <div key={seed} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: 10, borderRadius: 10, background: '#111914', border: '1px solid #46564a' }}>
+                    <div style={{ flex: 1 }}><strong>World {seed}</strong><div style={{ fontSize: 12, color: '#aeb9ad' }}>Seed {seed}</div></div>
+                    <button type="button" onClick={() => selectSavedWorld(seed)} style={{ padding: '9px 12px', borderRadius: 8, border: 0, background: '#d4e0a7', color: '#1b281c', fontWeight: 700, cursor: 'pointer' }}>Play</button>
+                    <button type="button" onClick={() => removeSavedWorld(seed)} aria-label={`Delete world ${seed}`} style={{ padding: '9px 12px', borderRadius: 8, border: '1px solid #8b5c54', background: 'transparent', color: '#ffd4c9', cursor: 'pointer' }}>Delete</button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <button type="button" onClick={() => { setSeedInput(''); setWorldMenuOpen(true); }} style={{ padding: '11px 15px', borderRadius: 9, border: 0, background: '#d4e0a7', color: '#1b281c', fontWeight: 700, cursor: 'pointer' }}>Create a world</button>
+            {savedWorldSeeds.length > 0 && <button type="button" onClick={clearSavedWorlds} style={{ marginLeft: 10, padding: '11px 15px', borderRadius: 9, border: '1px solid #8b5c54', background: 'transparent', color: '#ffd4c9', cursor: 'pointer' }}>Delete all worlds</button>}
+            {creatingWorld && <p role="status">Generating world and safe starting area…</p>}
+          </section>
+        </div>
+      )}
       {supportsWebGL !== true ? (
         <VoxelFallback
           world={world}
@@ -1367,6 +1460,7 @@ function App() {
           }}
         >
           <GameWorld
+            key={world.seed}
             world={world}
             onTarget={setTarget}
             onMine={mineBlock}
@@ -1498,7 +1592,7 @@ function App() {
         )}
 
         {worldMenuOpen && (
-          <div role="dialog" aria-modal="true" aria-labelledby="world-seed-title" style={{ position: 'fixed', inset: 0, zIndex: 30, display: 'grid', placeItems: 'center', padding: 20, background: 'rgba(8, 12, 10, 0.76)', backdropFilter: 'blur(8px)' }}>
+          <div role="dialog" aria-modal="true" aria-labelledby="world-seed-title" style={{ position: 'fixed', inset: 0, zIndex: 60, display: 'grid', placeItems: 'center', padding: 20, background: 'rgba(8, 12, 10, 0.76)', backdropFilter: 'blur(8px)' }}>
             <section style={{ width: 'min(440px, 100%)', padding: 24, borderRadius: 18, color: '#f3f1e8', background: '#202a23', border: '1px solid rgba(255,255,255,.18)', boxShadow: '0 24px 80px rgba(0,0,0,.45)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
                 <h2 id="world-seed-title" style={{ margin: 0 }}>Create a world</h2>
