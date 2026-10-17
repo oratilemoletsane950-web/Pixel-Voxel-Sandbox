@@ -22,12 +22,6 @@ import {
   type Chunk,
 } from "./chunk";
 import { hash2 } from "./noise";
-import {
-  getNearbySettlements,
-  settlementGround,
-  stampSettlements,
-  type Settlement,
-} from "./settlements";
 import { Terrain, type Biome } from "./terrain";
 import { hasFlower, placeVegetation } from "./trees";
 
@@ -142,7 +136,6 @@ export function getTerrain(seed: number): Terrain {
   if (!terrain) {
     terrain = new Terrain(seed);
     const self = terrain;
-    terrain.hook = (x, z, natural) => settlementGround(self, x, z, natural);
     if (terrains.size >= 2) {
       const oldest = terrains.keys().next().value;
       if (oldest !== undefined) terrains.delete(oldest);
@@ -152,8 +145,9 @@ export function getTerrain(seed: number): Terrain {
   return terrain;
 }
 
-export function getSettlementsNear(seed: number, x: number, z: number, radius: number): Settlement[] {
-  return getNearbySettlements(getTerrain(seed), x, z, radius);
+/** Settlement generation is intentionally disabled while the natural-world system is rebuilt. */
+export function getSettlementsNear(_seed: number, _x: number, _z: number, _radius: number): never[] {
+  return [];
 }
 
 export function getBiomeAt(seed: number, x: number, z: number): Biome {
@@ -246,7 +240,7 @@ function generateChunk(terrain: Terrain, cx: number, cz: number): Chunk {
 
   placeOres(writer, terrain, seed);
   placeVegetation(writer, terrain, seed);
-  stampSettlements(writer, terrain, seed);
+  // Settlement/building stamping is intentionally disabled. Natural terrain and ecology only.
   recountChunk(chunk);
   return chunk;
 }
