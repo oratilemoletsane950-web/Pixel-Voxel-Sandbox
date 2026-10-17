@@ -60,6 +60,50 @@ const STORAGE_KEY = "pixel-wilds-world-v3";
 const ACTIVE_WORLD_KEY = `${STORAGE_KEY}:active`;
 const worldStorageKey = (seed: number) => `${STORAGE_KEY}:seed:${seed}`;
 
+export function listSavedWorldSeeds(): number[] {
+  const seeds = new Set<number>();
+  try {
+    for (let index = 0; index < window.localStorage.length; index += 1) {
+      const key = window.localStorage.key(index);
+      if (!key?.startsWith(`${STORAGE_KEY}:seed:`)) continue;
+      const seed = Number(key.slice(`${STORAGE_KEY}:seed:`.length));
+      if (Number.isSafeInteger(seed) && seed >= 0 && seed <= 2_147_483_647) seeds.add(seed);
+    }
+    const active = Number(window.localStorage.getItem(ACTIVE_WORLD_KEY));
+    if (Number.isSafeInteger(active) && active >= 0 && window.localStorage.getItem(worldStorageKey(active))) seeds.add(active);
+  } catch {
+    // Storage may be disabled; an empty list is safer than crashing the menu.
+  }
+  return [...seeds].sort((a, b) => a - b);
+}
+
+export function deleteSavedWorld(seed: number): void {
+  if (!Number.isSafeInteger(seed) || seed < 0 || seed > 2_147_483_647) return;
+  window.localStorage.removeItem(worldStorageKey(seed));
+  if (Number(window.localStorage.getItem(ACTIVE_WORLD_KEY)) === seed) {
+    window.localStorage.removeItem(ACTIVE_WORLD_KEY);
+  }
+  const legacy = window.localStorage.getItem(STORAGE_KEY);
+  if (legacy) {
+    try {
+      const parsed: unknown = JSON.parse(legacy);
+      if (isRecord(parsed) && parsed.seed === seed) window.localStorage.removeItem(STORAGE_KEY);
+    } catch {
+      window.localStorage.removeItem(STORAGE_KEY);
+    }
+  }
+}
+
+export function deleteAllSavedWorlds(): void {
+  for (const seed of listSavedWorldSeeds()) deleteSavedWorld(seed);
+  try {
+    window.localStorage.removeItem(STORAGE_KEY);
+    window.localStorage.removeItem(ACTIVE_WORLD_KEY);
+  } catch {
+    // The caller can report storage errors if the browser blocks writes.
+  }
+}
+
 export function blockKey(x: number, y: number, z: number): string {
   return `${x},${y},${z}`;
 }
@@ -428,7 +472,31 @@ export function findSpawnPoint(
     }
   }
   if (best) return { x: best.x + 0.5, y: best.y + 1 + PLAYER_EYE_HEIGHT, z: best.z + 0.5 };
-  return { x: 0.5, y: 100, z: 0.5 };
+
+  // Defensive fallback: search every loaded chunk for a column with solid
+  // ground and full player clearance. Never silently place the player at a
+  // fixed altitude inside terrain.
+  for (const chunk of Object.values(world.chunks)) {
+    const startX = chunk.cx * CHUNK_SIZE;
+    const startZ = chunk.cz * CHUNK_SIZE;
+    for (let lx = 0; lx < CHUNK_SIZE; lx += 1) {
+      for (let lz = 0; lz < CHUNK_SIZE; lz += 1) {
+        const x = startX + lx;
+        const z = startZ + lz;
+        let top = -1;
+        for (let y = MAX_BUILD_HEIGHT; y >= 0; y -= 1) {
+          if (getBlockId(world, x, y, z) !== AIR) { top = y; break; }
+        }
+        if (top < 0 || IS_SOLID[getBlockId(world, x, top, z)] !== 1 || top + 7 >= MAX_BUILD_HEIGHT) continue;
+        let clear = true;
+        for (let dy = 1; dy <= 6; dy += 1) {
+          if (getBlockId(world, x, top + dy, z) !== AIR) { clear = false; break; }
+        }
+        if (clear) return { x: x + 0.5, y: top + 1 + PLAYER_EYE_HEIGHT, z: z + 0.5 };
+      }
+    }
+  }
+  throw new Error("No safe spawn point found in generated chunks. Generate the spawn area before entering the world.");
 }
 
 /* ------------------------------------------------------------------ */
