@@ -269,9 +269,10 @@ function walkUpStairs(w: typeof world, b: Building, baseY: number): number {
   for (const s of byId.values()) kinds.set(s.kind, (kinds.get(s.kind) ?? 0) + 1);
   const kingdom = [...byId.values()].find((s) => s.kind === "kingdom") ?? null;
   console.log(`  settlement kinds found: ${JSON.stringify(Object.fromEntries(kinds))}`);
-  check("settlements: villages exist", (kinds.get("village") ?? 0) > 0);
-  check("settlements: towns exist", (kinds.get("town") ?? 0) > 0);
-  check("settlements: a kingdom exists in the scan", kingdom !== null);
+  // Phase 1 item 6: settlement generation is removed from the active
+  // world-generation pipeline while natural-world generation is developed,
+  // so no settlement may be discoverable in a fresh world.
+  check("settlements: disabled — no settlements are generated", byId.size === 0, `found=${byId.size}`);
   check(
     "settlements: kingdoms are rare",
     (kinds.get("kingdom") ?? 0) <= 8,
@@ -330,31 +331,28 @@ function walkUpStairs(w: typeof world, b: Building, baseY: number): number {
   }
 
   const village = getSettlementsNear(seed, 0, 0, 900).find((s) => s.kind === "village");
-  check("settlements: found a village to stamp", village !== null);
+  check("settlements: no village is stamped into the world", village === undefined);
 
-  // A fresh world must open at a human settlement: one has to exist within
-  // the HUD's search radius of the origin, and findSpawnPoint must return a
-  // spot near it (with its chunks loaded) rather than the old origin fallback.
-  const humanKinds = ["village", "town", "city", "kingdom"];
-  const spawnTarget = getSettlementsNear(seed, 0, 0, 640).find((s) => humanKinds.includes(s.kind));
-  check("spawn: a village/town/city/kingdom lies within 640 blocks of origin", spawnTarget !== undefined);
-  if (spawnTarget) {
-    // Mirror initialWorld: generate the settlement's chunks, then spawn there.
-    const targetChunk = getChunkCoordinates(spawnTarget.x, spawnTarget.z);
-    let spawnWorld = createWorld(seed, spawnTarget.x, spawnTarget.z, 7);
-    spawnWorld = ensureChunks(spawnWorld, targetChunk.x, targetChunk.z, 7, 400);
-    const spot = findSpawnPoint(spawnWorld, spawnTarget.x, spawnTarget.z);
-    const dist = Math.hypot(spot.x - spawnTarget.x, spot.z - spawnTarget.z);
-    check(
-      `spawn: spawn point lands by the settlement (dist ${dist.toFixed(0)} <= 140)`,
-      dist <= 140 && spot.y < MAX_BUILD_HEIGHT,
-      `dist=${dist.toFixed(1)} y=${spot.y}`,
-    );
-    check(
-      "spawn: no mobs anywhere in a settlement",
-      spawnTarget.inhabitants.length === 0,
-    );
-  }
+  // With settlements removed from world generation, a fresh world must open
+  // on natural, walkable terrain inside loaded chunks instead of a village.
+  const originCenter = getChunkCoordinates(0, 0);
+  const naturalWorld = generateAround(0, 0, 3);
+  const naturalTally = countBlocks(naturalWorld, originCenter.x, originCenter.z, 3);
+  check(
+    "settlements: no settlement furniture stamps into chunks",
+    naturalTally.door === 0 && naturalTally.chair === 0 && naturalTally.table === 0,
+    JSON.stringify(naturalTally),
+  );
+  const spawnSpot = findSpawnPoint(naturalWorld, 0, 0);
+  const feetY = Math.floor(spawnSpot.y - PLAYER_EYE_HEIGHT) - 1;
+  const spawnBlock = getBlockId(naturalWorld, Math.floor(spawnSpot.x), feetY, Math.floor(spawnSpot.z));
+  check(
+    "spawn: spawn point lands on solid natural ground in loaded chunks",
+    getChunk(naturalWorld, Math.floor(spawnSpot.x), Math.floor(spawnSpot.z)) !== undefined &&
+      spawnBlock !== 0 &&
+      spawnSpot.y < MAX_BUILD_HEIGHT,
+    `y=${spawnSpot.y} ground=${spawnBlock}`,
+  );
   if (village) {
     const vc = getChunkCoordinates(village.x, village.z);
     const w = generateAround(village.x, village.z, 3);

@@ -304,12 +304,10 @@ export class Terrain {
       moisture > 0.65 && ground <= SEA_LEVEL + 8 ? "clay" :
       soilFertility > 0.62 ? "organic" : "loam";
     const forestiness = 0.48 * moisture + 0.32 * vn(x - 200, z + 61, 170, s + 701) + 0.20 * vn(x + 17, z - 43, 43, s + 703);
-
     const elevation = ground;
     const rainfall = moisture * 1.2;
-    const windExposure = clamp01((elev / 100) + slope * 0.2);
-    const sunlight = clamp01(1.0 - (moisture * 0.3) - ((elev > 120) ? 0.1 : 0));
     const geologicalComposition = rec.mountain > 0.3 || elev > 80 ? "granite" : geology < 0.3 ? "limestone" : "sedimentary";
+
     const column: Column = {
       ...rec,
       biome: "plains",
@@ -329,7 +327,8 @@ export class Terrain {
       windExposure,
       sunlight,
       geologicalComposition,
-
+      soilFertility,
+      soilComposition,
     };
 
     /* ---- Underwater: river beds and lake / sea floors ---- */
