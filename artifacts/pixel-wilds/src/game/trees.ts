@@ -52,6 +52,13 @@ function pickSpecies(column: Column, x: number, z: number, seed: number): Specie
     top === ID.grass || top === ID.moss || top === ID.mud || top === ID.snow || top === ID.dirt;
 
   switch (column.biome) {
+    case "tropical_rainforest":
+    case "ancient_forest":
+    case "fungal_forest":
+      if (!growsOnSoil || roll > 0.95) return null;
+      if (roll < 0.4) return "redwood";
+      if (pick < 0.3) return "oak";
+      return "oak";
     case "forest":
       if (!growsOnSoil || roll > 0.82) return null;
       if (column.temperature < 0.45 && pick > 0.5) return "spruce";
@@ -61,27 +68,47 @@ function pickSpecies(column: Column, x: number, z: number, seed: number): Specie
       if (pick < 0.45) return "birch";
       return "oak";
     case "beach":
-      return top === ID.sand && roll < 0.3 ? "palm" : null;
+    case "coastal":
+    case "mangrove":
+      return top === ID.sand && roll < 0.35 ? "palm" : null;
     case "plains":
+    case "grassland":
       if (!growsOnSoil) return null;
-      if (roll < 0.05) return "oak";
-      if (roll < 0.14) return "shrub";
+      if (roll < 0.08) return "oak";
+      if (roll < 0.18) return "shrub";
       return null;
+    case "savanna":
+      if (!growsOnSoil || roll > 0.3) return null;
+      return "oak";
     case "taiga":
-      if (!growsOnSoil || roll >= 0.7) return null;
+    case "boreal_forest":
+      if (!growsOnSoil || roll >= 0.75) return null;
       return stand > 0.62 && pick < 0.7 ? "pine" : "spruce";
     case "tundra":
-      return growsOnSoil && roll < 0.06 ? "spruce" : null;
+    case "alpine_meadow":
+      return growsOnSoil && roll < 0.08 ? "spruce" : null;
+    case "alpine_forest":
+      if (!growsOnSoil || roll >= 0.6) return null;
+      return "spruce";
     case "swamp":
-      if (!growsOnSoil || roll >= 0.4) return null;
+    case "marsh":
+    case "wetland":
+    case "peat_bog":
+    case "bioluminescent_wetland":
+      if (!growsOnSoil || roll >= 0.5) return null;
       return pick < 0.4 ? "willow" : "swamp_oak";
     case "desert":
-      return top === ID.sand && roll < 0.07 ? "cactus" : null;
+    case "badlands":
+      return top === ID.sand && roll < 0.1 ? "cactus" : null;
+    case "volcanic":
+      return null;
     case "mountain": {
       if (top !== ID.grass && top !== ID.snow && top !== ID.moss) return null;
-      const limit = 0.3 * Math.max(0, 1 - (column.ground - SEA_LEVEL - 20) / 80);
+      const limit = 0.4 * Math.max(0, 1 - (column.ground - SEA_LEVEL - 20) / 100);
       return roll < limit ? "spruce" : null;
     }
+    case "crystal_valley":
+      return growsOnSoil && roll < 0.15 ? "oak" : null;
     default:
       return null;
   }
