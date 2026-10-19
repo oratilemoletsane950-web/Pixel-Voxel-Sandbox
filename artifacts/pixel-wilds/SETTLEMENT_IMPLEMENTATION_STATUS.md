@@ -1,6 +1,6 @@
 # Procedural Settlement System — Implementation Status
 
-Branch: `main`
+Branch: `feature/world-scale-mountains-trees`
 
 ## What has been implemented in this tranche
 
@@ -140,6 +140,7 @@ The hierarchy now uses a cached world-level placement solver. It resolves city, 
 - Increased species-specific trunk height ranges for oak, birch, spruce, pine, redwood, palm and willow. Trunks now account for the remaining vertical space before choosing a height, preserving room for species-specific crowns near the world ceiling.
 - Added regression coverage that samples multiple deterministic seeds, checks mountain peak/elevation-range targets, and asserts terrain ground remains within storage bounds.
 - This is a first world-scale pass, not a full real-world-altitude simulation: the 192-block world remains 96 m tall at 0.5 m per block. Truly alpine mountain ranges require coordinated changes to chunk storage, meshing, collision, water, lighting/fog and persistence.
+
 
 
 ## Global placement and legacy geometry cleanup
