@@ -54,6 +54,13 @@ function pickSpecies(column: Column, x: number, z: number, seed: number): Specie
     top === ID.grass || top === ID.moss || top === ID.mud || top === ID.snow || top === ID.dirt;
 
   switch (column.biome) {
+    case "tropical_rainforest":
+    case "ancient_forest":
+    case "fungal_forest":
+      if (!growsOnSoil || roll > 0.95) return null;
+      if (roll < 0.4) return "redwood";
+      if (pick < 0.3) return "oak";
+      return "oak";
     case "forest":
       if (!growsOnSoil || roll > 0.48 + groveDensity * 0.43 || (exposure < 0.22 && roll > 0.24)) return null;
       if (column.temperature < 0.45 && pick > 0.5) return "spruce";
@@ -63,27 +70,51 @@ function pickSpecies(column: Column, x: number, z: number, seed: number): Specie
       if (pick < 0.45) return "birch";
       return "oak";
     case "beach":
-      return top === ID.sand && roll < 0.3 ? "palm" : null;
+    case "coastal":
+    case "mangrove":
+      return top === ID.sand && roll < 0.35 ? "palm" : null;
     case "plains":
+    case "grassland":
       if (!growsOnSoil) return null;
-      if (roll < 0.05) return "oak";
-      if (roll < 0.14) return "shrub";
+      if (roll < 0.08) return "oak";
+      if (roll < 0.18) return "shrub";
       return null;
+    case "savanna":
+      if (!growsOnSoil || roll > 0.3) return null;
+      return "oak";
     case "taiga":
-      if (!growsOnSoil || roll >= 0.38 + groveDensity * 0.48) return null;
+
+    case "boreal_forest":
+      if (!growsOnSoil || roll >= 0.75) return null;
+
       return stand > 0.62 && pick < 0.7 ? "pine" : "spruce";
     case "tundra":
-      return growsOnSoil && roll < 0.06 ? "spruce" : null;
+    case "alpine_meadow":
+      return growsOnSoil && roll < 0.08 ? "spruce" : null;
+    case "alpine_forest":
+      if (!growsOnSoil || roll >= 0.6) return null;
+      return "spruce";
     case "swamp":
-      if (!growsOnSoil || roll >= 0.28 + groveDensity * 0.35) return null;
+
+    case "marsh":
+    case "wetland":
+    case "peat_bog":
+    case "bioluminescent_wetland":
+      if (!growsOnSoil || roll >= 0.5) return null;
+
       return pick < 0.4 ? "willow" : "swamp_oak";
     case "desert":
-      return top === ID.sand && roll < 0.07 ? "cactus" : null;
+    case "badlands":
+      return top === ID.sand && roll < 0.1 ? "cactus" : null;
+    case "volcanic":
+      return null;
     case "mountain": {
       if (top !== ID.grass && top !== ID.snow && top !== ID.moss) return null;
-      const limit = 0.3 * Math.max(0, 1 - (column.ground - SEA_LEVEL - 20) / 80);
+      const limit = 0.4 * Math.max(0, 1 - (column.ground - SEA_LEVEL - 20) / 100);
       return roll < limit ? "spruce" : null;
     }
+    case "crystal_valley":
+      return growsOnSoil && roll < 0.15 ? "oak" : null;
     default:
       return null;
   }
@@ -201,8 +232,10 @@ function stampPine(writer: ChunkWriter, x: number, y0: number, z: number, seed: 
  */
 function stampRedwood(writer: ChunkWriter, x: number, y0: number, z: number, seed: number): void {
   const size = hash2(x, z, seed + 3811);
-  const trunk = Math.min(MAX_BUILD_HEIGHT - y0 - 10, 52 + Math.floor(size * 20));
-  const baseHeight = 10 + Math.floor(size * 6);
+
+  const trunk = 60 + Math.floor(size * 40);
+  const baseHeight = 12 + Math.floor(size * 8);
+
   for (let y = y0 + 1; y <= y0 + trunk; y += 1) {
     const radius = y <= y0 + baseHeight ? 1 : 0;
     for (let dx = -radius; dx <= radius; dx += 1) {
@@ -365,8 +398,11 @@ export function placeVegetation(writer: ChunkWriter, terrain: Terrain, seed: num
 export function hasFlower(column: Column, x: number, z: number, seed: number): boolean {
   if (column.top !== ID.grass || column.flat > 0) return false;
   const roll = hash2(x, z, seed + 819);
-  if (column.biome === "plains") return roll > 0.955;
-  if (column.biome === "forest") return roll > 0.985;
-  if (column.biome === "taiga") return roll > 0.992;
+  const moisture = column.moisture;
+  if (column.biome === "plains" || column.biome === "grassland") return roll > 0.92;
+  if (column.biome === "forest" || column.biome === "tropical_rainforest") return roll > 0.97;
+  if (column.biome === "taiga" || column.biome === "boreal_forest" || column.biome === "alpine_meadow") return roll > 0.985;
+  if (column.biome === "ancient_forest" || column.biome === "fungal_forest") return roll > 0.96;
+  if (moisture > 0.6) return roll > 0.95;
   return false;
 }

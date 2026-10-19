@@ -228,7 +228,9 @@ function generateChunk(terrain: Terrain, cx: number, cz: number): Chunk {
 
   placeOres(writer, terrain, seed);
   placeVegetation(writer, terrain, seed);
-  // Settlement/building stamping is intentionally disabled. Natural terrain and ecology only.
+
+  // stampSettlements(writer, terrain, seed); // disabled per requirements
+
   recountChunk(chunk);
   return chunk;
 }
