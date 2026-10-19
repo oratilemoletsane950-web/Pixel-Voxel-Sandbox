@@ -1,6 +1,6 @@
 import { ID } from "./blocks";
 import { CHUNK_SIZE, ChunkWriter, MAX_BUILD_HEIGHT, SEA_LEVEL } from "./chunk";
-import { hash2, valueNoise } from "./noise";
+import { clamp01, hash2, valueNoise } from "./noise";
 import type { Column, Terrain } from "./terrain";
 
 /**
@@ -45,7 +45,9 @@ type Species =
   | "moss"
   | "grass"
   | "flower_patch"
-  | "swamp_oak";
+  | "swamp_oak"
+  | "tropical"
+  | "baobab";
 
 function pickSpecies(column: Column, x: number, z: number, seed: number): Species | null {
   const roll = hash2(x, z, seed + 2807);
@@ -56,12 +58,21 @@ function pickSpecies(column: Column, x: number, z: number, seed: number): Specie
   const stand = valueNoise(x, z, 14, seed + 2813);
   const top = column.top;
   const growsOnSoil =
-    top === ID.grass || top === ID.moss || top === ID.mud || top === ID.snow || top === ID.dirt;
+    top === ID.grass || top === ID.moss || top === ID.mud || top === ID.snow || top === ID.dirt || top === ID.thatch;
+
+  const growthSuitability = clamp01(0.88 + column.soilFertility * 0.17 + column.moisture * 0.1 - column.windExposure * 0.11 - column.slope * 0.02);
 
   switch (column.biome) {
     case "tropical_rainforest":
-    case "ancient_forest":
+    case "rainforest":
+      if (!growsOnSoil || roll > 0.95) return null;
+      if (stand > 0.78 && pick < 0.24) return "redwood";
+      return pick < 0.72 ? "tropical" : "oak";
+    case "fungal":
     case "fungal_forest":
+      if (!growsOnSoil || roll > (0.48 + groveDensity * 0.32) * growthSuitability) return null;
+      return pick < 0.36 ? "tropical" : pick < 0.68 ? "willow" : "oak";
+    case "ancient_forest":
       if (!growsOnSoil || roll > 0.95) return null;
       if (roll < 0.4) return "redwood";
       if (pick < 0.3) return "oak";
@@ -85,8 +96,8 @@ function pickSpecies(column: Column, x: number, z: number, seed: number): Specie
       if (roll < 0.18) return "shrub";
       return null;
     case "savanna":
-      if (!growsOnSoil || roll > 0.3) return null;
-      return "oak";
+      if (!growsOnSoil || roll > 0.2 * growthSuitability) return null;
+      return pick < 0.24 ? "baobab" : pick < 0.65 ? "oak" : "shrub";
     case "taiga":
 
     case "boreal_forest":
@@ -96,6 +107,7 @@ function pickSpecies(column: Column, x: number, z: number, seed: number): Specie
     case "tundra":
     case "alpine_meadow":
       return growsOnSoil && roll < 0.08 ? "spruce" : null;
+    case "alpine":
     case "alpine_forest":
       if (!growsOnSoil || roll >= 0.6) return null;
       return "spruce";
@@ -309,6 +321,39 @@ function stampWillow(writer: ChunkWriter, x: number, y0: number, z: number, seed
   }
 }
 
+/** Seeded rainforest tree with a flared trunk, tiered canopy and hanging vines. */
+function stampTropical(writer: ChunkWriter, x: number, y0: number, z: number, seed: number): void {
+  const size = hash2(x, z, seed + 3851);
+  const trunk = Math.max(1, Math.min(MAX_BUILD_HEIGHT - y0 - 12, 24 + Math.floor(size * 16)));
+  for (let y = y0 + 1; y <= y0 + trunk; y += 1) {
+    const radius = y <= y0 + 5 && size > 0.35 ? 1 : 0;
+    for (let dx = -radius; dx <= radius; dx += 1)
+      for (let dz = -radius; dz <= radius; dz += 1) writer.set(x + dx, y, z + dz, ID.wood);
+  }
+  const crownY = y0 + trunk - 2;
+  leafBlob(writer, x, crownY, z, 6.4 + size * 1.4, 4.4, ID.leaves, seed + 17, 0.2);
+  for (let branch = 0; branch < 4; branch += 1) {
+    const angle = branch * Math.PI / 2 + size;
+    const dx = Math.round(Math.cos(angle) * (3 + size * 2));
+    const dz = Math.round(Math.sin(angle) * (3 + size * 2));
+    leafBlob(writer, x + dx, crownY - 3, z + dz, 3.4, 2.6, ID.leaves, seed + branch, 0.17);
+    for (let drop = 0; drop < 5; drop += 1)
+      writer.setIfAir(x + dx, crownY - 5 - drop, z + dz, ID.vine);
+  }
+}
+
+/** Broad-canopied savanna tree with a thick, variable trunk. */
+function stampBaobab(writer: ChunkWriter, x: number, y0: number, z: number, seed: number): void {
+  const size = hash2(x, z, seed + 3861);
+  const trunk = Math.max(1, Math.min(MAX_BUILD_HEIGHT - y0 - 7, 13 + Math.floor(size * 8)));
+  for (let y = y0 + 1; y <= y0 + trunk; y += 1) {
+    const radius = y <= y0 + 6 && size > 0.25 ? 1 : 0;
+    for (let dx = -radius; dx <= radius; dx += 1)
+      for (let dz = -radius; dz <= radius; dz += 1) writer.set(x + dx, y, z + dz, ID.wood);
+  }
+  leafBlob(writer, x, y0 + trunk, z, 5.8 + size * 1.2, 3.2, ID.leaves, seed + 23, 0.22);
+}
+
 function stampCactus(writer: ChunkWriter, x: number, y0: number, z: number, seed: number): void {
   const height = 4 + Math.floor(hash2(x, z, seed + 3803) * 5);
   for (let y = y0 + 1; y <= y0 + height; y += 1) writer.set(x, y, z, ID.cactus);
@@ -395,6 +440,8 @@ export function placeVegetation(writer: ChunkWriter, terrain: Terrain, seed: num
         case "palm": stampPalm(writer, x, y0, z, seed); break;
         case "willow": stampWillow(writer, x, y0, z, seed); break;
         case "cactus": stampCactus(writer, x, y0, z, seed); break;
+        case "tropical": stampTropical(writer, x, y0, z, seed); break;
+        case "baobab": stampBaobab(writer, x, y0, z, seed); break;
         case "shrub": stampShrub(writer, x, y0, z, seed); break;
         case "tall_shrub": stampTallShrub(writer, x, y0, z, seed); break;
         case "fern": stampFern(writer, x, y0, z, seed); break;
@@ -449,10 +496,11 @@ export function hasFlower(column: Column, x: number, z: number, seed: number): b
   if (column.top !== ID.grass) return false;
   const roll = hash2(x, z, seed + 819);
   const moisture = column.moisture;
+  if (column.biome === "savanna") return roll > 0.955;
   if (column.biome === "plains" || column.biome === "grassland") return roll > 0.92;
-  if (column.biome === "forest" || column.biome === "tropical_rainforest") return roll > 0.97;
+  if (column.biome === "forest" || column.biome === "rainforest" || column.biome === "tropical_rainforest") return roll > 0.97;
   if (column.biome === "taiga" || column.biome === "boreal_forest" || column.biome === "alpine_meadow") return roll > 0.985;
-  if (column.biome === "ancient_forest" || column.biome === "fungal_forest") return roll > 0.96;
+  if (column.biome === "ancient_forest" || column.biome === "fungal_forest" || column.biome === "fungal") return roll > 0.96;
   if (moisture > 0.6) return roll > 0.95;
   return false;
 }
