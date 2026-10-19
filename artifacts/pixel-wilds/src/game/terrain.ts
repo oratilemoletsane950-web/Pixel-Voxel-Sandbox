@@ -20,12 +20,29 @@ export type Biome =
   | "river"
   | "beach"
   | "desert"
+  | "badlands"
   | "plains"
+  | "grassland"
+  | "savanna"
   | "forest"
+  | "tropical_rainforest"
+  | "ancient_forest"
   | "taiga"
+  | "boreal_forest"
   | "tundra"
+  | "alpine_meadow"
+  | "alpine_forest"
   | "swamp"
-  | "mountain";
+  | "marsh"
+  | "peat_bog"
+  | "wetland"
+  | "mountain"
+  | "volcanic"
+  | "coastal"
+  | "mangrove"
+  | "fungal_forest"
+  | "bioluminescent_wetland"
+  | "crystal_valley";
 
 export interface HeightRecord {
   /** y of the top solid block. */
@@ -42,21 +59,29 @@ export interface HeightRecord {
   flat: number;
 }
 
-export interface Column extends HeightRecord {
+export interface EnvironmentalData {
+  elevation: number;
+  slope: number;
+  soilDepth: number;
+  moisture: number;
+  temperature: number;
+  rainfall: number;
+  windExposure: number;
+  sunlight: number;
+  geologicalComposition: string;
+}
+
+export interface Column extends HeightRecord, EnvironmentalData {
   biome: Biome;
   /** Block id of the surface. */
   top: number;
   /** Block id of the soil under it, and how many blocks deep. */
   soil: number;
-  soilDepth: number;
   /** Optional sedimentary band under the soil (sandstone under desert sand). */
   mid: number;
   midDepth: number;
   /** Bedrock-type for everything below. */
   rock: number;
-  slope: number;
-  temperature: number;
-  moisture: number;
   frozen: boolean;
 }
 
@@ -143,12 +168,12 @@ export class Terrain {
     const mountainField = vn(x + 226, z - 134, 420, s + 503);
     const mountain = smoothstep((mountainField - 0.58) / 0.3);
     const ridge = 1 - Math.abs(2 * vn(x - 164, z + 86, 150, s + 509) - 1);
-    const rise = Math.pow(mountain, 1.25) * (22 + ridge * 80);
+    const rise = Math.pow(mountain, 1.25) * (40 + ridge * 120);
     const broad = 24 + lowland * 48 + (continental - 0.5) * 20 + rise;
-    const fine = (0.6 * vn(x, z, 36, s + 177) + 0.4 * vn(x, z, 14, s + 251) - 0.5) * 10;
-    const rough = (vn(x, z, 20, s + 311) - 0.5) * 16 * mountain;
+    const fine = (0.6 * vn(x, z, 36, s + 177) + 0.4 * vn(x, z, 14, s + 251) - 0.5) * 12;
+    const rough = (vn(x, z, 20, s + 311) - 0.5) * 24 * mountain;
     let natural = Math.round(broad + fine * (1 - 0.4 * mountain) + rough);
-    natural = Math.max(4, Math.min(MAX_BUILD_HEIGHT - 28, natural));
+    natural = Math.max(4, Math.min(MAX_BUILD_HEIGHT - 32, natural));
 
     let ground = natural;
     let water = natural < SEA_LEVEL ? SEA_LEVEL : 0;
@@ -258,6 +283,11 @@ export class Terrain {
     const dryDesert = temperature > 0.62 && moisture < 0.46;
     const forestiness = 0.6 * moisture + 0.4 * vn(x - 200, z + 61, 90, s + 701);
 
+    const elevation = ground;
+    const rainfall = moisture * 1.2;
+    const windExposure = clamp01((elev / 100) + slope * 0.2);
+    const sunlight = clamp01(1.0 - (moisture * 0.3) - ((elev > 120) ? 0.1 : 0));
+    const geologicalComposition = rec.mountain > 0.3 || elev > 80 ? "granite" : geology < 0.3 ? "limestone" : "sedimentary";
     const column: Column = {
       ...rec,
       biome: "plains",
@@ -271,6 +301,11 @@ export class Terrain {
       temperature,
       moisture,
       frozen,
+      elevation,
+      rainfall,
+      windExposure,
+      sunlight,
+      geologicalComposition,
     };
 
     /* ---- Underwater: river beds and lake / sea floors ---- */
@@ -375,14 +410,14 @@ export class Terrain {
     }
 
     // High ground thins out: grass gives way to bare rock and scree.
-    if (elev > 50 && column.biome !== "desert") {
-      const rockiness = clamp01((elev - 50) / 45);
+    if (elev > 80 && column.biome !== "desert") {
+      const rockiness = clamp01((elev - 80) / 60);
       if (patch < rockiness * 0.9 + (roll - 0.5) * 0.15) {
         column.top = roll > 0.7 ? ID.gravel : rock;
         column.soil = rock;
         column.soilDepth = 0;
         column.biome = "mountain";
-      } else if (elev > 60) {
+      } else if (elev > 100) {
         column.biome = "mountain";
       }
     }

@@ -189,7 +189,7 @@ function generateChunk(terrain: Terrain, cx: number, cz: number): Chunk {
 
   placeOres(writer, terrain, seed);
   placeVegetation(writer, terrain, seed);
-  stampSettlements(writer, terrain, seed);
+  // stampSettlements(writer, terrain, seed); // disabled per requirements
   recountChunk(chunk);
   return chunk;
 }

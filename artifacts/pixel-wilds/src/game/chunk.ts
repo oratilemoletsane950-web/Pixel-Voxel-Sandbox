@@ -1,13 +1,13 @@
 /**
  * Chunk storage.
  *
- * A chunk is a 16 x 16 column of blocks, 192 blocks tall (96 m), stored as a
+ * A chunk is a 16 x 16 column of blocks, 256 blocks tall (128 m), stored as a
  * flat Uint8Array of block ids. Layout is column-major so that a terrain
  * column is contiguous in memory: index = (lx * 16 + lz) * WORLD_HEIGHT + y.
  */
 
 export const CHUNK_SIZE = 16;
-export const WORLD_HEIGHT = 192;
+export const WORLD_HEIGHT = 256;
 export const MAX_BUILD_HEIGHT = WORLD_HEIGHT - 1;
 /** Sea level in blocks: y = 36 is 18 m above the bottom of the world. */
 export const SEA_LEVEL = 36;
