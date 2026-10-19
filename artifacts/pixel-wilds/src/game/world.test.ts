@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { ID, IS_SOLID } from "./blocks";
 import { columnKey } from "./noise";
+import { groundCoverType } from "./trees";
 import { CHUNK_SIZE, WORLD_HEIGHT } from "./chunk";
 import {
   createWorld,
@@ -101,6 +102,27 @@ test("world generation builds a solid bedrock base and coherent surface strata",
     if (column.water > column.ground) {
       assert.equal(getBlockId(world, x, column.water, z), column.temperature < 0.36 ? ID.ice : ID.water);
     }
+  }
+});
+
+test("seeded climate rules generate diverse biomes and ground-cover species", () => {
+  const seed = 42;
+  const terrain = getTerrain(seed);
+  const biomes = new Set<string>();
+  const cover = new Set<number>();
+  for (let x = -1024; x <= 1024; x += 16) {
+    for (let z = -1024; z <= 1024; z += 16) {
+      const column = terrain.column(x, z);
+      biomes.add(column.biome);
+      const plant = groundCoverType(column, x, z, seed);
+      if (plant !== null) cover.add(plant);
+    }
+  }
+  for (const biome of ["rainforest", "savanna", "badlands", "fungal", "alpine"]) {
+    assert.ok(biomes.has(biome), `seeded map should contain ${biome} terrain`);
+  }
+  for (const species of [ID.fern, ID.tall_grass, ID.reed, ID.mushroom]) {
+    assert.ok(cover.has(species), `seeded ecology should place ground cover block ${species}`);
   }
 });
 
