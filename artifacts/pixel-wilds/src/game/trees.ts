@@ -197,8 +197,8 @@ function stampPine(writer: ChunkWriter, x: number, y0: number, z: number, seed: 
  */
 function stampRedwood(writer: ChunkWriter, x: number, y0: number, z: number, seed: number): void {
   const size = hash2(x, z, seed + 3811);
-  const trunk = 44 + Math.floor(size * 20);
-  const baseHeight = 10 + Math.floor(size * 6);
+  const trunk = 60 + Math.floor(size * 40);
+  const baseHeight = 12 + Math.floor(size * 8);
   for (let y = y0 + 1; y <= y0 + trunk; y += 1) {
     const radius = y <= y0 + baseHeight ? 1 : 0;
     for (let dx = -radius; dx <= radius; dx += 1) {
