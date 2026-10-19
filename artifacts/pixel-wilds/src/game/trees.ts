@@ -151,6 +151,7 @@ export function leafBlob(
 function stampOak(writer: ChunkWriter, x: number, y0: number, z: number, seed: number, swamp: boolean): void {
   const size = hash2(x, z, seed + 3791);
   const trunk = Math.min(MAX_BUILD_HEIGHT - y0 - 7, swamp ? 9 + Math.floor(size * 4) : 13 + Math.floor(size * 8));
+
   const radius = swamp ? 5.4 + size * 1.1 : 3.4 + size * 2.2;
   for (let y = y0 + 1; y <= y0 + trunk; y += 1) writer.set(x, y, z, ID.wood);
   // Irregular root flare and buttress roots make trunks feel anchored in soil.
@@ -232,6 +233,7 @@ function stampPine(writer: ChunkWriter, x: number, y0: number, z: number, seed: 
  */
 function stampRedwood(writer: ChunkWriter, x: number, y0: number, z: number, seed: number): void {
   const size = hash2(x, z, seed + 3811);
+
 
   const trunk = 60 + Math.floor(size * 40);
   const baseHeight = 12 + Math.floor(size * 8);

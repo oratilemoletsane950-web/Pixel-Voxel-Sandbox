@@ -181,6 +181,7 @@ export class Terrain {
     const mountain = smoothstep((mountainField - 0.58) / 0.3);
     const ridge = 1 - Math.abs(2 * vn(x - 164, z + 86, 150, s + 509) - 1);
 
+
     const rise = Math.pow(mountain, 1.25) * (40 + ridge * 120);
     const broad = 24 + lowland * 48 + (continental - 0.5) * 20 + rise;
     const fine = (0.6 * vn(x, z, 36, s + 177) + 0.4 * vn(x, z, 14, s + 251) - 0.5) * 12;
