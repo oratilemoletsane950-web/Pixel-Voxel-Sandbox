@@ -1,1 +1,3 @@
 - [WebGL fallback](webgl-fallback.md) — keep the voxel world visible and editable when preview browsers cannot create a WebGL context.
+- [Procedural world placement](procedural-world-placement.md) — natural features should be placed by seeded terrain and ecological rules, not fixed coordinates.
+- [GitHub commits](github-commit-policy.md) — after verified Pixel Wilds changes, commit and push to the configured GitHub branch without force-pushing.
