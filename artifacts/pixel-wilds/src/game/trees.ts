@@ -381,7 +381,7 @@ export function placeVegetation(writer: ChunkWriter, terrain: Terrain, seed: num
       if (!writer.overlaps(x - MARGIN, z - MARGIN, x + MARGIN, z + MARGIN)) continue;
 
       const column = terrain.column(x, z);
-      if (column.water > column.ground || column.flat > 0) continue;
+      if (column.water > column.ground) continue;
       const species = pickSpecies(column, cellX, cellZ, seed);
       if (!species) continue;
       const y0 = column.ground;
@@ -446,7 +446,7 @@ function stampFlowerPatch(writer: ChunkWriter, x: number, y0: number, z: number,
 
 /** Wildflowers dot meadows and clearings, never beaches, rock or snow. */
 export function hasFlower(column: Column, x: number, z: number, seed: number): boolean {
-  if (column.top !== ID.grass || column.flat > 0) return false;
+  if (column.top !== ID.grass) return false;
   const roll = hash2(x, z, seed + 819);
   const moisture = column.moisture;
   if (column.biome === "plains" || column.biome === "grassland") return roll > 0.92;
@@ -455,4 +455,26 @@ export function hasFlower(column: Column, x: number, z: number, seed: number): b
   if (column.biome === "ancient_forest" || column.biome === "fungal_forest") return roll > 0.96;
   if (moisture > 0.6) return roll > 0.95;
   return false;
+}
+
+/** Deterministic ground cover from climate, terrain and soil. */
+export function groundCoverType(column: Column, x: number, z: number, seed: number): number | null {
+  if (column.water > column.ground || column.ground >= MAX_BUILD_HEIGHT - 2 || column.slope >= 3) return null;
+  const roll = hash2(x, z, seed + 8311);
+  const patch = valueNoise(x + 31, z - 67, 17, seed + 8317);
+  const wet = column.moisture;
+  const fertility = column.soilFertility;
+  const nearWater = column.biome === "river" || column.riverDist < column.riverHalfWidth + 3;
+  if ((["swamp", "marsh", "wetland", "peat_bog", "bioluminescent_wetland"].includes(column.biome) || nearWater) &&
+      wet > 0.54 && roll < 0.12 + patch * 0.14) return ID.reed;
+  if (["rainforest", "tropical_rainforest", "fungal", "fungal_forest", "ancient_forest"].includes(column.biome) &&
+      wet > 0.62 && roll < 0.24 + patch * 0.18) return roll < 0.11 + patch * 0.08 ? ID.mushroom : ID.fern;
+  if (["forest", "ancient_forest", "fungal_forest", "swamp", "marsh", "wetland"].includes(column.biome) &&
+      wet > 0.53 && column.sunlight < 0.78 && roll < 0.14 + fertility * 0.12 + patch * 0.12)
+    return roll < 0.045 + patch * 0.06 ? ID.mushroom : ID.fern;
+  if (["plains", "savanna"].includes(column.biome) && column.top === ID.grass &&
+      patch > 0.42 && roll < 0.06 + fertility * 0.13) return ID.tall_grass;
+  if (["taiga", "boreal_forest", "alpine", "alpine_meadow", "alpine_forest"].includes(column.biome) &&
+      wet > 0.52 && fertility > 0.34 && patch > 0.68 && roll < 0.12) return ID.fern;
+  return null;
 }
