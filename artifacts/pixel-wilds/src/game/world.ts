@@ -24,7 +24,6 @@ import {
 import { hash2 } from "./noise";
 import { generateGeologicalLayers, normalizeWorldSeed } from "./worldgen";
 import { Terrain, type Biome } from "./terrain";
-import type { Settlement } from "./settlements";
 import { groundCoverType, hasFlower, placeVegetation } from "./trees";
 
 export { BLOCK_TYPES, WORLD_BLOCK_TYPES, CHUNK_SIZE, MAX_BUILD_HEIGHT };
@@ -148,11 +147,6 @@ export function getTerrain(seed: number): Terrain {
   return terrain;
 }
 
-/** Settlement generation is intentionally disabled while the natural-world system is rebuilt. */
-export function getSettlementsNear(_seed: number, _x: number, _z: number, _radius: number): Settlement[] {
-  return [];
-}
-
 export function getBiomeAt(seed: number, x: number, z: number): Biome {
   return getTerrain(seed).column(Math.floor(x), Math.floor(z)).biome;
 }
@@ -211,8 +205,9 @@ function generateChunk(terrain: Terrain, cx: number, cz: number): Chunk {
   const writer = new ChunkWriter(chunk);
   const { blocks } = chunk;
 
-  // Explicit stage order: geology/bedrock -> hydrology -> ore -> surface ecology.
+  // Explicit stage order: geology -> ore -> ground cover -> vegetation.
   generateGeologicalLayers(writer, terrain, seed);
+  placeOres(writer, terrain, seed);
 
   // Ground-cover stage is kept separate from the geological column pass.
   for (let lx = 0; lx < CHUNK_SIZE; lx += 1) {
@@ -227,7 +222,6 @@ function generateChunk(terrain: Terrain, cx: number, cz: number): Chunk {
     }
   }
 
-  placeOres(writer, terrain, seed);
   placeVegetation(writer, terrain, seed);
 
   // stampSettlements(writer, terrain, seed); // disabled per requirements
