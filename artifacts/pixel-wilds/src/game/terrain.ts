@@ -125,13 +125,13 @@ export class Terrain {
 
   private riverField(x: number, z: number, net: number): number {
     const s = this.seed + net * 977;
-    const wx = x + (vn(x, z, 70, s + 1021) - 0.5) * 36;
-    const wz = z + (vn(x + 500, z - 300, 70, s + 1031) - 0.5) * 36;
+    const wx = x + (vn(x, z, 70, s + 1021) - 0.5) * 48 + (vn(x * 2, z * 2, 35, s + 1025) - 0.5) * 24;
+    const wz = z + (vn(x + 500, z - 300, 70, s + 1031) - 0.5) * 48 + (vn(x * 2, z * 2, 35, s + 1033) - 0.5) * 24;
     const wide = net === 0;
     return (
-      0.6 * vn(wx + 140, wz - 90, wide ? 300 : 150, s + 1001) +
-      0.28 * vn(wx - 37, wz + 120, wide ? 120 : 64, s + 1007) +
-      0.12 * vn(wx + 11, wz + 5, wide ? 48 : 26, s + 1013)
+      0.5 * vn(wx + 140, wz - 90, wide ? 280 : 140, s + 1001) +
+      0.3 * vn(wx - 37, wz + 120, wide ? 100 : 52, s + 1007) +
+      0.2 * vn(wx + 11, wz + 5, wide ? 40 : 22, s + 1013)
     );
   }
 
@@ -172,7 +172,8 @@ export class Terrain {
     const broad = 24 + lowland * 48 + (continental - 0.5) * 20 + rise;
     const fine = (0.6 * vn(x, z, 36, s + 177) + 0.4 * vn(x, z, 14, s + 251) - 0.5) * 12;
     const rough = (vn(x, z, 20, s + 311) - 0.5) * 24 * mountain;
-    let natural = Math.round(broad + fine * (1 - 0.4 * mountain) + rough);
+    const jagged = (vn(x, z, 12, s + 401) - 0.5) * 16 * Math.pow(mountain, 1.5);
+    let natural = Math.round(broad + fine * (1 - 0.4 * mountain) + rough + jagged);
     natural = Math.max(4, Math.min(MAX_BUILD_HEIGHT - 32, natural));
 
     let ground = natural;
@@ -380,32 +381,95 @@ export class Terrain {
     }
 
     /* ---- Climate-driven surface ---- */
-    if (frozen) {
-      column.biome = "tundra";
-      column.top = ID.snow;
+    // Volcanic areas
+    if (geology > 0.85 && elev > 20) {
+      column.biome = "volcanic";
+      column.top = ID.gravel;
+      column.soil = ID.stone;
+      column.soilDepth = 1;
+    } else if (frozen) {
+      if (elev > 60) {
+        column.biome = "alpine_meadow";
+        column.top = patch > 0.6 ? ID.snow : ID.grass;
+        column.soil = ID.dirt;
+        column.soilDepth = 2;
+      } else {
+        column.biome = "tundra";
+        column.top = ID.snow;
+        column.soil = ID.dirt;
+        column.soilDepth = 3;
+      }
+    } else if (temperature < 0.4) {
+      if (elev > 40) {
+        column.biome = "alpine_forest";
+        column.top = temperature < 0.3 && patch > 0.6 ? ID.snow : patch < 0.16 ? ID.moss : ID.grass;
+      } else {
+        column.biome = temperature < 0.3 ? "boreal_forest" : "taiga";
+        column.top = temperature < 0.3 && patch > 0.6 ? ID.snow : patch < 0.16 ? ID.moss : ID.grass;
+      }
+    } else if (dryDesert) {
+      if (slope > 2) {
+        column.biome = "badlands";
+        column.top = ID.sandstone;
+        column.soil = ID.gravel;
+        column.soilDepth = 2;
+      } else {
+        column.biome = "desert";
+        column.top = ID.sand;
+        column.soil = ID.sand;
+        column.soilDepth = 4;
+        column.mid = ID.sandstone;
+        column.midDepth = 8;
+        if (roll < 0.015) column.top = ID.gravel;
+      }
+    } else if (swampy) {
+      if (moisture > 0.85 && roll > 0.9) {
+        column.biome = "bioluminescent_wetland";
+        column.top = ID.mud;
+        column.soil = ID.mud;
+        column.soilDepth = 3;
+      } else if (moisture > 0.75) {
+        column.biome = "marsh";
+        column.top = patch > 0.3 ? ID.mud : ID.clay;
+        column.soil = ID.mud;
+        column.soilDepth = 3;
+      } else if (moisture > 0.68 && temperature > 0.5) {
+        column.biome = "wetland";
+        column.top = ID.mud;
+        column.soil = ID.mud;
+        column.soilDepth = 2;
+      } else {
+        column.biome = "swamp";
+        column.top = patch > 0.45 ? ID.mud : ID.grass;
+        column.soil = ID.mud;
+        column.soilDepth = 2;
+      }
+    } else if (forestiness > 0.52 && moisture > 0.42) {
+      if (temperature > 0.65 && moisture > 0.65) {
+        column.biome = "tropical_rainforest";
+        column.top = ID.grass;
+        column.soil = ID.dirt;
+        column.soilDepth = 4;
+      } else if (forestiness > 0.75 && roll > 0.6) {
+        if (moisture > 0.7 && roll > 0.9) {
+          column.biome = "fungal_forest";
+        } else {
+          column.biome = "ancient_forest";
+        }
+        column.top = ID.grass;
+        column.soil = ID.dirt;
+        column.soilDepth = 4;
+      } else {
+        column.biome = "forest";
+        column.top = patch < 0.1 ? ID.moss : ID.grass;
+      }
+    } else if (temperature > 0.55 && moisture < 0.5) {
+      column.biome = "savanna";
+      column.top = ID.grass;
       column.soil = ID.dirt;
       column.soilDepth = 3;
-    } else if (temperature < 0.4) {
-      column.biome = "taiga";
-      column.top = temperature < 0.3 && patch > 0.6 ? ID.snow : patch < 0.16 ? ID.moss : ID.grass;
-    } else if (dryDesert) {
-      column.biome = "desert";
-      column.top = ID.sand;
-      column.soil = ID.sand;
-      column.soilDepth = 4;
-      column.mid = ID.sandstone;
-      column.midDepth = 8;
-      if (roll < 0.015) column.top = ID.gravel;
-    } else if (swampy) {
-      column.biome = "swamp";
-      column.top = patch > 0.45 ? ID.mud : ID.grass;
-      column.soil = ID.mud;
-      column.soilDepth = 2;
-    } else if (forestiness > 0.52 && moisture > 0.42) {
-      column.biome = "forest";
-      column.top = patch < 0.1 ? ID.moss : ID.grass;
     } else {
-      column.biome = "plains";
+      column.biome = moisture > 0.4 ? "grassland" : "plains";
       column.top = ID.grass;
     }
 
