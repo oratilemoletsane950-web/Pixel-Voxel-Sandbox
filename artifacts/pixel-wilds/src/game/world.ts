@@ -25,7 +25,7 @@ import { hash2 } from "./noise";
 import { generateGeologicalLayers, normalizeWorldSeed } from "./worldgen";
 import { Terrain, type Biome } from "./terrain";
 import type { Settlement } from "./settlements";
-import { hasFlower, placeVegetation } from "./trees";
+import { groundCoverType, hasFlower, placeVegetation } from "./trees";
 
 export { BLOCK_TYPES, WORLD_BLOCK_TYPES, CHUNK_SIZE, MAX_BUILD_HEIGHT };
 export type { BlockType, WorldBlockType };
@@ -220,8 +220,9 @@ function generateChunk(terrain: Terrain, cx: number, cz: number): Chunk {
       const x = writer.startX + lx;
       const z = writer.startZ + lz;
       const column = terrain.column(x, z);
-      if (column.water <= column.ground && hasFlower(column, x, z, seed)) {
-        writer.setIfAir(x, column.ground + 1, z, ID.flower);
+      if (column.water <= column.ground) {
+        const cover = hasFlower(column, x, z, seed) ? ID.flower : groundCoverType(column, x, z, seed);
+        if (cover !== null) writer.setIfAir(x, column.ground + 1, z, cover);
       }
     }
   }
