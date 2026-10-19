@@ -232,6 +232,37 @@ function drawTile(ctx: Ctx, ox: number, oy: number, info: BlockInfo, face: numbe
       }
       break;
     }
+    case "fern":
+    case "tall_grass":
+    case "reed":
+    case "mushroom":
+    case "vine": {
+      if (face === FACE_BOTTOM) break;
+      const greens = info.pattern === "mushroom"
+        ? ["#ad6861", "#ead7b4", "#d99276"]
+        : info.pattern === "reed"
+          ? ["#718144", "#a5a257", "#d1c46b"]
+          : ["#477d45", "#77a65f", "#9bc675"];
+      if (info.pattern === "mushroom") {
+        for (let y = 7; y < 14; y++) for (let x = 7; x < 9; x++) px(x, y, greens[1]);
+        for (let y = 3; y < 8; y++) for (let x = 3; x < 13; x++)
+          if (Math.abs(x - 8) + Math.abs(y - 5) < 7) px(x, y, greens[(x + y) % 3 === 0 ? 2 : 0]);
+      } else {
+        const count = info.pattern === "vine" ? 3 : info.pattern === "fern" ? 5 : 6;
+        for (let stem = 0; stem < count; stem++) {
+          const x = Math.min(S - 1, 2 + Math.floor(stem * (S - 3) / count));
+          const height = 7 + Math.floor(rand() * 8);
+          for (let y = S - height; y < S; y++) {
+            px(x, y, greens[(stem + y) % greens.length]);
+            if (info.pattern === "fern" && y % 3 === 0) {
+              if (x > 0) px(x - 1, y, greens[0]);
+              if (x < S - 1) px(x + 1, y, greens[2]);
+            }
+          }
+        }
+      }
+      break;
+    }
     case "bedrock": {
       fill(base);
       for (let y = 0; y < S; y += 1) for (let x = 0; x < S; x += 1) px(x, y, info.speckle[Math.floor(rand() * 3)]);
