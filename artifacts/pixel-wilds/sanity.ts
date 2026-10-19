@@ -17,13 +17,11 @@ import {
   getBlockId,
   getChunk,
   getChunkCoordinates,
-  getSettlementsNear,
   getTerrain,
 } from "./src/game/world";
 import { PLAYER_EYE_HEIGHT } from "./src/game/world";
 import { createPlayerMotion as createMotion, updatePlayerMotion as stepMotion } from "./src/game/physics";
 import { CRAFTING_RECIPES, applyCraft, canCraft } from "./src/game/crafting";
-import { stairCells, type Building } from "./src/game/settlements";
 
 let failures = 0;
 function check(name: string, ok: boolean, detail = ""): void {
@@ -108,76 +106,6 @@ function run(motion: ReturnType<typeof createMotion>, input: Input, frames: numb
   return runIn(world, motion, input, frames, yaw);
 }
 
-/** Water blocks in the moat channel around a settlement (chebyshev band). */
-function countMoatWater(
-  w: typeof world,
-  centerX: number,
-  centerZ: number,
-  baseY: number,
-  radius: number,
-): number {
-  let water = 0;
-  for (let dx = -radius - 4; dx <= radius + 4; dx += 1) {
-    for (let dz = -radius - 4; dz <= radius + 4; dz += 1) {
-      const cheb = Math.max(Math.abs(dx), Math.abs(dz));
-      if (cheb < radius + 1 || cheb > radius + 4) continue;
-      for (let y = baseY - 3; y <= baseY - 1; y += 1) {
-        if (getBlockId(w, centerX + dx, y, centerZ + dz) === ID.water) water += 1;
-      }
-    }
-  }
-  return water;
-}
-
-/** True when the +z gatehouse's archway is open from its front to its back. */
-function gatehousePassageOpen(
-  w: typeof world,
-  centerX: number,
-  centerZ: number,
-  half: number,
-  baseY: number,
-): boolean {
-  for (const dx of [-2, 0, 2]) {
-    for (const dzOffset of [-4, 0, 4]) {
-      for (let y = baseY + 1; y <= baseY + 5; y += 1) {
-        if (getBlockId(w, centerX + dx, y, centerZ + half + dzOffset) !== 0) return false;
-      }
-    }
-  }
-  return true;
-}
-
-/**
- * Walk a player up a building's staircase: side onto the first step, then
- * straight up the run. Returns the highest feet position reached.
- */
-function walkUpStairs(w: typeof world, b: Building, baseY: number): number {
-  const stairs = stairCells(b, baseY);
-  if (stairs.length < 6) return -Infinity;
-  const first = stairs[0];
-  const feet = baseY + 1 + PLAYER_EYE_HEIGHT;
-  let start: { x: number; y: number; z: number };
-  let phaseOne: Input;
-  let phaseOneYaw: number;
-  let phaseTwoYaw: number;
-  if (b.facing === 0 || b.facing === 2) {
-    // Ramp hugs the -x wall; step onto its base from the room, then walk up.
-    start = { x: first.x + 1.5, y: feet, z: first.z + 0.5 };
-    phaseOne = { ...idle, side: -1 };
-    phaseOneYaw = 0;
-    phaseTwoYaw = b.facing === 0 ? Math.PI : 0;
-  } else {
-    start = { x: first.x + 0.5, y: feet, z: first.z + 1.5 };
-    phaseOne = { ...idle, forward: 1 };
-    phaseOneYaw = 0;
-    phaseTwoYaw = b.facing === 1 ? -Math.PI / 2 : Math.PI / 2;
-  }
-  const walker = createMotion(w, start);
-  const climbed = runIn(w, walker, phaseOne, 50, phaseOneYaw);
-  const high = runIn(w, walker, { ...idle, forward: 1 }, 170, phaseTwoYaw);
-  return Math.max(climbed, high);
-}
-
 /* ---------------- autojump ---------------- */
 {
   // A flat grass spot: the surface must hold for 12 columns towards -z.
@@ -254,56 +182,8 @@ function walkUpStairs(w: typeof world, b: Building, baseY: number): number {
   );
 }
 
-/* ---------------- settlements: kinds, kingdom rules, furniture ---------------- */
+/* ---------------- settlements disabled: natural spawn and no stamped furniture ---------------- */
 {
-  const terrain = getTerrain(seed);
-  const kinds = new Map<string, number>();
-  const byId = new Map<string, ReturnType<typeof getSettlementsNear>[number]>();
-  for (let rx = -6; rx <= 6; rx += 1) {
-    for (let rz = -6; rz <= 6; rz += 1) {
-      for (const s of getSettlementsNear(seed, rx * 192 + 96, rz * 192 + 96, 140)) {
-        byId.set(s.id, s);
-      }
-    }
-  }
-  for (const s of byId.values()) kinds.set(s.kind, (kinds.get(s.kind) ?? 0) + 1);
-  const kingdom = [...byId.values()].find((s) => s.kind === "kingdom") ?? null;
-  console.log(`  settlement kinds found: ${JSON.stringify(Object.fromEntries(kinds))}`);
-  // Phase 1 item 6: settlement generation is removed from the active
-  // world-generation pipeline while natural-world generation is developed,
-  // so no settlement may be discoverable in a fresh world.
-  check("settlements: disabled — no settlements are generated", byId.size === 0, `found=${byId.size}`);
-  check(
-    "settlements: kingdoms are rare",
-    (kinds.get("kingdom") ?? 0) <= 8,
-    `count=${kinds.get("kingdom") ?? 0}`,
-  );
-
-  if (kingdom) {
-    const k = kingdom;
-    const heights: number[] = [];
-    const probes: Array<[number, number]> = [[0, 0]];
-    for (const [gx, gz] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]] as const) {
-      probes.push([gx * k.radius * 0.5, gz * k.radius * 0.5]);
-      probes.push([gx * k.radius, gz * k.radius]);
-    }
-    for (const [dx, dz] of probes) {
-      heights.push(terrain.natural(Math.round(k.x + dx), Math.round(k.z + dz)).ground);
-    }
-    const range = Math.max(...heights) - Math.min(...heights);
-    check(`kingdom: built on flat ground (range ${range.toFixed(0)} <= 14)`, range <= 14);
-    check(`kingdom: radius ${k.radius} is the biggest`, k.radius >= 54);
-    check("kingdom: has a keep", k.buildings.some((b) => b.w >= 19 && b.d >= 15));
-    check("kingdom: has a curtain wall", k.wall !== null);
-    check("kingdom: has an inner ward wall", k.innerWall !== null && k.innerHalf > 0);
-    check(
-      "kingdom: gate towers + keep towers + corners",
-      k.towers.length >= 12,
-      `towers=${k.towers.length}`,
-    );
-    check("no mobs: settlements spawn no inhabitants", k.inhabitants.length === 0, `n=${k.inhabitants.length}`);
-  }
-
   function generateAround(x: number, z: number, radiusChunks: number): typeof world {
     const center = getChunkCoordinates(x, z);
     let w = createWorld(seed, x, z, radiusChunks);
@@ -330,11 +210,6 @@ function walkUpStairs(w: typeof world, b: Building, baseY: number): number {
     return tally;
   }
 
-  const village = getSettlementsNear(seed, 0, 0, 900).find((s) => s.kind === "village");
-  check("settlements: no village is stamped into the world", village === undefined);
-
-  // With settlements removed from world generation, a fresh world must open
-  // on natural, walkable terrain inside loaded chunks instead of a village.
   const originCenter = getChunkCoordinates(0, 0);
   const naturalWorld = generateAround(0, 0, 3);
   const naturalTally = countBlocks(naturalWorld, originCenter.x, originCenter.z, 3);
@@ -353,25 +228,7 @@ function walkUpStairs(w: typeof world, b: Building, baseY: number): number {
       spawnSpot.y < MAX_BUILD_HEIGHT,
     `y=${spawnSpot.y} ground=${spawnBlock}`,
   );
-  if (village) {
-    const vc = getChunkCoordinates(village.x, village.z);
-    const w = generateAround(village.x, village.z, 3);
-    const tally = countBlocks(w, vc.x, vc.z, 3);
-    console.log(`  village blocks: ${JSON.stringify(tally)}`);
-    check("furniture: village has doors", tally.door > 0, `doors=${tally.door}`);
-    check("furniture: village has chairs", tally.chair > 0, `chairs=${tally.chair}`);
-    check("furniture: village has tables", tally.table > 0, `tables=${tally.table}`);
-  }
-  if (kingdom) {
-    const kc = getChunkCoordinates(kingdom.x, kingdom.z);
-    const w = generateAround(kingdom.x, kingdom.z, 5);
-    const tally = countBlocks(w, kc.x, kc.z, 5);
-    console.log(`  kingdom blocks: ${JSON.stringify(tally)}`);
-    check("kingdom: doors stamped", tally.door > 0, `doors=${tally.door}`);
-    check("kingdom: furniture stamped", tally.chair > 0 && tally.table > 0, JSON.stringify(tally));
-    check("kingdom: marble on the gate towers", tally.marble > 0, `marble=${tally.marble}`);
-    check("kingdom: stone curtain wall", tally.stone_bricks > 500, `stone_bricks=${tally.stone_bricks}`);
-  }
+
 }
 
 /* ---------------- trees: species and trunk sizes ---------------- */
