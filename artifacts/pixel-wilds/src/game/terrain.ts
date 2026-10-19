@@ -502,9 +502,9 @@ export class Terrain {
       }
     } else if (savanna || (temperature > 0.55 && moisture < 0.5)) {
       column.biome = "savanna";
-      column.top = ID.grass;
+      column.top = patch > 0.76 ? ID.thatch : ID.grass;
       column.soil = ID.dirt;
-      column.soilDepth = 3;
+      column.soilDepth = 2 + Math.floor(hash2(x, z, s + 763) * 2);
     } else {
       column.biome = moisture > 0.4 ? "grassland" : "plains";
       column.top = ID.grass;
@@ -517,10 +517,15 @@ export class Terrain {
         column.top = roll > 0.7 ? ID.gravel : rock;
         column.soil = rock;
         column.soilDepth = 0;
-        column.biome = "mountain";
+        column.biome = temperature < 0.3 ? "alpine" : "mountain";
       } else if (elev > 100) {
-        column.biome = "mountain";
+        column.biome = temperature < 0.3 ? "alpine" : "mountain";
       }
+    }
+    if (column.soilDepth > 0 && column.biome !== "desert" && column.biome !== "badlands") {
+      const variation = Math.floor(hash2(x, z, s + 761) * 3) - 1;
+      const organicBoost = soilComposition === "organic" ? 1 : 0;
+      column.soilDepth = Math.max(1, Math.min(6, column.soilDepth + variation + organicBoost));
     }
     return column;
   }
