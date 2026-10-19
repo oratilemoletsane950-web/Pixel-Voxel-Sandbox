@@ -53,7 +53,7 @@ export const BLOCK_TYPES = [
 ] as const;
 
 /** Scenery that is part of the world but is cleared rather than collected. */
-export const SCENERY_BLOCK_TYPES = ["flower", "wheat", "water", "bedrock"] as const;
+export const SCENERY_BLOCK_TYPES = ["flower", "wheat", "fern", "tall_grass", "reed", "mushroom", "vine", "water", "bedrock"] as const;
 
 export const WORLD_BLOCK_TYPES = [...BLOCK_TYPES, ...SCENERY_BLOCK_TYPES] as const;
 
@@ -77,6 +77,11 @@ export type TexturePattern =
   | "glass"
   | "flower"
   | "wheat"
+  | "fern"
+  | "tall_grass"
+  | "reed"
+  | "mushroom"
+  | "vine"
   | "bedrock"
   | "bands"
   | "snow"
@@ -175,6 +180,11 @@ const BLOCK_LIST: BlockInfo[] = [
   def("gold", "Royal gold", "GLD", ["#c99b2e", "#e6c455", "#a87d1f"], ["#f6e08a", "#8f6a17", "#dcb13c"], { pattern: "gilded" }),
   def("flower", "Wild bloom", "FLR", ["#59845b", "#7aa76a", "#507b54"], ["#f4d276", "#d8796e", "#93b56a"], { pattern: "flower", solid: false }),
   def("wheat", "Wheat", "WHT", ["#c9b24a", "#d8c35a", "#b39b3b"], ["#e8d47a", "#a68c2f", "#c9b24a"], { pattern: "wheat", solid: false }),
+  def("fern", "Forest fern", "FRN", ["#477d45", "#77a65f", "#3e6c42"], ["#9bc675", "#315d38", "#609449"], { pattern: "fern", solid: false, opaque: false }),
+  def("tall_grass", "Meadow grass", "TGR", ["#698448", "#91aa5a", "#526f3c"], ["#c3cb74", "#46633a", "#839b50"], { pattern: "tall_grass", solid: false, opaque: false }),
+  def("reed", "Wetland reed", "RED", ["#718144", "#a5a257", "#586d3b"], ["#d1c46b", "#48663b", "#89934e"], { pattern: "reed", solid: false, opaque: false }),
+  def("mushroom", "Wild mushroom", "MSH", ["#794f4a", "#ad6861", "#563d45"], ["#edc9a2", "#4e3843", "#d99276"], { pattern: "mushroom", solid: false, opaque: false }),
+  def("vine", "Hanging vine", "VIN", ["#476d3d", "#6f9650", "#385a37"], ["#a3b55b", "#365637", "#66914a"], { pattern: "vine", solid: false, opaque: false }),
   def("water", "Water", "WTR", ["#246b78", "#55b5bc", "#195665"], ["#9ad7d1", "#257a88", "#61b7ba"], { pattern: "water", solid: false, opaque: false, alpha: 0.74 }),
   def("bedrock", "Bedrock", "BDR", ["#3f3f43", "#4a4a4f", "#2f2f33"], ["#6b6b72", "#222226", "#55555b"], { pattern: "bedrock", unbreakable: true }),
 ];
