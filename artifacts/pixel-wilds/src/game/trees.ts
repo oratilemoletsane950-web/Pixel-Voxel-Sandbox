@@ -40,6 +40,11 @@ type Species =
   | "willow"
   | "cactus"
   | "shrub"
+  | "tall_shrub"
+  | "fern"
+  | "moss"
+  | "grass"
+  | "flower_patch"
   | "swamp_oak";
 
 function pickSpecies(column: Column, x: number, z: number, seed: number): Species | null {
@@ -391,8 +396,51 @@ export function placeVegetation(writer: ChunkWriter, terrain: Terrain, seed: num
         case "willow": stampWillow(writer, x, y0, z, seed); break;
         case "cactus": stampCactus(writer, x, y0, z, seed); break;
         case "shrub": stampShrub(writer, x, y0, z, seed); break;
+        case "tall_shrub": stampTallShrub(writer, x, y0, z, seed); break;
+        case "fern": stampFern(writer, x, y0, z, seed); break;
+        case "moss": stampMoss(writer, x, y0, z, seed); break;
+        case "grass": stampGrass(writer, x, y0, z, seed); break;
+        case "flower_patch": stampFlowerPatch(writer, x, y0, z, seed); break;
       }
     }
+  }
+}
+
+function stampTallShrub(writer: ChunkWriter, x: number, y0: number, z: number, seed: number): void {
+  writer.set(x, y0 + 1, z, ID.wood);
+  leafBlob(writer, x, y0 + 3, z, 2.4, 2.0, ID.leaves, seed, 0.12);
+}
+
+function stampFern(writer: ChunkWriter, x: number, y0: number, z: number, seed: number): void {
+  writer.setIfAir(x, y0 + 1, z, ID.leaves);
+  writer.setIfAir(x + 1, y0 + 1, z, ID.leaves);
+  writer.setIfAir(x - 1, y0 + 1, z, ID.leaves);
+}
+
+function stampMoss(writer: ChunkWriter, x: number, y0: number, z: number, seed: number): void {
+  const r = Math.floor(hash2(x, z, seed + 4101) * 3) + 1;
+  for (let i = 0; i < r; i++) {
+    const dx = Math.floor(hash2(x + i, z, seed + 4103) * 3) - 1;
+    const dz = Math.floor(hash2(x, z + i, seed + 4105) * 3) - 1;
+    writer.setIfAir(x + dx, y0 + 1, z + dz, ID.leaves);
+  }
+}
+
+function stampGrass(writer: ChunkWriter, x: number, y0: number, z: number, seed: number): void {
+  const r = Math.floor(hash2(x, z, seed + 4111) * 4) + 2;
+  for (let i = 0; i < r; i++) {
+    const dx = Math.floor(hash2(x + i, z, seed + 4113) * 5) - 2;
+    const dz = Math.floor(hash2(x, z + i, seed + 4115) * 5) - 2;
+    writer.setIfAir(x + dx, y0 + 1, z + dz, ID.leaves);
+  }
+}
+
+function stampFlowerPatch(writer: ChunkWriter, x: number, y0: number, z: number, seed: number): void {
+  const r = Math.floor(hash2(x, z, seed + 4121) * 2) + 1;
+  for (let i = 0; i < r; i++) {
+    const dx = Math.floor(hash2(x + i, z, seed + 4123) * 3) - 1;
+    const dz = Math.floor(hash2(x, z + i, seed + 4125) * 3) - 1;
+    writer.setIfAir(x + dx, y0 + 1, z + dz, ID.flower);
   }
 }
 
