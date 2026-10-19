@@ -18,13 +18,9 @@ import {
   getChunkCoordinates,
   getLoadedBlockCount,
   getLoadedChunkCount,
-  getSettlementsNear,
   getVisibleBlocksNear,
   loadWorld,
   saveWorld,
-  listSavedWorldSeeds,
-  deleteSavedWorld,
-  deleteAllSavedWorlds,
   setBlock,
   type BlockCell,
   type BlockType,
@@ -35,11 +31,6 @@ import { BLOCK_INFO } from './game/blocks';
 import { CHUNK_SIZE, MAX_BUILD_HEIGHT, chunkKey, type Chunk } from './game/chunk';
 import { buildChunkMesh, type MeshArrays } from './game/mesher';
 import { createAtlasTexture } from './game/textures';
-import {
-  FACTION_COLORS,
-  FACTION_LABELS,
-  type SettlementKind,
-} from './game/settlements';
 import {
   PLAYER_RADIUS,
   createPlayerMotion,
@@ -68,57 +59,6 @@ const TURN_SPEED = 2.6;
 const DOUBLE_TAP_MS = 340;
 const HOTBAR_SLOTS = 10;
 const RENDER_RADIUS_KEY = 'pixel-wilds-render-radius';
-
-const SETTLEMENT_KIND_LABELS: Record<SettlementKind, string> = {
-  village: 'Village',
-  town: 'Town',
-  castle: 'Castle',
-  kingdom: 'Kingdom',
-  grove: 'Elven grove',
-  hold: 'Mountain hold',
-  camp: 'Orc camp',
-  tower: 'Mage tower',
-  lodge: 'Warden lodge',
-};
-
-/** What each design is, in one line (second row of the HUD card). */
-const SETTLEMENT_TAGLINES: Record<SettlementKind, string> = {
-  village: 'homes, farms & a watchtower',
-  town: 'workshops, town hall & market',
-  castle: 'moat, keep & garrison',
-  kingdom: 'palace, wards & temples',
-  grove: 'canopies & clearings',
-  hold: 'deep halls & forges',
-  camp: 'palisade & bonfires',
-  tower: 'spire & star chamber',
-  lodge: 'stands & fire pits',
-};
-
-/** Human settlements worth finding: streets, furniture, doors and walls. */
-const HUMAN_SETTLEMENT_KINDS: SettlementKind[] = ['village', 'town', 'castle', 'kingdom'];
-/** How far from you (and from a fresh origin) the HUD looks for one. */
-const SETTLEMENT_SEARCH = 640;
-
-function humanSettlementNear(world: WorldData, x: number, z: number) {
-  return (
-    getSettlementsNear(world.seed, x, z, SETTLEMENT_SEARCH).find((settlement) =>
-      HUMAN_SETTLEMENT_KINDS.includes(settlement.kind),
-    ) ?? null
-  );
-}
-
-/** New worlds start at the guaranteed origin kingdom, not a nearer hamlet. */
-function startingKingdomNear(world: WorldData) {
-  return getSettlementsNear(world.seed, 0, 0, SETTLEMENT_SEARCH * 2)
-    .find((settlement) => settlement.kind === 'kingdom') ?? null;
-}
-
-/** Compass word for the offset (dx, dz); north is -z, east is +x. */
-function compassWord(dx: number, dz: number): string {
-  const names = ['north', 'north-east', 'east', 'south-east', 'south', 'south-west', 'west', 'north-west'];
-  const angle = Math.atan2(dx, -dz);
-  return names[((Math.round(angle / (Math.PI / 4)) % 8) + 8) % 8];
-}
 
 type AimTarget = { cell: BlockCell; adjacent: { x: number; y: number; z: number } };
 type Inventory = Record<BlockType, number>;
@@ -235,24 +175,11 @@ function readPlayerSave() {
 function initialWorld(position: Position | null = null): WorldData {
   const x = position?.x ?? 0;
   const z = position?.z ?? 0;
-  let loaded: WorldData;
-  // A small area loads immediately; the rest streams in a few chunks at a time.
   try {
-    // Do not silently create/save a default world before the player chooses
-    // one. The temporary terrain only keeps the renderer initialized behind
-    // the startup selector; it is not added to the saved-world list.
-    loaded = listSavedWorldSeeds().length > 0
-      ? loadWorld(x, z, 5)
-      : createWorld(undefined, x, z, 5);
+    return loadWorld(x, z, 5);
   } catch {
-    loaded = createWorld(undefined, x, z, 5);
+    return createWorld(undefined, x, z, 5);
   }
-  if (position) return loaded;
-  // A brand-new world opens at the nearest village, town, castle or kingdom,
-  // with its chunks already generated, so a settlement is the first thing
-  // you see instead of empty wilderness.
-  // Settlement generation is disabled; start in the naturally generated wilderness.
-  return loaded;
 }
 
 function findSpawn(world: WorldData): Position {
@@ -1033,11 +960,6 @@ function App() {
   const [target, setTarget] = useState<AimTarget | null>(null);
   const [started, setStarted] = useState(false);
   const [rulesOpen, setRulesOpen] = useState(false);
-  const [worldMenuOpen, setWorldMenuOpen] = useState(false);
-  const [savedWorldSeeds, setSavedWorldSeeds] = useState<number[]>(() => listSavedWorldSeeds());
-  const [selectedWorld, setSelectedWorld] = useState(false);
-  const [creatingWorld, setCreatingWorld] = useState(false);
-  const [seedInput, setSeedInput] = useState('');
   const [craftOpen, setCraftOpen] = useState(false);
   const [flying, setFlying] = useState(false);
   const [saveState, setSaveState] = useState<'saved' | 'unsaved'>('saved');
@@ -1051,57 +973,15 @@ function App() {
       ? saved
       : DEFAULT_RENDER_RADIUS;
   });
-  // New saves start at the nearest settlement (see initialWorld), so the
-  // streaming timer must follow that spot, not the origin.
-  const spawnTarget = useMemo(
-    () => (savedPlayer?.position ? null : humanSettlementNear(world, 0, 0)),
-    [world.seed, savedPlayer?.position],
-  );
   const streamCenter = useRef(
     getChunkCoordinates(
-      savedPlayer?.position?.x ?? spawnTarget?.x ?? 0,
-      savedPlayer?.position?.z ?? spawnTarget?.z ?? 0,
+      savedPlayer?.position?.x ?? 0,
+      savedPlayer?.position?.z ?? 0,
     ),
   );
   const selected = BLOCK_TYPES[selectedIndex] ?? 'grass';
   const hotbarPage = Math.floor(selectedIndex / HOTBAR_SLOTS);
   const hotbarPages = Math.ceil(BLOCK_TYPES.length / HOTBAR_SLOTS);
-  const nearbySettlements = useMemo(
-    () =>
-      getSettlementsNear(
-        world.seed,
-        playerPosition?.x ?? 0.5,
-        playerPosition?.z ?? 0.5,
-        SETTLEMENT_SEARCH,
-      ),
-    // Settlements are cached per region, so only the rounded position matters.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [world.seed, Math.floor((playerPosition?.x ?? 0) / 16), Math.floor((playerPosition?.z ?? 0) / 16)],
-  );
-  const nearestSettlement = nearbySettlements[0];
-  // Up to two more, of kinds you have not been shown yet, so the card helps
-  // you find every design out there.
-  const otherNearby = useMemo(() => {
-    if (!nearbySettlements.length) return [];
-    const seen = new Set<string>([nearbySettlements[0].kind]);
-    const picked: typeof nearbySettlements = [];
-    for (const s of nearbySettlements) {
-      if (picked.length >= 2) break;
-      if (seen.has(s.kind)) continue;
-      seen.add(s.kind);
-      picked.push(s);
-    }
-    return picked;
-  }, [nearbySettlements]);
-  const settlementDistance = nearestSettlement
-    ? Math.hypot(
-      nearestSettlement.x - (playerPosition?.x ?? 0.5),
-      nearestSettlement.z - (playerPosition?.z ?? 0.5),
-    )
-    : Infinity;
-  const atSettlement =
-    nearestSettlement !== null && settlementDistance <= nearestSettlement.radius + 16;
-
   useEffect(() => {
     const probe = document.createElement('canvas');
     const context = probe.getContext('webgl2');
@@ -1322,88 +1202,7 @@ function App() {
     savePlayerState();
   }, [savePlayerState]);
 
-  const createSeededWorld = (rawSeed: string) => {
-    const trimmed = rawSeed.trim();
-    const seed = trimmed ? Number(trimmed) : Math.floor(Math.random() * 2_147_000_000);
-    if (!Number.isSafeInteger(seed) || seed < 0 || seed > 2_147_483_647) {
-      showNotice('Seed must be a whole number from 0 to 2147483647');
-      return;
-    }
-    setCreatingWorld(true);
-    try {
-      // Generate the spawn region before making the world selectable. The
-      // kingdom's full local chunk ring is prepared before the player is spawned.
-      let freshWorld = createWorld(seed, 0, 0, 5);
-      const kingdom = startingKingdomNear(freshWorld) ?? humanSettlementNear(freshWorld, 0, 0);
-      if (kingdom) {
-        const center = getChunkCoordinates(kingdom.x, kingdom.z);
-        freshWorld = ensureChunks(freshWorld, center.x, center.z, 8);
-      }
-      saveWorld(freshWorld);
-      localStorage.removeItem(SAVE_KEY);
-      setSavedWorldSeeds(listSavedWorldSeeds());
-      setWorldMenuOpen(false);
-      window.location.reload();
-    } catch {
-      setCreatingWorld(false);
-      showNotice('World creation failed. No world was selected; check browser storage and try again.');
-    }
-  };
-
-  const selectSavedWorld = (seed: number) => {
-    try {
-      // Loading/generating the spawn ring is synchronous and completes before
-      // reload; the game then resolves a fresh safe spawn for this seed.
-      let selected = loadWorld(0, 0, 5, seed);
-      const kingdom = startingKingdomNear(selected) ?? humanSettlementNear(selected, 0, 0);
-      if (kingdom) {
-        const center = getChunkCoordinates(kingdom.x, kingdom.z);
-        selected = ensureChunks(selected, center.x, center.z, 8);
-      }
-      saveWorld(selected);
-      localStorage.removeItem(SAVE_KEY);
-      setWorld(selected);
-      worldRef.current = selected;
-      setPlayerPosition(null);
-      setInventory({ ...DEFAULT_INVENTORY });
-      streamCenter.current = getChunkCoordinates(kingdom?.x ?? 0, kingdom?.z ?? 0);
-      setSelectedWorld(true);
-    } catch {
-      showNotice('Could not load that world safely. It remains in the list.');
-    }
-  };
-
-  const removeSavedWorld = (seed: number) => {
-    try {
-      deleteSavedWorld(seed);
-      setSavedWorldSeeds(listSavedWorldSeeds());
-      if (world.seed === seed) {
-        localStorage.removeItem(SAVE_KEY);
-        setSelectedWorld(false);
-        window.location.reload();
-      }
-    } catch {
-      showNotice('Could not delete that world from browser storage.');
-    }
-  };
-
-  const clearSavedWorlds = () => {
-    try {
-      deleteAllSavedWorlds();
-      localStorage.removeItem(SAVE_KEY);
-      setSavedWorldSeeds([]);
-      setSelectedWorld(false);
-      window.location.reload();
-    } catch {
-      showNotice('Could not clear saved worlds from browser storage.');
-    }
-  };
-
   const beginExplore = () => {
-    if (!selectedWorld) {
-      showNotice('Select or create a world before entering.');
-      return;
-    }
     setStarted(true);
     if (supportsWebGL !== true || window.matchMedia('(pointer: coarse)').matches) return;
     const canvas = document.querySelector('.game-canvas canvas') as HTMLCanvasElement | null;
@@ -1412,36 +1211,14 @@ function App() {
 
   const loadedBlockCount = useMemo(() => getLoadedBlockCount(world), [world]);
   const loadedChunkCount = useMemo(() => getLoadedChunkCount(world), [world]);
-  const biome = playerPosition ? getBiomeAt(world.seed, playerPosition.x, playerPosition.z) : null;
+  const biome = getBiomeAt(world.seed, playerPosition?.x ?? 0.5, playerPosition?.z ?? 0.5);
   const coordinates = playerPosition
     ? `${Math.floor(playerPosition.x)} · ${Math.floor(playerPosition.y)} · ${Math.floor(playerPosition.z)}`
     : 'ROAM FREE';
 
   return (
     <main className="game-shell" data-testid="game-world">
-      {!selectedWorld && (
-        <div role="dialog" aria-modal="true" aria-labelledby="saved-worlds-title" data-testid="world-selection-screen" style={{ position: 'fixed', inset: 0, zIndex: 50, display: 'grid', placeItems: 'center', padding: 20, background: 'rgba(8, 12, 10, 0.96)', color: '#f3f1e8', overflowY: 'auto' }}>
-          <section style={{ width: 'min(560px, 100%)', padding: 24, borderRadius: 18, background: '#202a23', border: '1px solid rgba(255,255,255,.18)', boxShadow: '0 24px 80px rgba(0,0,0,.45)' }}>
-            <h1 id="saved-worlds-title" style={{ marginTop: 0 }}>Choose your world</h1>
-            <p style={{ color: '#c7d0c7', lineHeight: 1.5 }}>World terrain and the starting area are generated before you enter. Select a saved world or create a new one.</p>
-            {savedWorldSeeds.length === 0 ? <p>No saved worlds yet. Create your first world below.</p> : (
-              <div style={{ display: 'grid', gap: 8, margin: '18px 0' }}>
-                {savedWorldSeeds.map((seed) => (
-                  <div key={seed} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: 10, borderRadius: 10, background: '#111914', border: '1px solid #46564a' }}>
-                    <div style={{ flex: 1 }}><strong>World {seed}</strong><div style={{ fontSize: 12, color: '#aeb9ad' }}>Seed {seed}</div></div>
-                    <button type="button" onClick={() => selectSavedWorld(seed)} style={{ padding: '9px 12px', borderRadius: 8, border: 0, background: '#d4e0a7', color: '#1b281c', fontWeight: 700, cursor: 'pointer' }}>Play</button>
-                    <button type="button" onClick={() => removeSavedWorld(seed)} aria-label={`Delete world ${seed}`} style={{ padding: '9px 12px', borderRadius: 8, border: '1px solid #8b5c54', background: 'transparent', color: '#ffd4c9', cursor: 'pointer' }}>Delete</button>
-                  </div>
-                ))}
-              </div>
-            )}
-            <button type="button" onClick={() => { setSeedInput(''); setWorldMenuOpen(true); }} style={{ padding: '11px 15px', borderRadius: 9, border: 0, background: '#d4e0a7', color: '#1b281c', fontWeight: 700, cursor: 'pointer' }}>Create a world</button>
-            {savedWorldSeeds.length > 0 && <button type="button" onClick={clearSavedWorlds} style={{ marginLeft: 10, padding: '11px 15px', borderRadius: 9, border: '1px solid #8b5c54', background: 'transparent', color: '#ffd4c9', cursor: 'pointer' }}>Delete all worlds</button>}
-            {creatingWorld && <p role="status">Generating world and safe starting area…</p>}
-          </section>
-        </div>
-      )}
-      {selectedWorld && (supportsWebGL !== true ? (
+      {supportsWebGL !== true ? (
         <VoxelFallback
           world={world}
           onTarget={setTarget}
@@ -1481,7 +1258,7 @@ function App() {
             paused={craftOpen}
           />
         </Canvas>
-      ))}
+      )}
 
       <div className="hud">
         <div className="brand-lockup" aria-label="Pixel Wilds">
@@ -1542,13 +1319,10 @@ function App() {
         <div className="world-card">
           <small>WORLD SEED</small>
           <strong data-testid="status-world-seed">{world.seed}</strong>
-          <button className="rules-toggle" type="button" onClick={() => { setSeedInput(String(world.seed)); setWorldMenuOpen(true); }}>
-            Create / load world
-          </button>
 
-          <small>somewhere out there</small>
-          <strong>Marigold Reach</strong>
-          <p>Make a path. Leave it brighter.</p>
+          <small>GENERATED BIOME</small>
+          <strong>{biome.toUpperCase()}</strong>
+          <p>Terrain and ecology follow the local climate.</p>
           <button
             className="rules-toggle"
             type="button"
@@ -1560,63 +1334,6 @@ function App() {
           </button>
         </div>
 
-        {nearestSettlement && (
-          <div
-            className={`settlement-card ${atSettlement ? 'is-here' : ''}`}
-            data-testid="status-nearby-settlement"
-          >
-            <small>
-              <i style={{ backgroundColor: FACTION_COLORS[nearestSettlement.faction] }} />
-              {FACTION_LABELS[nearestSettlement.faction]} · {SETTLEMENT_KIND_LABELS[nearestSettlement.kind]}
-            </small>
-            <strong>{nearestSettlement.name}</strong>
-            <p>
-              {nearestSettlement.buildings.length} buildings · {SETTLEMENT_TAGLINES[nearestSettlement.kind]}
-            </p>
-            <p>
-              {atSettlement
-                ? 'you are here'
-                : `${Math.round(settlementDistance)} m to the ${compassWord(
-                    nearestSettlement.x - (playerPosition?.x ?? 0.5),
-                    nearestSettlement.z - (playerPosition?.z ?? 0.5),
-                  )}`}
-            </p>
-            {nearestSettlement.landmarks.length > 0 && (
-              <p>{nearestSettlement.landmarks.slice(0, 3).join(' · ')}</p>
-            )}
-            {otherNearby.length > 0 && (
-              <p>
-                also near:{' '}
-                {otherNearby
-                  .map((s) => {
-                    const dx = s.x - (playerPosition?.x ?? 0.5);
-                    const dz = s.z - (playerPosition?.z ?? 0.5);
-                    return `${SETTLEMENT_KIND_LABELS[s.kind]} ${Math.round(Math.hypot(dx, dz))} m ${compassWord(dx, dz)}`;
-                  })
-                  .join(' · ')}
-              </p>
-            )}
-          </div>
-        )}
-
-        {worldMenuOpen && (
-          <div role="dialog" aria-modal="true" aria-labelledby="world-seed-title" style={{ position: 'fixed', inset: 0, zIndex: 60, display: 'grid', placeItems: 'center', padding: 20, background: 'rgba(8, 12, 10, 0.76)', backdropFilter: 'blur(8px)' }}>
-            <section style={{ width: 'min(440px, 100%)', padding: 24, borderRadius: 18, color: '#f3f1e8', background: '#202a23', border: '1px solid rgba(255,255,255,.18)', boxShadow: '0 24px 80px rgba(0,0,0,.45)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
-                <h2 id="world-seed-title" style={{ margin: 0 }}>Create a world</h2>
-                <button type="button" aria-label="Close world creator" onClick={() => setWorldMenuOpen(false)} style={{ fontSize: 22, color: 'inherit', background: 'transparent', border: 0, cursor: 'pointer' }}>×</button>
-              </div>
-              <p style={{ lineHeight: 1.55, color: '#c7d0c7' }}>A seed generates a repeatable landscape. Use the same seed to revisit the same terrain, or choose a new seed for different land, biomes, rivers and settlement locations. Each seed has its own saved block edits.</p>
-              <label htmlFor="world-seed-input" style={{ display: 'block', margin: '16px 0 6px', fontSize: 13, letterSpacing: '.06em' }}>WORLD SEED (0–2147483647)</label>
-              <input id="world-seed-input" data-testid="input-world-seed" type="number" min="0" max="2147483647" step="1" value={seedInput} onChange={(event) => setSeedInput(event.target.value)} placeholder="Enter a seed number" style={{ boxSizing: 'border-box', width: '100%', padding: '12px 14px', borderRadius: 9, border: '1px solid #647668', background: '#111914', color: '#fff', font: 'inherit' }} />
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 16 }}>
-                <button type="button" onClick={() => createSeededWorld(seedInput)} style={{ padding: '11px 15px', borderRadius: 9, border: 0, background: '#d4e0a7', color: '#1b281c', fontWeight: 700, cursor: 'pointer' }}>Create this seed</button>
-                <button type="button" onClick={() => createSeededWorld('')} style={{ padding: '11px 15px', borderRadius: 9, border: '1px solid #647668', background: 'transparent', color: '#f3f1e8', cursor: 'pointer' }}>Random world</button>
-              </div>
-              <p style={{ marginBottom: 0, fontSize: 12, color: '#aeb9ad' }}>Creating a world reloads the game. Save your current landscape first if you have made changes.</p>
-            </section>
-          </div>
-        )}
         <aside
           className="world-rules-panel"
           id="world-generation-rules"
@@ -1634,13 +1351,13 @@ function App() {
             </button>
           </div>
           <p><b>Scale:</b> every block is 0.5 m. You are 2 m (4 blocks) tall, doors are 5 blocks high, and a step up is one block.</p>
-          <p><b>Ground:</b> soil depends on climate: grass over dirt in temperate land, sand over sandstone in deserts, snow in the cold, mud and clay in swamps. Steep slopes show bare rock, with gravel scree below.</p>
-          <p><b>Rock:</b> pink granite in the high country, pale limestone in low basins, stone elsewhere; coal and iron veins sit inside the rock, and bedrock lies at the bottom.</p>
-          <p><b>Rivers &amp; lakes:</b> rivers wind through low ground with flat water, banks of sand, gravel, clay or mud, and freeze in the cold. Basins below sea level fill with water.</p>
-          <p><b>Trees:</b> ten kinds with their own trunks - oaks and birches in mixed woods, pine belts with bare lower trunks, spruce in the cold, giant redwoods with 3 x 3 bases in old stands, palms leaning off beaches, willows trailing leaves in swamps, cactus in deserts.</p>
-          <p><b>Settlements and buildings:</b> generation is disabled while the natural terrain and ecology systems are rebuilt. The world currently generates wilderness only.</p>
+          <p><b>Layers:</b> bedrock, deep rock, mineral bands, soil and surface vegetation form the land.</p>
+          <p><b>Landforms:</b> seeded geological fields shape valleys, plateaus, ridges and mountains.</p>
+          <p><b>Water:</b> rivers carve wet valleys, with lakes and sediment-rich banks.</p>
+          <p><b>Biomes:</b> temperature, moisture, elevation and soil shape forests, wetlands, grasslands and deserts.</p>
+          <p><b>Plants:</b> seeded ecological rules place trees, ferns, reeds, mushrooms and grass.</p>
           <p><b>Crafting:</b> press <kbd className="keycap">C</kbd> for the workbench - planks from logs, doors, chairs and tables from planks, dressed stone, marble, bricks, roof tiles and glass from what you gather. Place them anywhere you like.</p>
-          <p><b>Everywhere:</b> 16×16 chunks stream in around you out to the view distance you choose; terrain comes from the seed, and your edits persist.</p>
+          <p><b>One persistent wilderness:</b> 16×16 chunks stream in around you; your edits persist.</p>
         </aside>
 
         <div className={`crosshair ${target ? 'crosshair-active' : ''}`} data-testid="status-crosshair" aria-label={target ? `Aiming at ${target.cell.type}` : 'Aim crosshair'}>
