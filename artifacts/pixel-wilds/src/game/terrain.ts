@@ -25,11 +25,13 @@ export type Biome =
   | "grassland"
   | "savanna"
   | "forest"
+  | "rainforest"
   | "tropical_rainforest"
   | "ancient_forest"
   | "taiga"
   | "boreal_forest"
   | "tundra"
+  | "alpine"
   | "alpine_meadow"
   | "alpine_forest"
   | "swamp"
@@ -40,6 +42,7 @@ export type Biome =
   | "volcanic"
   | "coastal"
   | "mangrove"
+  | "fungal"
   | "fungal_forest"
   | "bioluminescent_wetland"
   | "crystal_valley";
@@ -55,8 +58,6 @@ export interface HeightRecord {
   /** Smoothed elevation without fine relief. */
   broad: number;
   mountain: number;
-  /** Settlement terraforming weight, 0 (natural) to 1 (fully levelled). */
-  flat: number;
 }
 
 export interface EnvironmentalData {
@@ -90,12 +91,6 @@ export interface Column extends HeightRecord, EnvironmentalData {
   soilComposition: "organic" | "loam" | "clay" | "sand" | "rock";
 }
 
-export type SettlementHook = (
-  x: number,
-  z: number,
-  natural: HeightRecord,
-) => { ground: number; water: number; flat: number } | null;
-
 const MAX_CACHE = 60000;
 
 /** Evict one oldest entry at a time instead of clearing the entire cache in one frame. */
@@ -117,7 +112,6 @@ export class Terrain {
   private naturalCache = new Map<string, HeightRecord>();
   private heightCache = new Map<string, HeightRecord>();
   private columnCache = new Map<string, Column>();
-  hook: SettlementHook | null = null;
 
   constructor(readonly seed: number) {}
 
@@ -220,18 +214,18 @@ export class Terrain {
       }
     }
 
-    return { ground, water, riverDist, riverHalfWidth: riverHalf, broad, mountain, flat: 0 };
+    return { ground, water, riverDist, riverHalfWidth: riverHalf, broad, mountain };
   }
 
   /* ---------------------------------------------------------------- */
-  /* Final height (natural + settlement terraforming)                  */
+  /* Final height (seeded geological terrain)                  */
   /* ---------------------------------------------------------------- */
 
   height(x: number, z: number): HeightRecord {
     const key = columnKey(x, z);
     const cached = this.heightCache.get(key);
     if (cached) return cached;
-    // Keep terrain purely geological. Settlement terraforming is disabled.
+    // Height is entirely derived from seeded geological fields.
     const record = this.natural(x, z);
     evictOldest(this.heightCache, MAX_CACHE);
     this.heightCache.set(key, record);
@@ -304,6 +298,10 @@ export class Terrain {
       moisture > 0.65 && ground <= SEA_LEVEL + 8 ? "clay" :
       soilFertility > 0.62 ? "organic" : "loam";
     const forestiness = 0.48 * moisture + 0.32 * vn(x - 200, z + 61, 170, s + 701) + 0.20 * vn(x + 17, z - 43, 43, s + 703);
+    const rainforest = temperature > 0.64 && moisture > 0.72 && forestiness > 0.51;
+    const fungalForest = temperature > 0.38 && temperature < 0.67 && moisture > 0.75 && forestiness > 0.68 && patch > 0.44;
+    const badlands = temperature > 0.54 && moisture < 0.34 && elev > 10 && geology > 0.46;
+    const savanna = temperature > 0.61 && moisture >= 0.42 && moisture < 0.58 && forestiness < 0.59;
     const elevation = ground;
     const rainfall = moisture * 1.2;
     const geologicalComposition = rec.mountain > 0.3 || elev > 80 ? "granite" : geology < 0.3 ? "limestone" : "sedimentary";
@@ -387,7 +385,7 @@ export class Terrain {
 
     /* ---- Steep ground exposes rock ---- */
     if (slope >= 3 || (slope >= 2 && elev > 40)) {
-      column.biome = elev > 20 ? "mountain" : "plains";
+      column.biome = elev > 20 ? (temperature < 0.3 ? "alpine" : "mountain") : "plains";
       column.top = rock;
       column.soil = rock;
       column.soilDepth = 0;
@@ -398,7 +396,7 @@ export class Terrain {
       column.top = patch > 0.5 ? ID.gravel : ID.cobblestone;
       column.soil = ID.dirt;
       column.soilDepth = 2;
-      column.biome = elev > 20 ? "mountain" : "plains";
+      column.biome = elev > 20 ? (temperature < 0.3 ? "alpine" : "mountain") : "plains";
       return column;
     }
 
@@ -466,6 +464,23 @@ export class Terrain {
         column.soil = ID.mud;
         column.soilDepth = 2;
       }
+    } else if (badlands) {
+      column.biome = "badlands";
+      column.top = patch > 0.63 ? ID.clay : ID.sandstone;
+      column.soil = ID.clay;
+      column.soilDepth = 2;
+      column.mid = ID.sandstone;
+      column.midDepth = 12;
+    } else if (fungalForest) {
+      column.biome = "fungal";
+      column.top = ID.moss;
+      column.soil = ID.moss;
+      column.soilDepth = 3;
+    } else if (rainforest) {
+      column.biome = "rainforest";
+      column.top = patch < 0.12 ? ID.moss : ID.grass;
+      column.soil = patch > 0.74 ? ID.mud : ID.dirt;
+      column.soilDepth = 4;
     } else if (forestiness > 0.52 && moisture > 0.42) {
       if (temperature > 0.65 && moisture > 0.65) {
         column.biome = "tropical_rainforest";
@@ -485,7 +500,7 @@ export class Terrain {
         column.biome = "forest";
         column.top = patch < 0.1 ? ID.moss : ID.grass;
       }
-    } else if (temperature > 0.55 && moisture < 0.5) {
+    } else if (savanna || (temperature > 0.55 && moisture < 0.5)) {
       column.biome = "savanna";
       column.top = ID.grass;
       column.soil = ID.dirt;
