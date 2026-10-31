@@ -46,3 +46,25 @@ Headless gameplay tests (no browser needed; run from `artifacts/pixel-wilds`):
 | Touch | on-screen move, jump, Mine, Place and Craft buttons |
 
 
+
+## Module architecture
+
+Game code is split into modules behind stable facades; the rules and extension
+recipes are in `artifacts/pixel-wilds/src/game/ARCHITECTURE.md`.
+
+- `.../game/core/` — validated registry, prototype/factory, ordered pipeline.
+- `.../game/blocks/` — block vocabulary, catalogue, derived id/info tables.
+- `.../game/terrain/` — height, climate, ordered biome rules, cached facade.
+- `.../game/vegetation/` — species registry, stamps, placement and ground cover.
+- `.../game/worldgen/` — geology, ores, ground cover and vegetation as ordered
+  pipeline stages.
+- `.../game/world/` — block access, streaming, spawn and save/load behind an
+  injectable storage seam.
+- `.../game/{blocks,terrain,trees,worldgen,world}.ts` remain the public import
+  paths, so features are added by registering entries rather than editing
+  several files in lockstep.
+
+Checks: `pnpm --filter @workspace/pixel-wilds run test` runs the headless suite
+(world/terrain, settlement hierarchy, architecture contracts and a generation
+fingerprint), and `... run fingerprint` prints a wider world fingerprint used to
+prove a structural change did not alter gameplay.
