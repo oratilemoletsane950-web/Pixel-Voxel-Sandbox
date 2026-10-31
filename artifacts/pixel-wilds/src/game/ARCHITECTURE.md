@@ -20,6 +20,11 @@ src/game/
   physics.ts      player movement (unchanged)
   crafting.ts     recipes (unchanged)
   settlements.ts  settlement plan/stamp (generation disabled, see below)
+
+src/app/          the UI: game-world (WebGL view) · chunk-mesh · voxel-fallback
+                  (2D) · hud panels · block palette
+src/game/player/  inventory & save · aiming/raycast · session (world + spawn) ·
+                  input tuning constants
 ```
 
 ## Rules that keep this robust
@@ -85,6 +90,15 @@ Add a `SurfaceRule` (id, order, `apply(column, facts)`) to the ordered list in
 should grow there. `SURFACE_CLASSIFIER.classify()` returns the winning rule id,
 which makes precedence testable.
 
+### Add a HUD panel or control
+
+Create a presentational component in `src/app/hud.tsx` that takes state and
+callbacks as props, then render it from `App.tsx` and wire the state there.
+Panels hold no game logic, so adding a panel cannot affect physics, streaming
+or the render loop. Reuse `BLOCK_META` / `BLOCK_COLORS` from
+`app/block-palette.ts` for consistent swatches, and keep existing
+`data-testid` names stable for validation.
+
 ### Add a save backend (IndexedDB, file, server)
 
 Implement `KeyValueStorage` (`world/persistence.ts`) and pass it to
@@ -100,18 +114,21 @@ in-memory backend through this seam.
 - `window` is only touched in `world/persistence.ts` (`browserStorage`) and the
   React layer. Game modules stay headless and testable with `node:test`.
 
-## Known remaining monoliths
+## Known remaining work
 
-These were deliberately left intact to keep this refactor behaviour-preserving;
-they are the next candidates:
-
-- `src/App.tsx` (~1.8k lines): renderer setup, input, HUD, workbench and the 2D
-  fallback in one component. Split along the seams `GameWorld`,
-  `VoxelFallback`, `ChunkMesh` and per-feature hooks; pure helpers
-  (`traceVoxelWorld`, inventory/save defaults, compass) can move to
-  `src/game/player/` first.
 - `src/game/settlements.ts` (~2.4k lines): plan + stamp + furniture. Generation
   is disabled; when it is re-enabled, split blueprints/stamping/furnishing and
   register the stage in `worldgen/pipeline.ts`.
 - `artifacts/mockup-sandbox` duplicates the shadcn UI components in this app;
   it is a design sandbox, not shipped game code.
+- The production bundle is a single ~1.3 MB chunk (Three.js dominates) and the
+  build warns about the 500 kB threshold. Code-splitting the renderer is a
+  packaging improvement, not a correctness issue.
+
+## UI layout
+
+`App.tsx` is now wiring only (~430 lines): game state, streaming, saving, input
+subscriptions and composition. Rendering, panels and player helpers are in
+separate modules (`src/app/*`, `src/game/player/*`), and the 3D and 2D
+renderers implement the same callback contract, so either can be replaced
+without touching the shell.
