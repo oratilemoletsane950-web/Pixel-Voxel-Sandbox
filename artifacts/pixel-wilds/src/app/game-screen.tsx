@@ -43,6 +43,23 @@ import {
 import type { AimTarget } from "../game/player/aiming";
 import { findSpawn, initialWorld } from "../game/player/session";
 import {
+  CREATIVE_MINING_TOOL,
+  canHarvest,
+  harvestRefusal,
+} from "../game/player/mining";
+import {
+  craftTool as craftFieldTool,
+  cycleTool,
+  equipTool,
+  equippedTool,
+  readToolState,
+  saveToolState,
+  toolDefinition,
+  wearTool,
+  type ToolId,
+  type ToolState,
+} from "../game/player/tools";
+import {
   MAX_HEALTH,
   MAX_HUNGER,
   addBerries,
@@ -122,6 +139,10 @@ export function GameScreen({
   const [inventory, setInventory] = useState<Inventory>(
     () => savedPlayer?.inventory ?? createInventory(profile.mode),
   );
+  const savedToolState = useMemo(() => readToolState(profile.id), [profile.id]);
+  const [toolState, setToolState] = useState<ToolState>(savedToolState);
+  const toolStateRef = useRef(toolState);
+  toolStateRef.current = toolState;
   const [playerPosition, setPlayerPosition] = useState<Position | null>(
     savedPlayer?.position ?? null,
   );
@@ -143,6 +164,13 @@ export function GameScreen({
   );
   const selected = BLOCK_TYPES[selectedIndex] ?? "grass";
   const unlimited = profile.mode === "creative";
+  const currentTool = equippedTool(toolState);
+  const currentToolDurability = currentTool ? toolState.belt[currentTool.id] : 0;
+  const miningTool = unlimited
+    ? currentTool
+      ? { ...currentTool, creative: true }
+      : CREATIVE_MINING_TOOL
+    : currentTool;
   const paused = craftOpen || pauseOpen || !survival.alive;
 
   useEffect(() => {
@@ -226,6 +254,11 @@ export function GameScreen({
     return () => window.clearInterval(timer);
   }, [profile.id]);
 
+  // Tool wear changes once per broken block, so persist immediately.
+  useEffect(() => {
+    saveToolState(profile.id, toolState);
+  }, [profile.id, toolState]);
+
   // The player's chunk is only recorded here; a timer then generates a few
   // missing chunks per tick (nearest first), so walking never causes one stall.
   const streamChunks = useCallback((chunkX: number, chunkZ: number) => {
@@ -274,8 +307,15 @@ export function GameScreen({
         showNotice("Bedrock will not budge");
         return;
       }
+      const activeTool = equippedTool(toolStateRef.current);
+      if (!unlimited && !canHarvest(found, activeTool)) {
+        showNotice(harvestRefusal(found, activeTool) || "That block needs a stronger tool");
+        return;
+      }
+
       setWorldEdited((latestWorld) => setBlock(latestWorld, cell.x, cell.y, cell.z, null));
       const foraged = survivalMode && isBerrySource(found);
+      let message: string;
       if (BLOCK_TYPES.includes(found as BlockType)) {
         const item = found as BlockType;
         setInventory((currentInventory) => ({
@@ -283,18 +323,25 @@ export function GameScreen({
           [item]: currentInventory[item] + 1,
         }));
         if (foraged) setSurvival((current) => addBerries(current, 1));
-        showNotice(
-          foraged
-            ? `${BLOCK_META[item].label} gathered · wild berries +1`
-            : `${BLOCK_META[item].label} gathered`,
-        );
+        message = foraged
+          ? `${BLOCK_META[item].label} gathered · wild berries +1`
+          : `${BLOCK_META[item].label} gathered`;
       } else if (found === "flower") {
-        showNotice("Wild bloom cleared");
+        message = "Wild bloom cleared";
       } else {
-        showNotice(`${BLOCK_META[found].label} cleared`);
+        message = `${BLOCK_META[found].label} cleared`;
       }
+
+      // A tool wears once per broken block, never per frame or per tick.
+      if (!unlimited && activeTool) {
+        const worn = wearTool(toolStateRef.current, activeTool.id);
+        toolStateRef.current = worn.state;
+        setToolState(worn.state);
+        if (worn.broke) message = `${message} · ${activeTool.label} broke`;
+      }
+      showNotice(message);
     },
-    [showNotice, setWorldEdited, survivalMode],
+    [showNotice, setWorldEdited, survivalMode, unlimited],
   );
 
   const placeBlock = useCallback(
@@ -357,6 +404,41 @@ export function GameScreen({
     },
     [inventory, showNotice, unlimited],
   );
+
+  const craftFieldToolAtBench = useCallback(
+    (id: ToolId) => {
+      const definition = toolDefinition(id);
+      if (!definition) return;
+      const result = craftFieldTool(id, inventory, toolStateRef.current, unlimited);
+      if (!result) {
+        showNotice("Not enough materials for that tool");
+        return;
+      }
+      setInventory(result.inventory);
+      toolStateRef.current = result.state;
+      setToolState(result.state);
+      showNotice(`${definition.label} ready · ${definition.maxDurability} uses`);
+    },
+    [inventory, showNotice, unlimited],
+  );
+
+  const equipFieldTool = useCallback(
+    (id: ToolId) => {
+      const next = equipTool(toolStateRef.current, id);
+      toolStateRef.current = next;
+      setToolState(next);
+      showNotice(`${toolDefinition(id)?.label ?? "Tool"} equipped`);
+    },
+    [showNotice],
+  );
+
+  const cycleEquippedTool = useCallback(() => {
+    const next = cycleTool(toolStateRef.current);
+    toolStateRef.current = next;
+    setToolState(next);
+    const tool = equippedTool(next);
+    showNotice(tool ? `${tool.label} ready` : "Bare hands · craft tools at the workbench");
+  }, [showNotice]);
 
   const eatForaged = useCallback(() => {
     if (!survivalMode) return;
@@ -431,6 +513,10 @@ export function GameScreen({
         setCraftOpen((open) => !open);
         return;
       }
+      if (event.code === "KeyT" && !event.repeat && !event.ctrlKey && !event.metaKey && !pauseOpen) {
+        cycleEquippedTool();
+        return;
+      }
       if (event.code === "Escape") {
         if (craftOpen) setCraftOpen(false);
         else if (pauseOpen) {
@@ -464,6 +550,7 @@ export function GameScreen({
       savePlayerState();
       saveWorldClock(profile.id, worldTimeRef.current);
       if (survivalMode) saveSurvival(profile.id, survivalRef.current);
+      saveToolState(profile.id, toolStateRef.current);
     };
     window.addEventListener("beforeunload", saveOnExit);
     return () => {
@@ -474,7 +561,7 @@ export function GameScreen({
       document.removeEventListener("pointerlockchange", onPointerChange);
       window.removeEventListener("beforeunload", saveOnExit);
     };
-  }, [craftOpen, eatForaged, pauseOpen, profile.id, savePlayerState, started, supportsWebGL, survivalMode]);
+  }, [craftOpen, cycleEquippedTool, eatForaged, pauseOpen, profile.id, savePlayerState, started, supportsWebGL, survivalMode]);
 
   useEffect(() => {
     savePlayerState();
@@ -515,6 +602,7 @@ export function GameScreen({
       savePlayerState();
       saveWorldClock(profile.id, worldTimeRef.current);
       if (survivalMode) saveSurvival(profile.id, survivalRef.current);
+      saveToolState(profile.id, toolStateRef.current);
       setSaveState("saved");
       showNotice("Landscape tucked away");
       return true;
@@ -553,6 +641,7 @@ export function GameScreen({
           paused={paused}
           allowFlight={unlimited}
           worldTime={worldTime}
+          tool={miningTool}
           survivalMode={survivalMode}
           onEnvironment={handleEnvironment}
           onFall={handleFall}
@@ -587,6 +676,7 @@ export function GameScreen({
             allowFlight={unlimited}
             fov={settings.fov}
             worldTime={worldTime}
+            tool={miningTool}
             survivalMode={survivalMode}
             onEnvironment={handleEnvironment}
             onFall={handleFall}
@@ -627,12 +717,19 @@ export function GameScreen({
           selectedIndex={selectedIndex}
           onSelect={setSelectedIndex}
           unlimited={unlimited}
+          tool={currentTool}
+          toolDurability={currentToolDurability}
+          onCycleTool={cycleEquippedTool}
         />
         <CraftPanel
           open={craftOpen}
           inventory={inventory}
+          toolbelt={toolState.belt}
+          equippedToolId={toolState.equipped}
           onClose={() => setCraftOpen(false)}
           onCraft={craft}
+          onCraftTool={craftFieldToolAtBench}
+          onEquipTool={equipFieldTool}
           unlimited={unlimited}
         />
         <ToastNote notice={notice} />

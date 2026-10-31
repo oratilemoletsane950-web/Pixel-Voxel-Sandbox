@@ -35,6 +35,8 @@ export const PLAYER_SAVE_PREFIX = "pixel-wilds-player-v3:";
 export const SURVIVAL_SAVE_PREFIX = "pixel-wilds-survival-v1:";
 /** One world clock snapshot per world id. */
 export const WORLD_CLOCK_PREFIX = "pixel-wilds-clock-v1:";
+/** One owned-tool belt (durability and selection) per world id. */
+export const TOOL_SAVE_PREFIX = "pixel-wilds-tools-v1:";
 /** Pre-registry single-player save, migrated on first launch. */
 export const LEGACY_PLAYER_SAVE_KEY = "pixel-wilds-player-v2";
 /** Application settings shared across worlds. */

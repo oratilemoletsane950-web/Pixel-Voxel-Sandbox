@@ -33,7 +33,12 @@ import {
   getHotbarIndexFromCode,
   type AimTarget,
 } from "../game/player/aiming";
-import { MIN_MINING_SECONDS, advanceMining, miningDuration } from "../game/player/mining";
+import {
+  MIN_MINING_SECONDS,
+  advanceMining,
+  miningDuration,
+  type MiningTool,
+} from "../game/player/mining";
 import { findSpawn } from "../game/player/session";
 import { BLOCK_COLORS } from "./block-palette";
 
@@ -52,6 +57,7 @@ export function VoxelFallback({
   paused = false,
   allowFlight = true,
   worldTime,
+  tool = null,
   survivalMode = false,
   onEnvironment,
   onFall,
@@ -72,6 +78,8 @@ export function VoxelFallback({
   /** Survival worlds keep the player grounded; creative worlds may fly. */
   allowFlight?: boolean;
   worldTime: number;
+  /** The equipped tool, or bare hands when null. */
+  tool?: MiningTool | null;
   survivalMode?: boolean;
   onEnvironment?: (environment: SurvivalEnvironment) => void;
   onFall?: (impactSpeed: number) => void;
@@ -121,6 +129,7 @@ export function VoxelFallback({
     onMineProgress,
     onStart,
     worldTime,
+    tool,
     survivalMode,
     onEnvironment,
     onFall,
@@ -137,6 +146,7 @@ export function VoxelFallback({
     onMineProgress,
     onStart,
     worldTime,
+    tool,
     survivalMode,
     onEnvironment,
     onFall,
@@ -216,7 +226,7 @@ export function VoxelFallback({
     };
 
     const startMining = (cell: BlockCell) => {
-      const duration = miningDuration(cell.type);
+      const duration = miningDuration(cell.type, latest.current.tool);
       if (!Number.isFinite(duration) || duration <= MIN_MINING_SECONDS) {
         stopMining();
         latest.current.onMine(cell);
@@ -407,7 +417,12 @@ export function VoxelFallback({
           if (!hit || blockKey(hit.cell.x, hit.cell.y, hit.cell.z) !== miningRef.current.key) {
             stopMining();
           } else {
-            const step = advanceMining(miningRef.current.progress, dt, hit.cell.type);
+            const step = advanceMining(
+              miningRef.current.progress,
+              dt,
+              hit.cell.type,
+              latest.current.tool,
+            );
             miningRef.current.progress = step.progress;
             if (step.complete) {
               const cell = hit.cell;

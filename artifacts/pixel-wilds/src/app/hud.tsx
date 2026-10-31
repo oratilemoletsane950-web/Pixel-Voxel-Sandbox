@@ -10,7 +10,14 @@ import type { Dispatch, SetStateAction } from "react";
 
 import { BLOCK_TYPES } from "../game/blocks";
 import { CHUNK_SIZE } from "../game/chunk";
-import { CRAFTING_RECIPES, canCraft, type CraftRecipe } from "../game/crafting";
+import { CRAFTING_RECIPES, canAfford, canCraft, type CraftRecipe } from "../game/crafting";
+import {
+  TOOL_DEFINITIONS,
+  TOOL_TIER_LABELS,
+  type ToolBelt,
+  type ToolDefinition,
+  type ToolId,
+} from "../game/player/tools";
 import type { AimTarget } from "../game/player/aiming";
 import { HOTBAR_SLOTS } from "../game/player/controls";
 import type { Inventory } from "../game/player/inventory";
@@ -364,23 +371,74 @@ export function FieldReadouts({
   );
 }
 
+export function ToolbeltHud({
+  tool,
+  durability,
+  onCycle,
+}: {
+  tool: ToolDefinition | null;
+  durability: number;
+  onCycle: () => void;
+}) {
+  const percent = tool ? Math.round((durability / tool.maxDurability) * 100) : 0;
+  const worn = Boolean(tool && percent <= 20);
+  return (
+    <button
+      className={`toolbelt-hud ${tool ? "has-tool" : "is-hand"} ${worn ? "is-worn" : ""}`}
+      type="button"
+      onClick={onCycle}
+      aria-label={tool
+        ? `${tool.label}, ${TOOL_TIER_LABELS[tool.tier]} tier, ${durability} uses left. Press T to change tool.`
+        : "Bare hands. Press T to change tool."}
+      data-testid="status-tool"
+    >
+      <span className={`tool-mark tool-${tool?.kind ?? "hand"}`} aria-hidden="true">
+        {tool?.short ?? "HND"}
+      </span>
+      <span className="tool-copy">
+        <strong>{tool?.label ?? "Bare hands"}</strong>
+        <small data-testid="status-tool-durability">
+          {tool ? `${TOOL_TIER_LABELS[tool.tier]} tier · ${durability} uses` : "mine slowly · craft tools at C"}
+        </small>
+        {tool && (
+          <span className="tool-wear" aria-hidden="true">
+            <i style={{ width: `${percent}%` }} />
+          </span>
+        )}
+      </span>
+      <kbd className="keycap">T</kbd>
+    </button>
+  );
+}
+
 export function Hotbar({
   inventory,
   selectedIndex,
   onSelect,
   unlimited = false,
+  tool = null,
+  toolDurability = 0,
+  onCycleTool,
 }: {
   inventory: Inventory;
   selectedIndex: number;
   onSelect: (index: number) => void;
   /** Creative worlds do not consume blocks when placing. */
   unlimited?: boolean;
+  tool?: ToolDefinition | null;
+  toolDurability?: number;
+  onCycleTool?: () => void;
 }) {
   const selected = BLOCK_TYPES[selectedIndex] ?? "grass";
   const hotbarPage = Math.floor(selectedIndex / HOTBAR_SLOTS);
   const hotbarPages = Math.ceil(BLOCK_TYPES.length / HOTBAR_SLOTS);
   return (
     <div className="bottom-hud">
+      <ToolbeltHud
+        tool={tool}
+        durability={toolDurability}
+        onCycle={() => onCycleTool?.()}
+      />
       <div className="hotbar" role="toolbar" aria-label="Block selection" data-testid="hotbar">
         {BLOCK_TYPES.slice(hotbarPage * HOTBAR_SLOTS, (hotbarPage + 1) * HOTBAR_SLOTS).map((type, slot) => {
           const index = hotbarPage * HOTBAR_SLOTS + slot;
@@ -422,6 +480,7 @@ export function Hotbar({
         <span className="hint-item"><kbd className="keycap">SPACE</kbd> jump · autojump on</span>
         <span className="hint-item"><kbd className="keycap">SPACE ×2</kbd> fly</span>
         <span className="hint-item"><kbd className="keycap">C</kbd> craft</span>
+        <span className="hint-item"><kbd className="keycap">T</kbd> change tool</span>
         <span className="hint-item"><kbd className="keycap">LMB</kbd> hold to mine</span>
         <span className="hint-item"><kbd className="keycap">RMB</kbd> place</span>
         <span className="hint-item"><kbd className="keycap">SHIFT</kbd> run</span>
@@ -435,14 +494,22 @@ export function Hotbar({
 export function CraftPanel({
   open,
   inventory,
+  toolbelt,
+  equippedToolId,
   onClose,
   onCraft,
+  onCraftTool,
+  onEquipTool,
   unlimited = false,
 }: {
   open: boolean;
   inventory: Inventory;
+  toolbelt: ToolBelt;
+  equippedToolId: ToolId | null;
   onClose: () => void;
   onCraft: (recipe: CraftRecipe) => void;
+  onCraftTool: (id: ToolId) => void;
+  onEquipTool: (id: ToolId) => void;
   /** Creative worlds craft without spending gathered materials. */
   unlimited?: boolean;
 }) {
@@ -456,48 +523,110 @@ export function CraftPanel({
       <header className="craft-head">
         <div>
           <strong>Workbench</strong>
-          <p>Spend gathered blocks on furniture and dressed stone - then place it like any block.</p>
+          <p>Make field tools for faster mining, then spend gathered blocks on furniture and dressed stone.</p>
         </div>
         <button type="button" aria-label="Close workbench" onClick={onClose}>×</button>
       </header>
       <div className="craft-list">
-        {CRAFTING_RECIPES.map((recipe) => {
-          const afford = unlimited || canCraft(recipe, inventory);
-          const [sideColor, topColor] = BLOCK_COLORS[recipe.output];
-          return (
-            <button
-              key={recipe.id}
-              className={`craft-row ${afford ? "" : "is-missing"}`}
-              type="button"
-              disabled={!afford}
-              data-testid={`button-craft-${recipe.id}`}
-              onClick={() => onCraft(recipe)}
-            >
-              <span
-                className="voxel-swatch"
-                style={{ background: `linear-gradient(135deg, ${topColor} 0 50%, ${sideColor} 50% 100%)` }}
-                aria-hidden="true"
-              />
-              <span className="craft-body">
-                <strong>{recipe.label}</strong>
-                <em>{recipe.work}</em>
-                <span className="craft-cost">
-                  {unlimited ? (
-                    <b>creative · no materials spent</b>
-                  ) : (
-                    recipe.inputs.map((input) => (
-                      <b key={input.item} className={(inventory[input.item] ?? 0) >= input.count ? "" : "short"}>
-                        {BLOCK_META[input.item].short} {inventory[input.item] ?? 0}/{input.count}
-                      </b>
-                    ))
-                  )}
+        <section className="craft-section" aria-labelledby="craft-tools-title">
+          <h3 className="craft-section-title" id="craft-tools-title">
+            Field tools <span>durable · T to change</span>
+          </h3>
+          {TOOL_DEFINITIONS.map((tool) => {
+            const durability = toolbelt[tool.id] ?? 0;
+            const owned = durability > 0;
+            const afford = unlimited || canAfford(tool.recipe.inputs, inventory);
+            const equipped = equippedToolId === tool.id;
+            return (
+              <div
+                key={tool.id}
+                className={`craft-row tool-row ${afford ? "" : "is-missing"} ${equipped ? "is-equipped" : ""}`}
+                data-testid={`tool-row-${tool.id}`}
+              >
+                <span className={`tool-mark tool-${tool.kind}`} aria-hidden="true">{tool.short}</span>
+                <span className="craft-body">
+                  <strong>{tool.label} <em className="tool-tier">{TOOL_TIER_LABELS[tool.tier]}</em></strong>
+                  <em>{tool.recipe.work}</em>
+                  <span className="craft-cost">
+                    {unlimited ? (
+                      <b>creative · no materials spent</b>
+                    ) : (
+                      tool.recipe.inputs.map((input) => (
+                        <b key={input.item} className={(inventory[input.item] ?? 0) >= input.count ? "" : "short"}>
+                          {BLOCK_META[input.item].short} {inventory[input.item] ?? 0}/{input.count}
+                        </b>
+                      ))
+                    )}
+                    {owned && <b className="tool-remaining">{durability}/{tool.maxDurability} uses</b>}
+                  </span>
                 </span>
-              </span>
-            </button>
-          );
-        })}
+                <span className="tool-actions">
+                  {owned && (
+                    <button
+                      className="tool-equip"
+                      type="button"
+                      aria-pressed={equipped}
+                      onClick={() => onEquipTool(tool.id)}
+                    >
+                      {equipped ? "Equipped" : "Equip"}
+                    </button>
+                  )}
+                  <button
+                    className="tool-craft"
+                    type="button"
+                    disabled={!afford}
+                    data-testid={`button-craft-tool-${tool.id}`}
+                    onClick={() => onCraftTool(tool.id)}
+                  >
+                    {owned ? "Recraft" : "Craft"}
+                  </button>
+                </span>
+              </div>
+            );
+          })}
+        </section>
+        <section className="craft-section" aria-labelledby="craft-building-title">
+          <h3 className="craft-section-title" id="craft-building-title">
+            Building <span>place with RMB</span>
+          </h3>
+          {CRAFTING_RECIPES.map((recipe) => {
+            const afford = unlimited || canCraft(recipe, inventory);
+            const [sideColor, topColor] = BLOCK_COLORS[recipe.output];
+            return (
+              <button
+                key={recipe.id}
+                className={`craft-row ${afford ? "" : "is-missing"}`}
+                type="button"
+                disabled={!afford}
+                data-testid={`button-craft-${recipe.id}`}
+                onClick={() => onCraft(recipe)}
+              >
+                <span
+                  className="voxel-swatch"
+                  style={{ background: `linear-gradient(135deg, ${topColor} 0 50%, ${sideColor} 50% 100%)` }}
+                  aria-hidden="true"
+                />
+                <span className="craft-body">
+                  <strong>{recipe.label}</strong>
+                  <em>{recipe.work}</em>
+                  <span className="craft-cost">
+                    {unlimited ? (
+                      <b>creative · no materials spent</b>
+                    ) : (
+                      recipe.inputs.map((input) => (
+                        <b key={input.item} className={(inventory[input.item] ?? 0) >= input.count ? "" : "short"}>
+                          {BLOCK_META[input.item].short} {inventory[input.item] ?? 0}/{input.count}
+                        </b>
+                      ))
+                    )}
+                  </span>
+                </span>
+              </button>
+            );
+          })}
+        </section>
       </div>
-      <footer className="craft-foot">press C to close · mine logs, stone and clay to refill</footer>
+      <footer className="craft-foot">press C to close · tools wear with use · ore needs the right pickaxe</footer>
     </section>
   );
 }

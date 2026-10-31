@@ -207,6 +207,74 @@ button:focus-visible { outline: 3px solid #f08a58; outline-offset: 3px; }
 }
 .hotbar-page:hover { background: rgba(60, 80, 66, 0.8); }
 
+/* Equipped tool, durability and the tool half of the workbench */
+.toolbelt-hud {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 232px;
+  padding: 5px 8px;
+  border: 1px solid rgba(253, 231, 183, .48);
+  background: rgba(28, 55, 49, .82);
+  box-shadow: 3px 4px 0 rgba(31, 60, 52, .2);
+  color: #f3ebd1;
+  text-align: left;
+  cursor: pointer;
+  pointer-events: auto;
+  backdrop-filter: blur(9px);
+  transition: background .16s, border-color .16s, transform .16s;
+}
+.toolbelt-hud:hover { background: rgba(46, 76, 65, .92); border-color: rgba(253, 231, 183, .8); transform: translateY(-1px); }
+.toolbelt-hud.is-hand { border-style: dashed; }
+.tool-mark {
+  width: 30px;
+  height: 30px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(21, 43, 37, .48);
+  background: #7d8f78;
+  box-shadow: inset 2px 2px rgba(255, 255, 255, .22), inset -2px -2px rgba(0, 0, 0, .16);
+  color: #fdf5da;
+  font: 7px var(--app-font-mono);
+  letter-spacing: .04em;
+}
+.tool-mark.tool-pickaxe { background: #899a91; }
+.tool-mark.tool-axe { background: #a77a50; }
+.tool-mark.tool-shovel { background: #7b8b5c; }
+.tool-mark.tool-hand { background: #5e7068; }
+.tool-copy { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 1px; }
+.tool-copy strong { font: 600 10px var(--app-font-mono); letter-spacing: .01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tool-copy small { font: 8px var(--app-font-mono); color: #a9c0b4; white-space: nowrap; }
+.tool-wear { height: 3px; margin-top: 2px; background: rgba(246, 238, 211, .18); overflow: hidden; }
+.tool-wear i { display: block; height: 100%; background: #d4b45e; transition: width .2s; }
+.toolbelt-hud.is-worn .tool-copy small { color: #f0a088; }
+.toolbelt-hud.is-worn .tool-wear i { background: #d96c4d; }
+.toolbelt-hud .keycap { min-width: 17px; height: 17px; flex: none; }
+
+.craft-section { display: flex; flex-direction: column; gap: 7px; }
+.craft-section + .craft-section { margin-top: 6px; padding-top: 9px; border-top: 1px solid rgba(240, 222, 177, .18); }
+.craft-section-title { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin: 0 2px 2px; font: 9px var(--app-font-mono); letter-spacing: .1em; text-transform: uppercase; color: #f0dfb3; }
+.craft-section-title span { font-size: 7px; letter-spacing: .04em; text-transform: none; color: #7f9c8f; }
+.tool-row { cursor: default; }
+.tool-row:hover { transform: none; background: rgba(246, 238, 211, .07); border-color: rgba(240, 222, 177, .2); }
+.tool-row.is-equipped { border-color: rgba(246, 217, 120, .65); background: rgba(246, 217, 120, .08); }
+.tool-row .tool-mark { width: 30px; height: 30px; }
+.tool-tier { padding: 1px 4px; border: 1px solid rgba(240, 222, 177, .26); color: #cfe0b5; font: 7px var(--app-font-mono); text-transform: uppercase; letter-spacing: .04em; }
+.tool-remaining { color: #f0dfb3 !important; border-color: rgba(240, 223, 179, .35) !important; }
+.tool-actions { margin-left: auto; display: flex; align-items: center; gap: 5px; flex: none; }
+.tool-actions button { padding: 5px 7px; border: 1px solid rgba(240, 222, 177, .28); background: rgba(246, 238, 211, .09); color: #e9e4cc; cursor: pointer; font: 7px var(--app-font-mono); letter-spacing: .05em; text-transform: uppercase; }
+.tool-actions button:hover:not(:disabled) { background: rgba(246, 238, 211, .22); }
+.tool-actions button:disabled { opacity: .42; cursor: not-allowed; }
+.tool-actions .tool-craft { border-color: rgba(246, 217, 120, .45); color: #f6e9c2; }
+.tool-actions .tool-equip[aria-pressed='true'] { background: rgba(246, 217, 120, .2); color: #f6e9c2; }
+@media (max-width: 700px) {
+  .toolbelt-hud { width: min(232px, calc(100vw - 18px)); }
+  .tool-copy small { font-size: 7px; }
+  .tool-actions { flex-direction: column; }
+  .tool-actions button { padding: 4px 5px; font-size: 6px; }
+}
+
 /* Flying status pill (double-tap Space) */
 .status-pill.is-flying { border-color:#8fd7ff;background:rgba(38,86,112,.88);color:#dff3ff; }
 .status-pill.is-flying .status-dot { background:#8fd7ff; }

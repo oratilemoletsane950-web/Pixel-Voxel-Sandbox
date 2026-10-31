@@ -94,6 +94,8 @@ export type TexturePattern =
 
 export type Rgb = [string, string, string];
 
+export type ToolKind = "pickaxe" | "axe" | "shovel";
+
 export interface BlockInfo {
   name: WorldBlockType;
   label: string;
@@ -110,6 +112,10 @@ export interface BlockInfo {
   alpha: number;
   /** Seconds of hand mining before the block breaks. */
   hardness: number;
+  /** The tool family that mines this block efficiently. */
+  tool?: ToolKind;
+  /** Minimum tool tier required to harvest; 0 means hands are enough. */
+  harvestTier: number;
   collectible: boolean;
   unbreakable: boolean;
   /** Extra colour for ore flecks. */

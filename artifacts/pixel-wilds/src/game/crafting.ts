@@ -10,13 +10,18 @@ import type { BlockType } from "./blocks";
  * coal as kiln fuel, all using materials found by exploring and mining.
  */
 
+export interface Ingredient {
+  item: BlockType;
+  count: number;
+}
+
 export interface CraftRecipe {
   id: string;
   /** Name of the thing you get. */
   label: string;
   output: BlockType;
   count: number;
-  inputs: Array<{ item: BlockType; count: number }>;
+  inputs: Ingredient[];
   /** What you do at the bench - shown as the recipe's caption. */
   work: string;
 }
@@ -121,8 +126,27 @@ export const CRAFTING_RECIPES: CraftRecipe[] = [
   },
 ];
 
+export function canAfford(
+  inputs: readonly Ingredient[],
+  inventory: Record<string, number>,
+): boolean {
+  return inputs.every((input) => (inventory[input.item] ?? 0) >= input.count);
+}
+
+/** Returns a copy of the inventory with the inputs paid. */
+export function payCost<T extends Record<string, number>>(
+  inputs: readonly Ingredient[],
+  inventory: T,
+): T {
+  const next: Record<string, number> = { ...inventory };
+  for (const input of inputs) {
+    next[input.item] = Math.max(0, (next[input.item] ?? 0) - input.count);
+  }
+  return next as T;
+}
+
 export function canCraft(recipe: CraftRecipe, inventory: Record<string, number>): boolean {
-  return recipe.inputs.every((input) => (inventory[input.item] ?? 0) >= input.count);
+  return canAfford(recipe.inputs, inventory);
 }
 
 /** Returns the inventory after paying the recipe's cost (or the same one if it cannot be paid). */
@@ -131,10 +155,7 @@ export function applyCraft<T extends Record<string, number>>(
   inventory: T,
 ): T {
   if (!canCraft(recipe, inventory)) return inventory;
-  const next: Record<string, number> = { ...inventory };
-  for (const input of recipe.inputs) {
-    next[input.item] = Math.max(0, (next[input.item] ?? 0) - input.count);
-  }
+  const next = payCost(recipe.inputs, inventory) as Record<string, number>;
   next[recipe.output] = (next[recipe.output] ?? 0) + recipe.count;
   return next as T;
 }
