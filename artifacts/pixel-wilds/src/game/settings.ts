@@ -15,13 +15,18 @@ import {
 export interface AppSettings {
   renderRadius: number;
   fov: number;
+  /** Touch-drag look multiplier; 1 is the original feel. */
+  touchSensitivity: number;
 }
 
 export const MIN_FOV = 60;
 export const MAX_FOV = 100;
+export const MIN_TOUCH_SENSITIVITY = 0.5;
+export const MAX_TOUCH_SENSITIVITY = 2;
 export const DEFAULT_SETTINGS: AppSettings = Object.freeze({
   renderRadius: DEFAULT_RENDER_RADIUS,
   fov: 74,
+  touchSensitivity: 1,
 });
 
 /** Pre-settings key, kept so existing view-distance choices survive. */
@@ -41,7 +46,11 @@ export function normalizeSettings(value: unknown): AppSettings {
     clampInteger(record.renderRadius, MIN_RENDER_RADIUS, MAX_RENDER_RADIUS) ??
     DEFAULT_SETTINGS.renderRadius;
   const fov = clampInteger(record.fov, MIN_FOV, MAX_FOV) ?? DEFAULT_SETTINGS.fov;
-  return { renderRadius, fov };
+  const touch = Number(record.touchSensitivity);
+  const touchSensitivity = Number.isFinite(touch)
+    ? Math.min(MAX_TOUCH_SENSITIVITY, Math.max(MIN_TOUCH_SENSITIVITY, Math.round(touch * 10) / 10))
+    : DEFAULT_SETTINGS.touchSensitivity;
+  return { renderRadius, fov, touchSensitivity };
 }
 
 export function readSettings(storage: KeyValueStorage | null = browserStorage()): AppSettings {

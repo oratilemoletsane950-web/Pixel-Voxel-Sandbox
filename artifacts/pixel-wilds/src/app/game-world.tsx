@@ -188,6 +188,55 @@ function WeatherParticles({ weather }: { weather: WeatherState }) {
   );
 }
 
+function HeldTool({ tool, paused }: { tool: MiningTool | null; paused: boolean }) {
+  const group = useRef<THREE.Group>(null);
+  const clock = useRef(0);
+  const { camera } = useThree();
+
+  useFrame((_, delta) => {
+    if (!group.current) return;
+    clock.current += paused ? 0 : delta;
+    group.current.position.copy(camera.position);
+    const direction = new THREE.Vector3();
+    camera.getWorldDirection(direction);
+    group.current.position.addScaledVector(direction, 0.72);
+    group.current.quaternion.copy(camera.quaternion);
+    group.current.translateX(0.34);
+    group.current.translateY(-0.3);
+    group.current.rotateZ(-0.08 + Math.sin(clock.current * 2.2) * 0.018);
+    group.current.rotateX(-0.12 + Math.sin(clock.current * 1.7) * 0.012);
+  });
+
+  if (!tool) return null;
+  const metal = tool.tier >= 3 ? "#d7b263" : tool.tier === 2 ? "#b9c3bb" : "#b78b5e";
+  return (
+    <group ref={group} renderOrder={12} frustumCulled={false}>
+      <mesh position={[0, -0.18, 0]}>
+        <boxGeometry args={[0.065, 0.7, 0.065]} />
+        <meshLambertMaterial color="#7e5234" depthTest={false} />
+      </mesh>
+      {tool.kind === "pickaxe" && (
+        <mesh position={[0, 0.21, 0]} rotation={[0, 0, 0.08]}>
+          <boxGeometry args={[0.48, 0.085, 0.09]} />
+          <meshLambertMaterial color={metal} depthTest={false} />
+        </mesh>
+      )}
+      {tool.kind === "axe" && (
+        <mesh position={[0.08, 0.2, 0]} rotation={[0, 0, 0.18]}>
+          <boxGeometry args={[0.28, 0.25, 0.085]} />
+          <meshLambertMaterial color={metal} depthTest={false} />
+        </mesh>
+      )}
+      {tool.kind === "shovel" && (
+        <mesh position={[0, 0.24, 0]}>
+          <boxGeometry args={[0.22, 0.27, 0.075]} />
+          <meshLambertMaterial color={metal} depthTest={false} />
+        </mesh>
+      )}
+    </group>
+  );
+}
+
 export function GameWorld({
   world,
   onTarget,
@@ -208,6 +257,7 @@ export function GameWorld({
   drops,
   onCollectDrops,
   weather,
+  touchSensitivity = 1,
   onUse,
   survivalMode = false,
   onEnvironment,
@@ -237,6 +287,7 @@ export function GameWorld({
   drops: DropField;
   onCollectDrops: (drops: ItemDrop[]) => void;
   weather: WeatherState;
+  touchSensitivity?: number;
   onUse: (cell: BlockCell) => void;
   /** Survival reports hazards to the session; creative ignores them. */
   survivalMode?: boolean;
@@ -423,9 +474,9 @@ export function GameWorld({
     const onTouchMove = (event: PointerEvent) => {
       const activeTouch = touchLook.current;
       if (!activeTouch || event.pointerId !== activeTouch.pointerId) return;
-      yaw.current -= (event.clientX - activeTouch.x) * 0.006;
+      yaw.current -= (event.clientX - activeTouch.x) * 0.006 * touchSensitivity;
       pitch.current = THREE.MathUtils.clamp(
-        pitch.current - (event.clientY - activeTouch.y) * 0.006,
+        pitch.current - (event.clientY - activeTouch.y) * 0.006 * touchSensitivity,
         -1.48,
         1.48,
       );
@@ -500,7 +551,7 @@ export function GameWorld({
       canvas.removeEventListener("contextmenu", onContextMenu);
       canvas.removeEventListener("wheel", onWheel);
     };
-  }, [gl]);
+  }, [gl, touchSensitivity]);
 
   const direction = useMemo(() => new THREE.Vector3(), []);
   const mobileRef = useRef(mobileMove);
@@ -719,6 +770,7 @@ export function GameWorld({
       <color ref={backgroundRef} attach="background" args={["#a9d9d1"]} />
       <fog ref={fogRef} attach="fog" args={["#b7ddd0", viewDistance * 0.55, viewDistance - 6]} />
       <WeatherParticles weather={weather} />
+      <HeldTool tool={tool} paused={paused} />
       <hemisphereLight ref={hemiRef} args={["#f9e9ba", "#567558", 1.45]} />
       <directionalLight
         ref={dirRef}

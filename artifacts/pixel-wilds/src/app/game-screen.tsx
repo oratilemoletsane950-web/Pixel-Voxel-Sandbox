@@ -76,6 +76,7 @@ import {
 import {
   craftTool as craftFieldTool,
   cycleTool,
+  enhanceTool as enhanceFieldTool,
   equipTool,
   equippedTool,
   readToolState,
@@ -86,6 +87,11 @@ import {
   type ToolId,
   type ToolState,
 } from "../game/player/tools";
+import {
+  advanceMiningHold,
+  beginMiningHold,
+  type MiningHoldState,
+} from "../game/player/hold-mining";
 import { isColdBiome, weatherAt } from "../game/world/weather";
 import {
   MAX_HEALTH,
@@ -214,6 +220,10 @@ export function GameScreen({
       ? { ...currentTool, creative: true }
       : CREATIVE_MINING_TOOL
     : currentTool;
+  const miningToolRef = useRef(miningTool);
+  miningToolRef.current = miningTool;
+  const mobileMiningRef = useRef<MiningHoldState | null>(null);
+  const [mobileMiningActive, setMobileMiningActive] = useState(false);
   const paused = packOpen || craftOpen || pauseOpen || Boolean(openChest) || !survival.alive;
 
   useEffect(() => {
@@ -507,6 +517,30 @@ export function GameScreen({
     [dropField, inventory, playerPosition, profile.id, showNotice],
   );
 
+  const stopMobileMining = useCallback(() => {
+    if (!mobileMiningRef.current) return;
+    mobileMiningRef.current = null;
+    setMobileMiningActive(false);
+    setMiningProgress(0);
+  }, []);
+
+  const startMobileMining = useCallback((cell: BlockCell) => {
+    if (paused) return;
+    const tool = miningToolRef.current;
+    if (!unlimited && !canHarvest(cell.type, tool)) {
+      showNotice(harvestRefusal(cell.type, tool) || "That block needs a stronger tool");
+      return;
+    }
+    const hold = beginMiningHold(cell, tool);
+    if (!hold) {
+      showNotice("That block cannot be mined");
+      return;
+    }
+    mobileMiningRef.current = hold;
+    setMiningProgress(0.01);
+    setMobileMiningActive(true);
+  }, [paused, showNotice, unlimited]);
+
   const mineBlock = useCallback(
     (cell: BlockCell) => {
       const current = worldRef.current;
@@ -585,6 +619,31 @@ export function GameScreen({
     },
     [dropField, profile.id, showNotice, setWorldEdited, survivalMode, unlimited],
   );
+
+  useEffect(() => {
+    if (!mobileMiningActive) return;
+    const timer = window.setInterval(() => {
+      const hold = mobileMiningRef.current;
+      const target = targetRef.current;
+      if (!hold || !target) {
+        stopMobileMining();
+        return;
+      }
+      const step = advanceMiningHold(hold, target.cell, 0.05, miningToolRef.current);
+      if (!step.state) {
+        stopMobileMining();
+        if (step.complete) mineBlock(target.cell);
+        return;
+      }
+      mobileMiningRef.current = step.state;
+      setMiningProgress(step.state.progress);
+    }, 50);
+    return () => window.clearInterval(timer);
+  }, [mineBlock, mobileMiningActive, stopMobileMining]);
+
+  useEffect(() => {
+    if (paused) stopMobileMining();
+  }, [paused, stopMobileMining]);
 
   const placeBlock = useCallback(
     (cell: BlockCell, adjacent: AimTarget["adjacent"]) => {
@@ -677,6 +736,21 @@ export function GameScreen({
       toolStateRef.current = result.state;
       setToolState(result.state);
       showNotice(`${definition.label} repaired · ${definition.maxDurability} uses`);
+    },
+    [inventory, showNotice, unlimited],
+  );
+
+  const enhanceFieldToolAtBench = useCallback(
+    (id: ToolId) => {
+      const result = enhanceFieldTool(id, inventory, toolStateRef.current, unlimited);
+      if (!result) {
+        showNotice("Enhancement needs the listed bench materials");
+        return;
+      }
+      setInventory(result.inventory);
+      toolStateRef.current = result.state;
+      setToolState(result.state);
+      showNotice(`${toolDefinition(id)?.label ?? "Tool"} enhanced`);
     },
     [inventory, showNotice, unlimited],
   );
@@ -992,6 +1066,7 @@ export function GameScreen({
             drops={dropField}
             onCollectDrops={collectDrops}
             weather={weather}
+            touchSensitivity={settings.touchSensitivity}
             onUse={useBlock}
             survivalMode={survivalMode}
             onEnvironment={handleEnvironment}
@@ -1071,6 +1146,8 @@ export function GameScreen({
           onCraftTool={craftFieldToolAtBench}
           onEquipTool={equipFieldTool}
           onRepairTool={repairFieldToolAtBench}
+          onEnhanceTool={enhanceFieldToolAtBench}
+          upgrades={toolState.upgrades}
           unlimited={unlimited}
         />
         <ToastNote notice={notice} />
@@ -1078,7 +1155,8 @@ export function GameScreen({
         <MobileControls
           onMove={setMobileMove}
           target={target}
-          onMine={mineBlock}
+          onMineStart={startMobileMining}
+          onMineEnd={stopMobileMining}
           onPlace={placeBlock}
           onUse={useBlock}
           onToggleCraft={() => setCraftOpen((open) => !open)}

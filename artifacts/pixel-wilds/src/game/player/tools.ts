@@ -225,6 +225,35 @@ export interface ToolState {
   /** Remaining durability per owned tool; 0 means the tool is not owned. */
   belt: ToolBelt;
   equipped: ToolId | null;
+  /** Workbench enhancement level (0-3) per owned tool. */
+  upgrades?: Partial<Record<ToolId, number>>;
+}
+
+export const MAX_TOOL_ENHANCEMENT = 3;
+
+export function toolUpgradeLevel(state: ToolState, id: ToolId): number {
+  const raw = state.upgrades?.[id] ?? 0;
+  return Math.max(0, Math.min(MAX_TOOL_ENHANCEMENT, Math.floor(Number(raw) || 0)));
+}
+
+/** The base definition plus the current workbench enhancement. */
+export function effectiveToolDefinition(id: ToolId, level = 0): ToolDefinition {
+  const base = TOOL_BY_ID[id];
+  const upgrade = Math.max(0, Math.min(MAX_TOOL_ENHANCEMENT, Math.floor(level) || 0));
+  return {
+    ...base,
+    speed: base.speed * (1 + upgrade * 0.09),
+    maxDurability: Math.round(base.maxDurability * (1 + upgrade * 0.22)),
+  };
+}
+
+export function enhancementCost(id: ToolId, level: number): Ingredient[] {
+  const tier = TOOL_BY_ID[id].tier;
+  return [
+    { item: tier >= 2 ? "stone" : "planks", count: 2 + level * 2 },
+    { item: "planks", count: 1 + level },
+    ...(tier >= 3 ? [{ item: "iron_ore" as const, count: 1 + level }] : []),
+  ];
 }
 
 export const TOOL_BY_ID = Object.fromEntries(
@@ -261,7 +290,8 @@ export function ownedToolIds(state: ToolState): ToolId[] {
 
 export function equippedTool(state: ToolState): ToolDefinition | null {
   if (!state.equipped) return null;
-  const tool = TOOL_BY_ID[state.equipped];
+  const level = toolUpgradeLevel(state, state.equipped);
+  const tool = effectiveToolDefinition(state.equipped, level);
   return tool && state.belt[tool.id] > 0 ? tool : null;
 }
 
@@ -284,13 +314,14 @@ export function craftTool<T extends Record<string, number>>(
   free = false,
 ): { inventory: T; state: ToolState } | null {
   if (!canCraftTool(id, inventory, free)) return null;
-  const definition = TOOL_BY_ID[id];
+  const definition = effectiveToolDefinition(id, toolUpgradeLevel(state, id));
   const nextInventory = free
     ? inventory
     : payCost<T>(definition.recipe.inputs, inventory);
   return {
     inventory: nextInventory,
     state: {
+      ...state,
       belt: { ...state.belt, [id]: definition.maxDurability },
       equipped: id,
     },
@@ -304,7 +335,7 @@ export function canRepairTool(
   state: ToolState,
   free = false,
 ): boolean {
-  const definition = TOOL_BY_ID[id];
+  const definition = effectiveToolDefinition(id, toolUpgradeLevel(state, id));
   const durability = state.belt[id] ?? 0;
   return durability > 0 && durability < definition.maxDurability &&
     (free || canAfford(definition.repair, inventory));
@@ -322,11 +353,42 @@ export function repairTool<T extends Record<string, number>>(
   free = false,
 ): { inventory: T; state: ToolState } | null {
   if (!canRepairTool(id, inventory, state, free)) return null;
-  const definition = TOOL_BY_ID[id];
+  const definition = effectiveToolDefinition(id, toolUpgradeLevel(state, id));
   return {
     inventory: free ? inventory : payCost<T>(definition.repair, inventory),
     state: {
       ...state,
+      belt: { ...state.belt, [id]: definition.maxDurability },
+    },
+  };
+}
+
+export function canEnhanceTool(
+  id: ToolId,
+  inventory: Record<string, number>,
+  state: ToolState,
+  free = false,
+): boolean {
+  const level = toolUpgradeLevel(state, id);
+  return state.belt[id] > 0 && level < MAX_TOOL_ENHANCEMENT &&
+    (free || canAfford(enhancementCost(id, level), inventory));
+}
+
+/** Raises a tool's workbench level; enhancement restores its new maximum. */
+export function enhanceTool<T extends Record<string, number>>(
+  id: ToolId,
+  inventory: T,
+  state: ToolState,
+  free = false,
+): { inventory: T; state: ToolState } | null {
+  if (!canEnhanceTool(id, inventory, state, free)) return null;
+  const level = toolUpgradeLevel(state, id) + 1;
+  const definition = effectiveToolDefinition(id, level);
+  return {
+    inventory: free ? inventory : payCost<T>(enhancementCost(id, level - 1), inventory),
+    state: {
+      ...state,
+      upgrades: { ...(state.upgrades ?? {}), [id]: level },
       belt: { ...state.belt, [id]: definition.maxDurability },
     },
   };
@@ -379,20 +441,33 @@ export function readToolState(
   try {
     const parsed: unknown = JSON.parse(storage.getItem(toolSaveKey(worldId)) || "null");
     if (!parsed || typeof parsed !== "object") return createToolState();
-    const record = parsed as { belt?: unknown; equipped?: unknown };
+    const record = parsed as { belt?: unknown; equipped?: unknown; upgrades?: unknown };
     const belt = createEmptyToolbelt();
+    const upgrades: Partial<Record<ToolId, number>> = {};
+    const rawUpgrades = record.upgrades;
+    if (rawUpgrades && typeof rawUpgrades === "object") {
+      for (const definition of TOOL_DEFINITIONS) {
+        const raw = Number((rawUpgrades as Record<string, unknown>)[definition.id]);
+        if (Number.isFinite(raw) && raw > 0) {
+          upgrades[definition.id] = Math.min(MAX_TOOL_ENHANCEMENT, Math.floor(raw));
+        }
+      }
+    }
     if (record.belt && typeof record.belt === "object") {
       for (const definition of TOOL_DEFINITIONS) {
         const raw = Number((record.belt as Record<string, unknown>)[definition.id]);
         if (Number.isFinite(raw) && raw > 0) {
-          belt[definition.id] = Math.min(definition.maxDurability, Math.floor(raw));
+          belt[definition.id] = Math.min(
+            effectiveToolDefinition(definition.id, upgrades[definition.id] ?? 0).maxDurability,
+            Math.floor(raw),
+          );
         }
       }
     }
     const equipped = isToolId(record.equipped) && belt[record.equipped] > 0
       ? record.equipped
       : null;
-    return { belt, equipped };
+    return { belt, equipped, upgrades };
   } catch {
     return createToolState();
   }

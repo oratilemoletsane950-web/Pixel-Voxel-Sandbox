@@ -17,7 +17,13 @@ import {
   type GameMode,
   type WorldProfile,
 } from "../game/world";
-import { MAX_FOV, MIN_FOV, type AppSettings } from "../game/settings";
+import {
+  MAX_FOV,
+  MAX_TOUCH_SENSITIVITY,
+  MIN_FOV,
+  MIN_TOUCH_SENSITIVITY,
+  type AppSettings,
+} from "../game/settings";
 
 export interface CreateWorldInput {
   name: string;
@@ -462,6 +468,19 @@ export function SettingsFields({
           data-testid="slider-fov"
         />
         <small>Settings are remembered between sessions.</small>
+      </label>
+      <label className="field">
+        <span>Touch look · {settings.touchSensitivity.toFixed(1)}x</span>
+        <input
+          type="range"
+          min={MIN_TOUCH_SENSITIVITY}
+          max={MAX_TOUCH_SENSITIVITY}
+          step={0.1}
+          value={settings.touchSensitivity}
+          onChange={(event) => onChange({ ...settings, touchSensitivity: Number(event.target.value) })}
+          data-testid="slider-touch-sensitivity"
+        />
+        <small>Adjusts drag-to-look on touch screens.</small>
       </label>
     </div>
   );

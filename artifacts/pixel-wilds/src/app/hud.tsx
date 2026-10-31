@@ -12,9 +12,13 @@ import { BLOCK_TYPES } from "../game/blocks";
 import { CHUNK_SIZE } from "../game/chunk";
 import { CRAFTING_RECIPES, canAfford, canCraft, type CraftRecipe } from "../game/crafting";
 import {
+  MAX_TOOL_ENHANCEMENT,
   TOOL_DEFINITIONS,
   TOOL_TIER_LABELS,
+  canEnhanceTool,
   canRepairTool,
+  effectiveToolDefinition,
+  enhancementCost,
   type ToolBelt,
   type ToolDefinition,
   type ToolId,
@@ -553,6 +557,8 @@ export function CraftPanel({
   onCraftTool,
   onEquipTool,
   onRepairTool,
+  onEnhanceTool,
+  upgrades = {},
   unlimited = false,
 }: {
   open: boolean;
@@ -564,6 +570,8 @@ export function CraftPanel({
   onCraftTool: (id: ToolId) => void;
   onEquipTool: (id: ToolId) => void;
   onRepairTool: (id: ToolId) => void;
+  onEnhanceTool: (id: ToolId) => void;
+  upgrades?: Partial<Record<ToolId, number>>;
   /** Creative worlds craft without spending gathered materials. */
   unlimited?: boolean;
 }) {
@@ -587,15 +595,23 @@ export function CraftPanel({
             Field tools <span>durable · T to change</span>
           </h3>
           {TOOL_DEFINITIONS.map((tool) => {
+            const level = Math.max(0, Math.min(MAX_TOOL_ENHANCEMENT, upgrades[tool.id] ?? 0));
+            const effective = effectiveToolDefinition(tool.id, level);
             const durability = toolbelt[tool.id] ?? 0;
             const owned = durability > 0;
             const afford = unlimited || canAfford(tool.recipe.inputs, inventory);
             const equipped = equippedToolId === tool.id;
-            const worn = owned && durability < tool.maxDurability;
+            const worn = owned && durability < effective.maxDurability;
             const repairAfford = worn && canRepairTool(
               tool.id,
               inventory,
-              { belt: toolbelt, equipped: equippedToolId },
+              { belt: toolbelt, equipped: equippedToolId, upgrades },
+              unlimited,
+            );
+            const enhanceAfford = owned && level < MAX_TOOL_ENHANCEMENT && canEnhanceTool(
+              tool.id,
+              inventory,
+              { belt: toolbelt, equipped: equippedToolId, upgrades },
               unlimited,
             );
             return (
@@ -606,8 +622,8 @@ export function CraftPanel({
               >
                 <span className={`tool-mark tool-${tool.kind}`} aria-hidden="true">{tool.short}</span>
                 <span className="craft-body">
-                  <strong>{tool.label} <em className="tool-tier">{TOOL_TIER_LABELS[tool.tier]}</em></strong>
-                  <em>{tool.recipe.work}</em>
+                  <strong>{tool.label} <em className="tool-tier">{TOOL_TIER_LABELS[tool.tier]}</em>{level > 0 && <em className="tool-upgrade"> +{level}</em>}</strong>
+                  <em>{tool.recipe.work} {level > 0 ? `· ${Math.round(effective.speed * 10) / 10}x speed` : ""}</em>
                   <span className="craft-cost">
                     {unlimited ? (
                       <b>creative · no materials spent</b>
@@ -618,16 +634,28 @@ export function CraftPanel({
                         </b>
                       ))
                     )}
-                    {owned && <b className="tool-remaining">{durability}/{tool.maxDurability} uses</b>}
+                    {owned && <b className="tool-remaining">{durability}/{effective.maxDurability} uses</b>}
                   </span>
                 </span>
                 <span className="tool-actions">
+                  {owned && level < MAX_TOOL_ENHANCEMENT && (
+                    <button
+                      className="tool-enhance"
+                      type="button"
+                      disabled={!enhanceAfford}
+                      title={enhancementCost(tool.id, level).map((input) => `${BLOCK_META[input.item].label} x${input.count}`).join(" + ")}
+                      data-testid={`button-enhance-tool-${tool.id}`}
+                      onClick={() => onEnhanceTool(tool.id)}
+                    >
+                      +{level + 1}
+                    </button>
+                  )}
                   {worn && (
                     <button
                       className="tool-repair"
                       type="button"
                       disabled={!repairAfford}
-                      title={tool.repair.map((input) => `${BLOCK_META[input.item].label} x${input.count}`).join(" + ")}
+                      title={effective.repair.map((input) => `${BLOCK_META[input.item].label} x${input.count}`).join(" + ")}
                       data-testid={`button-repair-tool-${tool.id}`}
                       onClick={() => onRepairTool(tool.id)}
                     >
@@ -730,7 +758,8 @@ export function WelcomeOverlay({ hidden, onBegin }: { hidden: boolean; onBegin: 
 export function MobileControls({
   onMove,
   target,
-  onMine,
+  onMineStart,
+  onMineEnd,
   onPlace,
   onUse,
   onToggleCraft,
@@ -738,7 +767,8 @@ export function MobileControls({
 }: {
   onMove: Dispatch<SetStateAction<MobileMove>>;
   target: AimTarget | null;
-  onMine: (cell: BlockCell) => void;
+  onMineStart: (cell: BlockCell) => void;
+  onMineEnd: () => void;
   onPlace: (cell: BlockCell, adjacent: AimTarget["adjacent"]) => void;
   onUse: (cell: BlockCell) => void;
   onToggleCraft: () => void;
@@ -769,9 +799,24 @@ export function MobileControls({
       <div className="mobile-actions" aria-label="Touch building controls">
         <button
           type="button"
-          aria-label="Mine targeted block"
+          aria-label="Hold to mine targeted block"
           data-testid="button-touch-mine"
-          onClick={() => { if (target) onMine(target.cell); }}
+          onPointerDown={(event) => {
+            event.preventDefault();
+            if (target) onMineStart(target.cell);
+          }}
+          onPointerUp={(event) => { event.preventDefault(); onMineEnd(); }}
+          onPointerCancel={onMineEnd}
+          onPointerLeave={onMineEnd}
+          onKeyDown={(event) => {
+            if ((event.key === " " || event.key === "Enter") && !event.repeat) {
+              event.preventDefault();
+              if (target) onMineStart(target.cell);
+            }
+          }}
+          onKeyUp={(event) => {
+            if (event.key === " " || event.key === "Enter") onMineEnd();
+          }}
         >
           Mine
         </button>

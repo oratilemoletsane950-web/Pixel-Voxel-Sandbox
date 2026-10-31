@@ -723,6 +723,8 @@ button:focus-visible { outline: 3px solid #f08a58; outline-offset: 3px; }
 .furnace-buttons button { border:1px solid rgba(240,222,177,.22);background:rgba(246,238,211,.06);color:#e9e4cc;font:7px var(--app-font-mono);padding:4px 5px;cursor:pointer; }
 .furnace-buttons button:disabled { opacity:.35;cursor:not-allowed; }
 .furnace-hint { margin:6px 0 0;font:8px var(--app-font-mono);line-height:1.5;color:#829b90; }
+.tool-enhance { border-color:rgba(127,190,145,.55)!important;color:#bfe2b8!important; }
+.tool-upgrade { color:#9fce9b!important;font-style:normal!important; }
 .hotbar-pack { margin-left:4px;padding:7px 8px;border:1px solid rgba(240,222,177,.3);background:rgba(246,238,211,.08);color:#f6e9c2;cursor:pointer;font:8px var(--app-font-mono);text-transform:uppercase;letter-spacing:.05em; }
 .hotbar-pack:hover { background:rgba(246,238,211,.18); }
 @media (max-width: 720px) {
