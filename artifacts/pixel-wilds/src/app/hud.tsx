@@ -21,7 +21,13 @@ import {
   type DamageCause,
   type SurvivalState,
 } from "../game/player/survival";
-import { MAX_RENDER_RADIUS, MIN_RENDER_RADIUS, type BlockCell } from "../game/world";
+import {
+  MAX_RENDER_RADIUS,
+  MIN_RENDER_RADIUS,
+  formatWorldTime,
+  phaseLabel,
+  type BlockCell,
+} from "../game/world";
 import { BLOCK_COLORS, BLOCK_META } from "./block-palette";
 
 export interface MobileMove {
@@ -31,6 +37,19 @@ export interface MobileMove {
 }
 
 export type SaveState = "saved" | "unsaved";
+
+export function WorldClock({ seconds }: { seconds: number }) {
+  return (
+    <div
+      className="world-clock"
+      aria-label={`World time ${formatWorldTime(seconds)}, ${phaseLabel(seconds)}`}
+      data-testid="status-world-clock"
+    >
+      <span>{formatWorldTime(seconds)}</span>
+      <small>{phaseLabel(seconds)}</small>
+    </div>
+  );
+}
 
 export function BrandLockup() {
   return (
@@ -160,7 +179,8 @@ export function WorldRulesPanel({ open, onClose }: { open: boolean; onClose: () 
         </button>
       </div>
       <p><b>Scale:</b> every block is 0.5 m. You are 2 m (4 blocks) tall, doors are 5 blocks high, and a step up is one block.</p>
-      <p><b>Layers:</b> bedrock, deep rock, mineral bands, soil and surface vegetation form the land.</p>
+      <p><b>Layers:</b> bedrock, deep rock, mineral bands, soil and surface vegetation form the land. Caves open below a three-block roof, so the surface stays safe.</p>
+      <p><b>Time:</b> a twelve-minute day cycles through dawn, daylight, dusk and night. The clock pauses with the game.</p>
       <p><b>Landforms:</b> seeded geological fields shape valleys, plateaus, ridges and mountains.</p>
       <p><b>Water:</b> rivers carve wet valleys, with lakes and sediment-rich banks.</p>
       <p><b>Biomes:</b> temperature, moisture, elevation and soil shape forests, wetlands, grasslands and deserts.</p>

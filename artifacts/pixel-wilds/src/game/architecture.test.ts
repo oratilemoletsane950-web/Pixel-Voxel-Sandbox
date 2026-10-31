@@ -132,7 +132,7 @@ test("block catalogue validation rejects gaps, duplicates and unknown names", ()
 });
 
 test("chunk generation stages are registered in the historical order", () => {
-  assert.deepEqual(chunkStageOrder(), ["geology", "ores", "ground-cover", "vegetation"]);
+  assert.deepEqual(chunkStageOrder(), ["geology", "ores", "caves", "ground-cover", "vegetation"]);
 });
 
 test("every vegetation species declares a habitat and a stamp", () => {

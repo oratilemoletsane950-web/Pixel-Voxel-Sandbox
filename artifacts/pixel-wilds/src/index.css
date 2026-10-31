@@ -70,6 +70,9 @@ button:focus-visible { outline: 3px solid #f08a58; outline-offset: 3px; }
 .brand-name { font-size:17px;font-weight:700;letter-spacing:-.06em;line-height:1; }
 .brand-kicker { margin-top:5px;font:9px var(--app-font-mono);letter-spacing:.16em;text-transform:uppercase;color:#52736a; }
 .top-right { position:absolute;right:clamp(18px,3.2vw,48px);top:clamp(18px,3.4vh,34px);display:flex;align-items:center;gap:10px; }
+.world-clock { position:absolute;left:50%;top:clamp(18px,3.4vh,34px);transform:translateX(-50%);display:flex;align-items:baseline;gap:8px;padding:8px 12px;background:rgba(28,55,49,.68);border:1px solid rgba(253,231,183,.35);box-shadow:2px 2px 0 rgba(31,60,52,.18);backdrop-filter:blur(8px);color:#f7edcf; }
+.world-clock span { font:15px var(--app-font-mono);letter-spacing:.06em; }
+.world-clock small { font:8px var(--app-font-mono);letter-spacing:.12em;text-transform:uppercase;color:#b7ccba; }
 .status-pill { display:flex;align-items:center;gap:8px;padding:9px 12px;border:1px solid rgba(31,60,52,.23);background:rgba(248,241,218,.82);backdrop-filter:blur(8px);font:10px var(--app-font-mono);letter-spacing:.07em;text-transform:uppercase;color:#31574b;box-shadow:2px 2px 0 rgba(31,60,52,.18); }
 .status-dot { width:7px;height:7px;border-radius:50%;background:#e47c50;box-shadow:0 0 0 3px rgba(228,124,80,.15); }
 .is-saved .status-dot { background:#528e6e;box-shadow:0 0 0 3px rgba(82,142,110,.15); }
@@ -135,6 +138,9 @@ button:focus-visible { outline: 3px solid #f08a58; outline-offset: 3px; }
 @keyframes card-arrive { from { opacity:0;transform:translateY(12px) scale(.98); } to { opacity:1;transform:translateY(0) scale(1); } }
 @media (max-width:700px) {
  .game-shell { min-height:500px; }
+ .world-clock { top:15px;padding:6px 9px; }
+ .world-clock span { font-size:12px; }
+ .world-clock small { display:none; }
  .brand-lockup { top:16px;left:15px;gap:9px; }
  .brand-stamp { width:34px;height:34px; }
  .brand-kicker { font-size:8px; }

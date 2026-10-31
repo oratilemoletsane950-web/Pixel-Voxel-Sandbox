@@ -2,7 +2,7 @@
  * The chunk generation pipeline.
  *
  * Registration order (by `order`) is the world's generation order:
- * geology -> ores -> ground cover -> vegetation.
+ * geology -> ores -> caves -> ground cover -> vegetation.
  *
  * To add a pass (caves, structures, carvings, settlements), write a stage next
  * to this file and register it below. No other module needs to change, and a
@@ -11,8 +11,12 @@
  * Example: settlement generation is currently disabled by requirement. Its
  * stamper already conforms to this shape:
  *   register({ id: "settlements", order: 50, run: ({ writer, terrain, seed }) => stampSettlements(writer, terrain, seed) })
+ *
+ * Caves are registered after ores and before surface decoration, so they can
+ * remove rock without disturbing the roof that vegetation and spawns rely on.
  */
 import { Pipeline } from "../core/pipeline";
+import { caveStage } from "./caves";
 import { geologyStage } from "./geology";
 import { groundCoverStage } from "./groundCover";
 import { oreStage } from "./ores";
@@ -23,6 +27,7 @@ export const CHUNK_PIPELINE = new Pipeline<GenerationContext>("chunk generation"
 
 CHUNK_PIPELINE.register(geologyStage)
   .register(oreStage)
+  .register(caveStage)
   .register(groundCoverStage)
   .register(vegetationStage);
 

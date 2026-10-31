@@ -8,9 +8,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   blockKey,
+  dayFraction,
+  daylight,
   getChunkCoordinates,
   getVisibleBlocksNear,
   PLAYER_EYE_HEIGHT,
+  skyPalette,
+  sunHeight,
   type BlockCell,
   type WorldData,
 } from "../game/world";
@@ -45,6 +49,7 @@ export function VoxelFallback({
   onStart,
   paused = false,
   allowFlight = true,
+  worldTime,
   survivalMode = false,
   onEnvironment,
   onFall,
@@ -63,6 +68,7 @@ export function VoxelFallback({
   paused?: boolean;
   /** Survival worlds keep the player grounded; creative worlds may fly. */
   allowFlight?: boolean;
+  worldTime: number;
   survivalMode?: boolean;
   onEnvironment?: (environment: SurvivalEnvironment) => void;
   onFall?: (impactSpeed: number) => void;
@@ -108,6 +114,7 @@ export function VoxelFallback({
     onPosition,
     onChunkChange,
     onStart,
+    worldTime,
     survivalMode,
     onEnvironment,
     onFall,
@@ -122,6 +129,7 @@ export function VoxelFallback({
     onPosition,
     onChunkChange,
     onStart,
+    worldTime,
     survivalMode,
     onEnvironment,
     onFall,
@@ -364,16 +372,31 @@ export function VoxelFallback({
 
       const width = rect.width;
       const height = rect.height;
+      const worldTime = latest.current.worldTime;
+      const palette = skyPalette(worldTime);
+      const light = daylight(worldTime);
+      const angle = Math.PI * 2 * (dayFraction(worldTime) - 0.25);
+      const elevation = sunHeight(worldTime);
       const background = context.createLinearGradient(0, 0, 0, height);
-      background.addColorStop(0, "#a9d9d1");
-      background.addColorStop(0.58, "#c8dfc0");
-      background.addColorStop(1, "#e8d8a5");
+      background.addColorStop(0, palette.sky);
+      background.addColorStop(0.58, palette.fog);
+      background.addColorStop(1, palette.ambient);
       context.fillStyle = background;
       context.fillRect(0, 0, width, height);
-      context.fillStyle = "rgba(255, 229, 157, .88)";
-      context.fillRect(width * 0.77, height * 0.16, 30, 30);
-      context.fillRect(width * 0.77 + 7, height * 0.16 - 7, 16, 44);
-      context.fillRect(width * 0.77 - 7, height * 0.16 + 7, 44, 16);
+
+      if (elevation > -0.18) {
+        const sunX = width * (0.5 + Math.cos(angle) * 0.32);
+        const sunY = height * (0.3 - elevation * 0.16);
+        context.fillStyle = palette.sun;
+        context.fillRect(sunX - 15, sunY - 15, 30, 30);
+        context.fillRect(sunX - 8, sunY - 22, 16, 44);
+        context.fillRect(sunX - 22, sunY - 8, 44, 16);
+      } else {
+        const moonX = width * (0.5 - Math.cos(angle) * 0.32);
+        const moonY = height * (0.3 + elevation * 0.16);
+        context.fillStyle = "rgba(220, 233, 230, .84)";
+        context.fillRect(moonX - 11, moonY - 11, 22, 22);
+      }
 
       const tileWidth = Math.max(21, Math.min(36, width / 31));
       const tileHeight = tileWidth * 0.48;
@@ -403,6 +426,12 @@ export function VoxelFallback({
           blockHeight,
           highlighted,
         );
+      }
+
+      const darkness = (1 - light) * 0.36;
+      if (darkness > 0.01) {
+        context.fillStyle = `rgba(9, 18, 24, ${darkness})`;
+        context.fillRect(0, 0, width, height);
       }
     };
     frame = window.requestAnimationFrame(render);

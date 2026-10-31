@@ -8,6 +8,7 @@
  *   streaming         — chunk generation/streaming and edit replay
  *   spawn             — safe spawn selection
  *   persistence       — save/load with an injectable storage backend
+ *   clock             — world time, daylight palettes and clock persistence
  *   settlements       — settlement query boundary (currently disabled)
  */
 export * from "./types";
@@ -17,6 +18,7 @@ export * from "./access";
 export * from "./streaming";
 export * from "./spawn";
 export * from "./persistence";
+export * from "./clock";
 
 /* Re-exported so `./game/world` remains the one-stop import it always was. */
 export { BLOCK_TYPES, WORLD_BLOCK_TYPES, type BlockType, type WorldBlockType } from "../blocks/types";

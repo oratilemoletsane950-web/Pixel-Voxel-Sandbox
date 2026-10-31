@@ -12,7 +12,10 @@ import * as THREE from "three";
 import { CHUNK_SIZE, chunkKey } from "../game/chunk";
 import {
   blockKey,
+  dayFraction,
   getChunkCoordinates,
+  skyPalette,
+  sunHeight,
   type BlockCell,
   type WorldData,
 } from "../game/world";
@@ -52,6 +55,7 @@ export function GameWorld({
   paused,
   allowFlight,
   fov,
+  worldTime,
   survivalMode = false,
   onEnvironment,
   onFall,
@@ -71,6 +75,7 @@ export function GameWorld({
   /** Survival worlds keep the player grounded; creative worlds may fly. */
   allowFlight: boolean;
   fov: number;
+  worldTime: number;
   /** Survival reports hazards to the session; creative ignores them. */
   survivalMode?: boolean;
   onEnvironment?: (environment: SurvivalEnvironment) => void;
@@ -100,6 +105,12 @@ export function GameWorld({
   const fogRef = useRef<THREE.Fog>(null);
   const backgroundRef = useRef<THREE.Color>(null);
   const sunRef = useRef<THREE.Mesh>(null);
+  const moonRef = useRef<THREE.Mesh>(null);
+  const sunMaterialRef = useRef<THREE.MeshBasicMaterial>(null);
+  const hemiRef = useRef<THREE.HemisphereLight>(null);
+  const dirRef = useRef<THREE.DirectionalLight>(null);
+  const worldTimeRef = useRef(worldTime);
+  worldTimeRef.current = worldTime;
   const viewDistance = renderRadius * CHUNK_SIZE;
   useEffect(() => {
     const perspective = camera as THREE.PerspectiveCamera;
@@ -367,25 +378,56 @@ export function GameWorld({
     camera.rotation.set(pitch.current, yaw.current, 0, "YXZ");
     camera.position.set(player.x, player.y, player.z);
 
-    // Fog hides the edge of the loaded world; underwater it closes in and turns blue.
+    // Fog hides the edge of the loaded world; underwater it closes in and turns
+    // blue, while the surface follows the world clock's sky palette.
     const underwater = isEyeUnderwater(callbacks.current.world, player);
+    const time = worldTimeRef.current;
+    const palette = skyPalette(time);
     const fog = fogRef.current;
     if (fog) {
-      fog.color.set(underwater ? "#2a6f86" : "#b7ddd0");
+      fog.color.set(underwater ? "#2a6f86" : palette.fog);
       fog.near = underwater ? 1 : viewDistance * 0.55;
       fog.far = underwater ? 34 : viewDistance - 6;
     }
-    backgroundRef.current?.set(underwater ? "#2a6f86" : "#a9d9d1");
+    backgroundRef.current?.set(underwater ? "#2a6f86" : palette.sky);
+
+    const hemi = hemiRef.current;
+    if (hemi) {
+      hemi.color.set(palette.ambient);
+      hemi.groundColor.set(palette.ground);
+      hemi.intensity = 0.35 + palette.light * 0.55;
+    }
+    const dir = dirRef.current;
+    if (dir) {
+      dir.color.set(palette.sun);
+      dir.intensity = palette.light;
+    }
+
+    const sunDistance = viewDistance * 0.9;
+    const angle = Math.PI * 2 * (dayFraction(time) - 0.25);
+    const elevation = sunHeight(time);
     const sun = sunRef.current;
     if (sun) {
-      const sunDistance = viewDistance * 0.9;
       sun.position.set(
-        camera.position.x + sunDistance * 0.5,
-        camera.position.y + sunDistance * 0.55,
+        camera.position.x + Math.cos(angle) * sunDistance * 0.6,
+        camera.position.y + elevation * sunDistance * 0.7,
         camera.position.z - sunDistance * 0.62,
       );
       sun.lookAt(camera.position);
       sun.scale.setScalar(sunDistance * 0.075);
+      sun.visible = elevation > -0.18;
+      sunMaterialRef.current?.color.set(palette.sun);
+    }
+    const moon = moonRef.current;
+    if (moon) {
+      moon.position.set(
+        camera.position.x - Math.cos(angle) * sunDistance * 0.55,
+        camera.position.y - elevation * sunDistance * 0.65,
+        camera.position.z - sunDistance * 0.58,
+      );
+      moon.lookAt(camera.position);
+      moon.scale.setScalar(sunDistance * 0.045);
+      moon.visible = elevation < 0.18;
     }
 
     const chunk = getChunkCoordinates(player.x, player.z);
@@ -431,15 +473,20 @@ export function GameWorld({
     <>
       <color ref={backgroundRef} attach="background" args={["#a9d9d1"]} />
       <fog ref={fogRef} attach="fog" args={["#b7ddd0", viewDistance * 0.55, viewDistance - 6]} />
-      <hemisphereLight args={["#f9e9ba", "#567558", 1.45]} />
+      <hemisphereLight ref={hemiRef} args={["#f9e9ba", "#567558", 1.45]} />
       <directionalLight
+        ref={dirRef}
         position={[-8, 15, 7]}
         intensity={2.05}
         color="#ffe3a4"
       />
       <mesh ref={sunRef}>
         <boxGeometry args={[1, 1, 0.08]} />
-        <meshBasicMaterial color="#f1b76b" fog={false} />
+        <meshBasicMaterial ref={sunMaterialRef} color="#f1b76b" fog={false} />
+      </mesh>
+      <mesh ref={moonRef}>
+        <boxGeometry args={[1, 1, 0.08]} />
+        <meshBasicMaterial color="#dce9e6" fog={false} transparent opacity={0.82} />
       </mesh>
       {chunkList.map(({ chunk, signature }) => (
         <ChunkMesh

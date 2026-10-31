@@ -44,6 +44,34 @@ export function valueNoise(x: number, z: number, scale: number, seed: number): n
   return top * (1 - fz) + bottom * fz;
 }
 
+/** Smooth trilinear value noise in [0, 1], used for volumetric caves. */
+export function valueNoise3(x: number, y: number, z: number, scale: number, seed: number): number {
+  const gx = x / scale;
+  const gy = y / scale;
+  const gz = z / scale;
+  const x0 = Math.floor(gx);
+  const y0 = Math.floor(gy);
+  const z0 = Math.floor(gz);
+  const fx = smoothstep(gx - x0);
+  const fy = smoothstep(gy - y0);
+  const fz = smoothstep(gz - z0);
+  const c000 = hash3(x0, y0, z0, seed);
+  const c100 = hash3(x0 + 1, y0, z0, seed);
+  const c010 = hash3(x0, y0 + 1, z0, seed);
+  const c110 = hash3(x0 + 1, y0 + 1, z0, seed);
+  const c001 = hash3(x0, y0, z0 + 1, seed);
+  const c101 = hash3(x0 + 1, y0, z0 + 1, seed);
+  const c011 = hash3(x0, y0 + 1, z0 + 1, seed);
+  const c111 = hash3(x0 + 1, y0 + 1, z0 + 1, seed);
+  const x00 = c000 + (c100 - c000) * fx;
+  const x10 = c010 + (c110 - c010) * fx;
+  const x01 = c001 + (c101 - c001) * fx;
+  const x11 = c011 + (c111 - c011) * fx;
+  const y0Mix = x00 + (x10 - x00) * fy;
+  const y1Mix = x01 + (x11 - x01) * fy;
+  return y0Mix + (y1Mix - y0Mix) * fz;
+}
+
 /** Numeric key for an (x, z) column so caches avoid building strings. */
 export function columnKey(x: number, z: number): string {
   // String keys remain collision-free at large positive or negative world

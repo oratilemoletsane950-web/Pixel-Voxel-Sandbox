@@ -13,8 +13,8 @@ import { createWorld } from "./world";
  * wider fingerprint covering terrain columns, biomes and spawn points).
  */
 const EXPECTED: Readonly<Record<number, string>> = {
-  42: "118d762ea0f5fedad1591438995c8da1bde6cba108f2a0421165c83934734d1f",
-  2026: "5747c0f46058cb3845e7261ed47f00a4a1ddeea074e301edc1bed0a80c2ff88c",
+  42: "f7ad77feb8ef6804b4f4d144184cf50bfb647bd1e1663b7362d06fda8c24a7ce",
+  2026: "3c9b1d1ce6b0d24c104bcb917c5a80a5c1b550c97b54ca82be4c7001814436c9",
 };
 
 function digest(seed: number): string {

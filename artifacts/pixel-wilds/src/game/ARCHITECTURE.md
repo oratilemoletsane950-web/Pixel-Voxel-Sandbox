@@ -13,7 +13,8 @@ src/game/
   terrain/        height model · climate model · surface rules · cached facade
   vegetation/     species registry · stamps · shapes · placement · ground cover
   worldgen/       one file per stage + the pipeline that orders them
-  world/          types · terrain cache · access · streaming · spawn · persistence
+                  (geology · ores · caves · ground cover · vegetation)
+  world/          types · terrain cache · access · streaming · spawn · clock · persistence
                   profile (validated world metadata) · registry (in persistence)
   chunk.ts        chunk storage (unchanged)
   mesher.ts       chunk -> meshes (unchanged)
@@ -125,6 +126,7 @@ on a world name or mode string.
 - `pixel-wilds-world-data-v1:<worldId>` — `{ version, seed, edits }`.
 - `pixel-wilds-player-v3:<worldId>` — `{ inventory, position }`.
 - `pixel-wilds-survival-v1:<worldId>` — `{ health, hunger, berries }`.
+- `pixel-wilds-clock-v1:<worldId>` — `{ seconds }` within the twelve-minute cycle.
 - `pixel-wilds-settings-v1` — view distance and field of view.
 
 The first launch without a registry migrates the old `pixel-wilds-world-v3:*`
@@ -150,15 +152,20 @@ delete, per-world terrain and player saves with migration, pause + Save and
 2. **Done:** survival health/hunger/breath, fall/drowning/starvation/void
    damage, difficulty tuning, death/respawn, berry foraging and a separate
    vitals save.
-3. **Next:** block hardness and tool tiers; day/night and weather; then LAN
-   hosting/discovery over WebRTC or a local relay (a browser cannot listen on a
-   port), structures wired to profiles, import/export.
+3. **Done:** a persisted twelve-minute day/night cycle with interpolated sky
+   and lighting in both renderers, plus deterministic caves below a safe roof.
+4. **Next:** block hardness and tool tiers; weather; then LAN hosting/discovery
+   over WebRTC or a local relay (a browser cannot listen on a port), structures
+   wired to profiles, import/export.
 
 ## Known remaining work
 
 - `src/game/settlements.ts` (~2.4k lines): plan + stamp + furniture. Generation
   is disabled; when it is re-enabled, split blueprints/stamping/furnishing and
   register the stage in `worldgen/pipeline.ts`.
+- Caves deliberately leave a three-block roof and skip water columns. Surface
+  entrances, underground lighting and cave-specific decoration remain future
+  work.
 - `artifacts/mockup-sandbox` duplicates the shadcn UI components in this app;
   it is a design sandbox, not shipped game code.
 - The production bundle is a single ~1.3 MB chunk (Three.js dominates) and the

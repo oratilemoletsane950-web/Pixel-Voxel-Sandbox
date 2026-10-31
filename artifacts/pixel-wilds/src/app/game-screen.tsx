@@ -18,6 +18,10 @@ import {
   getLoadedBlockCount,
   getLoadedChunkCount,
   isChunkLoadedAt,
+  START_TIME,
+  advanceWorldTime,
+  readWorldClock,
+  saveWorldClock,
   saveWorldData,
   setBlock,
   type BlockCell,
@@ -70,6 +74,7 @@ import {
   ToastNote,
   WelcomeOverlay,
   WorldCard,
+  WorldClock,
   WorldRulesPanel,
   WorldStatus,
 } from "./hud";
@@ -104,6 +109,11 @@ export function GameScreen({
     sprinting: false,
   });
   const [sessionKey, setSessionKey] = useState(0);
+  const [worldTime, setWorldTime] = useState<number>(
+    () => readWorldClock(profile.id) ?? START_TIME,
+  );
+  const worldTimeRef = useRef(worldTime);
+  worldTimeRef.current = worldTime;
   const [world, setWorld] = useState<WorldData>(() =>
     initialWorld(profile, savedPlayer?.position ?? null),
   );
@@ -198,6 +208,22 @@ export function GameScreen({
     }, 5000);
     return () => window.clearInterval(timer);
   }, [profile.id, survivalMode]);
+
+  // One real second is one in-game second. The clock stops with the pause menu.
+  useEffect(() => {
+    if (!started || paused) return;
+    const timer = window.setInterval(() => {
+      setWorldTime((current) => advanceWorldTime(current, 1));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [paused, started]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      saveWorldClock(profile.id, worldTimeRef.current);
+    }, 10000);
+    return () => window.clearInterval(timer);
+  }, [profile.id]);
 
   // The player's chunk is only recorded here; a timer then generates a few
   // missing chunks per tick (nearest first), so walking never causes one stall.
@@ -435,6 +461,7 @@ export function GameScreen({
     document.addEventListener("pointerlockchange", onPointerChange);
     const saveOnExit = () => {
       savePlayerState();
+      saveWorldClock(profile.id, worldTimeRef.current);
       if (survivalMode) saveSurvival(profile.id, survivalRef.current);
     };
     window.addEventListener("beforeunload", saveOnExit);
@@ -484,6 +511,7 @@ export function GameScreen({
     try {
       saveWorldData(profile.id, worldRef.current);
       savePlayerState();
+      saveWorldClock(profile.id, worldTimeRef.current);
       if (survivalMode) saveSurvival(profile.id, survivalRef.current);
       setSaveState("saved");
       showNotice("Landscape tucked away");
@@ -521,6 +549,7 @@ export function GameScreen({
           onStart={startFallback}
           paused={paused}
           allowFlight={unlimited}
+          worldTime={worldTime}
           survivalMode={survivalMode}
           onEnvironment={handleEnvironment}
           onFall={handleFall}
@@ -553,6 +582,7 @@ export function GameScreen({
             paused={paused}
             allowFlight={unlimited}
             fov={settings.fov}
+            worldTime={worldTime}
             survivalMode={survivalMode}
             onEnvironment={handleEnvironment}
             onFall={handleFall}
@@ -563,6 +593,7 @@ export function GameScreen({
 
       <div className="hud">
         <BrandLockup />
+        <WorldClock seconds={worldTime} />
         <WorldStatus
           saveState={saveState}
           flying={flying}
