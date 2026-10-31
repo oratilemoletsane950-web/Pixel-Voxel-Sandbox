@@ -24,6 +24,7 @@ src/game/
   player/survival.ts  health, hunger, breath, foraging, fall damage and saves
   player/mining.ts    hardness, tool speed, harvest tiers and progress
   player/tools.ts     tool catalogue, recipes, wear, selection and saves
+  player/drops.ts     dropped-block physics, pickup and per-world saves
   settlements.ts  settlement plan/stamp (generation disabled, see below)
 
 src/app/          the UI: game-screen (one world session) · world-menu
@@ -130,6 +131,7 @@ on a world name or mode string.
 - `pixel-wilds-survival-v1:<worldId>` — `{ health, hunger, berries }`.
 - `pixel-wilds-clock-v1:<worldId>` — `{ seconds }` within the twelve-minute cycle.
 - `pixel-wilds-tools-v1:<worldId>` — `{ belt, equipped }` tool durability and hand slot.
+- `pixel-wilds-drops-v1:<worldId>` — dropped block items with settled positions.
 - `pixel-wilds-settings-v1` — view distance and field of view.
 
 The first launch without a registry migrates the old `pixel-wilds-world-v3:*`
@@ -161,7 +163,10 @@ delete, per-world terrain and player saves with migration, pause + Save and
 4. **Done:** field tools (pickaxe, axe, shovel) in three tiers with recipes,
    durability, equipping, tool speed, harvest-tier gates for coal and iron, a
    tool HUD and per-world toolbelt saves.
-5. **Next:** weather; LAN hosting/discovery over WebRTC or a local relay (a
+5. **Done:** dropped-block items in both renderers, gravity and floor settling,
+   delayed pickup, a bounded per-world drop save, and direct-to-inventory
+   fallback when the drop field is full.
+6. **Next:** weather; LAN hosting/discovery over WebRTC or a local relay (a
    browser cannot listen on a port); structures wired to profiles; import/export.
 
 ## Known remaining work
@@ -173,9 +178,10 @@ delete, per-world terrain and player saves with migration, pause + Save and
   entrances, underground lighting and cave-specific decoration remain future
   work.
 - Tools cover pickaxe, axe and shovel work; there is no repair bench, no
-  tool-specific art, and mined blocks still go straight into inventory rather
-  than dropping as entities. The touch **Mine** button still breaks a block
-  immediately instead of using hold-to-mine duration.
+  tool-specific art, and no dropped tools. Mined blocks now become pickup
+  entities, but there is no full inventory screen, chest or container system.
+  The touch **Mine** button still breaks a block immediately instead of using
+  hold-to-mine duration.
 - `artifacts/mockup-sandbox` duplicates the shadcn UI components in this app;
   it is a design sandbox, not shipped game code.
 - The production bundle is a single ~1.3 MB chunk (Three.js dominates) and the

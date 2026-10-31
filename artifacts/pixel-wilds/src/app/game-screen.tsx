@@ -48,6 +48,12 @@ import {
   harvestRefusal,
 } from "../game/player/mining";
 import {
+  createDropField,
+  readDropSave,
+  saveDropState,
+  type ItemDrop,
+} from "../game/player/drops";
+import {
   craftTool as craftFieldTool,
   cycleTool,
   equipTool,
@@ -143,6 +149,7 @@ export function GameScreen({
   const [toolState, setToolState] = useState<ToolState>(savedToolState);
   const toolStateRef = useRef(toolState);
   toolStateRef.current = toolState;
+  const dropField = useMemo(() => createDropField(readDropSave(profile.id)), [profile.id]);
   const [playerPosition, setPlayerPosition] = useState<Position | null>(
     savedPlayer?.position ?? null,
   );
@@ -259,6 +266,12 @@ export function GameScreen({
     saveToolState(profile.id, toolState);
   }, [profile.id, toolState]);
 
+  // Drops are simulated outside React; save them on a slow clock and on exit.
+  useEffect(() => {
+    const timer = window.setInterval(() => saveDropState(profile.id, dropField), 5000);
+    return () => window.clearInterval(timer);
+  }, [dropField, profile.id]);
+
   // The player's chunk is only recorded here; a timer then generates a few
   // missing chunks per tick (nearest first), so walking never causes one stall.
   const streamChunks = useCallback((chunkX: number, chunkZ: number) => {
@@ -298,6 +311,24 @@ export function GameScreen({
     [profile.id, showNotice],
   );
 
+  const collectDrops = useCallback(
+    (drops: ItemDrop[]) => {
+      if (drops.length === 0) return;
+      setInventory((currentInventory) => {
+        const next = { ...currentInventory };
+        for (const drop of drops) next[drop.item] += 1;
+        return next;
+      });
+      saveDropState(profile.id, dropField);
+      showNotice(
+        drops.length === 1
+          ? `${BLOCK_META[drops[0].item].label} gathered`
+          : `${drops.length} items gathered`,
+      );
+    },
+    [dropField, profile.id, showNotice],
+  );
+
   const mineBlock = useCallback(
     (cell: BlockCell) => {
       const current = worldRef.current;
@@ -318,14 +349,27 @@ export function GameScreen({
       let message: string;
       if (BLOCK_TYPES.includes(found as BlockType)) {
         const item = found as BlockType;
-        setInventory((currentInventory) => ({
-          ...currentInventory,
-          [item]: currentInventory[item] + 1,
-        }));
         if (foraged) setSurvival((current) => addBerries(current, 1));
-        message = foraged
-          ? `${BLOCK_META[item].label} gathered · wild berries +1`
-          : `${BLOCK_META[item].label} gathered`;
+        if (unlimited) {
+          message = `${BLOCK_META[item].label} cleared`;
+        } else {
+          const drop = dropField.spawn(item, cell);
+          if (drop) {
+            saveDropState(profile.id, dropField);
+            message = foraged
+              ? `${BLOCK_META[item].label} dropped · wild berries +1`
+              : `${BLOCK_META[item].label} dropped · walk over to collect`;
+          } else {
+            // Never lose a block just because the visible drop field is full.
+            setInventory((currentInventory) => ({
+              ...currentInventory,
+              [item]: currentInventory[item] + 1,
+            }));
+            message = foraged
+              ? `${BLOCK_META[item].label} gathered · wild berries +1`
+              : `${BLOCK_META[item].label} gathered`;
+          }
+        }
       } else if (found === "flower") {
         message = "Wild bloom cleared";
       } else {
@@ -341,7 +385,7 @@ export function GameScreen({
       }
       showNotice(message);
     },
-    [showNotice, setWorldEdited, survivalMode, unlimited],
+    [dropField, profile.id, showNotice, setWorldEdited, survivalMode, unlimited],
   );
 
   const placeBlock = useCallback(
@@ -551,6 +595,7 @@ export function GameScreen({
       saveWorldClock(profile.id, worldTimeRef.current);
       if (survivalMode) saveSurvival(profile.id, survivalRef.current);
       saveToolState(profile.id, toolStateRef.current);
+      saveDropState(profile.id, dropField);
     };
     window.addEventListener("beforeunload", saveOnExit);
     return () => {
@@ -561,7 +606,7 @@ export function GameScreen({
       document.removeEventListener("pointerlockchange", onPointerChange);
       window.removeEventListener("beforeunload", saveOnExit);
     };
-  }, [craftOpen, cycleEquippedTool, eatForaged, pauseOpen, profile.id, savePlayerState, started, supportsWebGL, survivalMode]);
+  }, [craftOpen, cycleEquippedTool, dropField, eatForaged, pauseOpen, profile.id, savePlayerState, started, supportsWebGL, survivalMode]);
 
   useEffect(() => {
     savePlayerState();
@@ -603,6 +648,7 @@ export function GameScreen({
       saveWorldClock(profile.id, worldTimeRef.current);
       if (survivalMode) saveSurvival(profile.id, survivalRef.current);
       saveToolState(profile.id, toolStateRef.current);
+      saveDropState(profile.id, dropField);
       setSaveState("saved");
       showNotice("Landscape tucked away");
       return true;
@@ -642,6 +688,8 @@ export function GameScreen({
           allowFlight={unlimited}
           worldTime={worldTime}
           tool={miningTool}
+          drops={dropField}
+          onCollectDrops={collectDrops}
           survivalMode={survivalMode}
           onEnvironment={handleEnvironment}
           onFall={handleFall}
@@ -677,6 +725,8 @@ export function GameScreen({
             fov={settings.fov}
             worldTime={worldTime}
             tool={miningTool}
+            drops={dropField}
+            onCollectDrops={collectDrops}
             survivalMode={survivalMode}
             onEnvironment={handleEnvironment}
             onFall={handleFall}

@@ -15,6 +15,7 @@
 import { isWorldBlockType, type WorldBlockType } from "../blocks";
 import { CHUNK_SIZE, WORLD_HEIGHT } from "../chunk";
 import {
+  DROP_SAVE_PREFIX,
   LEGACY_PLAYER_SAVE_KEY,
   PLAYER_SAVE_PREFIX,
   SURVIVAL_SAVE_PREFIX,
@@ -414,6 +415,7 @@ export function deleteWorldProfile(
   storage.removeItem(`${SURVIVAL_SAVE_PREFIX}${id}`);
   storage.removeItem(`${WORLD_CLOCK_PREFIX}${id}`);
   storage.removeItem(`${TOOL_SAVE_PREFIX}${id}`);
+  storage.removeItem(`${DROP_SAVE_PREFIX}${id}`);
   if (profile.legacySeed !== undefined) deleteSavedWorld(profile.legacySeed, storage);
   return true;
 }

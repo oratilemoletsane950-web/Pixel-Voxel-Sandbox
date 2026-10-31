@@ -39,6 +39,7 @@ import {
   miningDuration,
   type MiningTool,
 } from "../game/player/mining";
+import type { DropField, ItemDrop } from "../game/player/drops";
 import { findSpawn } from "../game/player/session";
 import { BLOCK_COLORS } from "./block-palette";
 
@@ -58,6 +59,8 @@ export function VoxelFallback({
   allowFlight = true,
   worldTime,
   tool = null,
+  drops,
+  onCollectDrops,
   survivalMode = false,
   onEnvironment,
   onFall,
@@ -80,6 +83,8 @@ export function VoxelFallback({
   worldTime: number;
   /** The equipped tool, or bare hands when null. */
   tool?: MiningTool | null;
+  drops: DropField;
+  onCollectDrops: (drops: ItemDrop[]) => void;
   survivalMode?: boolean;
   onEnvironment?: (environment: SurvivalEnvironment) => void;
   onFall?: (impactSpeed: number) => void;
@@ -130,6 +135,8 @@ export function VoxelFallback({
     onStart,
     worldTime,
     tool,
+    drops,
+    onCollectDrops,
     survivalMode,
     onEnvironment,
     onFall,
@@ -147,6 +154,8 @@ export function VoxelFallback({
     onStart,
     worldTime,
     tool,
+    drops,
+    onCollectDrops,
     survivalMode,
     onEnvironment,
     onFall,
@@ -436,6 +445,8 @@ export function VoxelFallback({
             }
           }
         }
+        const collected = latest.current.drops.tick(latest.current.world, player, dt);
+        if (collected.length > 0) latest.current.onCollectDrops(collected);
         if (time - lastPositionSent.current > 350) {
           lastPositionSent.current = time;
           latest.current.onPosition({ x: player.x, y: player.y, z: player.z });
@@ -497,6 +508,24 @@ export function VoxelFallback({
           tileWidth,
           blockHeight,
           highlighted,
+        );
+      }
+
+      for (const drop of latest.current.drops.items) {
+        const dx = drop.x - player.x;
+        const dz = drop.z - player.z;
+        if (Math.abs(dx) > 31 || Math.abs(dz) > 31) continue;
+        const centerX = width / 2 + ((dx - dz) * tileWidth) / 2;
+        const bob = drop.settled ? Math.sin(drop.age * 4 + drop.id) * blockHeight * 0.08 : 0;
+        const top = centerY + ((dx + dz) * tileHeight) / 2 -
+          (drop.y - 0.5 - baseY) * blockHeight + bob;
+        drawCube(
+          centerX,
+          top,
+          BLOCK_COLORS[drop.item],
+          tileWidth * 0.24,
+          blockHeight * 0.24,
+          false,
         );
       }
 

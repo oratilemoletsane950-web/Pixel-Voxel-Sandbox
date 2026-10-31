@@ -5,7 +5,7 @@
  * render loop. It talks to the rest of the game through callbacks only, which
  * keeps it replaceable (the 2D fallback implements the same contract).
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 
@@ -45,8 +45,85 @@ import {
   miningDuration,
   type MiningTool,
 } from "../game/player/mining";
+import {
+  MAX_DROPS,
+  type DropField,
+  type ItemDrop,
+} from "../game/player/drops";
 import { findSpawn } from "../game/player/session";
+import { BLOCK_COLORS } from "./block-palette";
 import { ChunkMesh, chunkSignature, type ChunkMaterials } from "./chunk-mesh";
+
+function DroppedLoot({
+  field,
+  player,
+  worldRef,
+  paused,
+  onCollect,
+}: {
+  field: DropField;
+  player: PlayerMotion;
+  worldRef: { current: WorldData };
+  paused: boolean;
+  onCollect: (drops: ItemDrop[]) => void;
+}) {
+  const meshRef = useRef<THREE.InstancedMesh>(null);
+  const dummy = useMemo(() => new THREE.Object3D(), []);
+  const color = useMemo(() => new THREE.Color(), []);
+  const onCollectRef = useRef(onCollect);
+  onCollectRef.current = onCollect;
+  const geometry = useMemo(() => new THREE.BoxGeometry(0.34, 0.34, 0.34), []);
+  const material = useMemo(() => new THREE.MeshLambertMaterial(), []);
+  useLayoutEffect(() => {
+    const mesh = meshRef.current;
+    if (!mesh) return;
+    mesh.count = 0;
+    // Pre-allocate the full instance colour buffer so growing the visible
+    // field never writes outside a smaller buffer created on an earlier frame.
+    if (!mesh.instanceColor) {
+      mesh.instanceColor = new THREE.InstancedBufferAttribute(
+        new Float32Array(MAX_DROPS * 3).fill(1),
+        3,
+      );
+    }
+  }, []);
+  useEffect(() => () => {
+    geometry.dispose();
+    material.dispose();
+  }, [geometry, material]);
+
+  useFrame((_, delta) => {
+    if (!paused) {
+      const collected = field.tick(worldRef.current, player, delta);
+      if (collected.length > 0) onCollectRef.current(collected);
+    }
+    const mesh = meshRef.current;
+    if (!mesh) return;
+    const count = field.items.length;
+    mesh.count = count;
+    for (let index = 0; index < count; index += 1) {
+      const drop = field.items[index];
+      const bob = drop.settled ? Math.sin(drop.age * 4 + drop.id) * 0.07 : 0;
+      dummy.position.set(drop.x, drop.y + 0.18 + bob, drop.z);
+      dummy.rotation.set(0, drop.age * 1.8 + drop.id * 0.7, 0);
+      dummy.scale.setScalar(0.86 + Math.sin(drop.age * 5 + drop.id) * 0.06);
+      dummy.updateMatrix();
+      mesh.setMatrixAt(index, dummy.matrix);
+      color.set(BLOCK_COLORS[drop.item][0]);
+      mesh.setColorAt(index, color);
+    }
+    mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+  });
+
+  return (
+    <instancedMesh
+      ref={meshRef}
+      args={[geometry, material, MAX_DROPS]}
+      frustumCulled={false}
+    />
+  );
+}
 
 export function GameWorld({
   world,
@@ -64,6 +141,8 @@ export function GameWorld({
   fov,
   worldTime,
   tool = null,
+  drops,
+  onCollectDrops,
   survivalMode = false,
   onEnvironment,
   onFall,
@@ -87,6 +166,9 @@ export function GameWorld({
   worldTime: number;
   /** The equipped tool, or bare hands when null. */
   tool?: MiningTool | null;
+  /** Live dropped blocks, simulated in the render frame. */
+  drops: DropField;
+  onCollectDrops: (drops: ItemDrop[]) => void;
   /** Survival reports hazards to the session; creative ignores them. */
   survivalMode?: boolean;
   onEnvironment?: (environment: SurvivalEnvironment) => void;
@@ -574,6 +656,13 @@ export function GameWorld({
           materials={materials}
         />
       ))}
+      <DroppedLoot
+        field={drops}
+        player={player}
+        worldRef={worldRef}
+        paused={paused}
+        onCollect={onCollectDrops}
+      />
       {target.current && (
         <mesh position={[target.current.cell.x + 0.5, target.current.cell.y + 0.5, target.current.cell.z + 0.5]}>
           <boxGeometry args={[1.02, 1.02, 1.02]} />
