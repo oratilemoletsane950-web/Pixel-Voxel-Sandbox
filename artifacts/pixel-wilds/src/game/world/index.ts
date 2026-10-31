@@ -11,6 +11,7 @@
  *   settlements       — settlement query boundary (currently disabled)
  */
 export * from "./types";
+export * from "./profile";
 export * from "./terrain-registry";
 export * from "./access";
 export * from "./streaming";

@@ -14,6 +14,13 @@ import { CRAFTING_RECIPES, canCraft, type CraftRecipe } from "../game/crafting";
 import type { AimTarget } from "../game/player/aiming";
 import { HOTBAR_SLOTS } from "../game/player/controls";
 import type { Inventory } from "../game/player/inventory";
+import {
+  MAX_AIR,
+  MAX_HUNGER,
+  canEat,
+  type DamageCause,
+  type SurvivalState,
+} from "../game/player/survival";
 import { MAX_RENDER_RADIUS, MIN_RENDER_RADIUS, type BlockCell } from "../game/world";
 import { BLOCK_COLORS, BLOCK_META } from "./block-palette";
 
@@ -43,12 +50,14 @@ export function WorldStatus({
   renderRadius,
   onRenderRadiusChange,
   onSave,
+  onPause,
 }: {
   saveState: SaveState;
   flying: boolean;
   renderRadius: number;
   onRenderRadiusChange: (value: number) => void;
   onSave: () => void;
+  onPause: () => void;
 }) {
   return (
     <div className="top-right">
@@ -74,6 +83,18 @@ export function WorldStatus({
           onChange={(event) => onRenderRadiusChange(Number(event.target.value))}
         />
       </label>
+      <button
+        className="icon-button"
+        type="button"
+        aria-label="Pause game"
+        title="Pause (Esc)"
+        data-testid="button-pause"
+        onClick={onPause}
+      >
+        <svg width="16" height="16" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+          <path d="M6.5 4v12M13.5 4v12" stroke="currentColor" strokeWidth="2" />
+        </svg>
+      </button>
       <button
         className="icon-button"
         type="button"
@@ -150,6 +171,126 @@ export function WorldRulesPanel({ open, onClose }: { open: boolean; onClose: () 
   );
 }
 
+export function SurvivalHud({ state, onEat }: { state: SurvivalState; onEat: () => void }) {
+  const hearts = Array.from({ length: 10 }, (_, index) => state.health - index * 2);
+  const meals = Array.from({ length: 10 }, (_, index) => state.hunger - index * 2);
+  const bubbles = Array.from({ length: 5 }, (_, index) =>
+    state.air > (index + 0.5) * (MAX_AIR / 5),
+  );
+  return (
+    <section
+      className={`survival-vitals ${state.health <= 6 ? "is-critical" : ""}`}
+      aria-label="Survival vitals"
+      data-testid="panel-survival"
+    >
+      <div className="vital-row">
+        <span className="vital-label">Health</span>
+        <span
+          className="vital-track"
+          role="meter"
+          aria-label={`Health ${state.health} of 20`}
+          aria-valuemin={0}
+          aria-valuemax={20}
+          aria-valuenow={state.health}
+          data-testid="status-health"
+        >
+          {hearts.map((value, index) => (
+            <i
+              key={index}
+              className={`vital-heart ${value >= 2 ? "is-full" : value >= 1 ? "is-half" : "is-empty"}`}
+              aria-hidden="true"
+            />
+          ))}
+        </span>
+      </div>
+      <div className="vital-row">
+        <span className="vital-label">Hunger</span>
+        <span
+          className="vital-track"
+          role="meter"
+          aria-label={`Hunger ${Math.ceil(state.hunger)} of ${MAX_HUNGER}`}
+          aria-valuemin={0}
+          aria-valuemax={MAX_HUNGER}
+          aria-valuenow={Math.ceil(state.hunger)}
+          data-testid="status-hunger"
+        >
+          {meals.map((value, index) => (
+            <i
+              key={index}
+              className={`vital-meal ${value >= 2 ? "is-full" : value >= 1 ? "is-half" : "is-empty"}`}
+              aria-hidden="true"
+            />
+          ))}
+        </span>
+      </div>
+      <div className={`vital-row vital-air ${state.air < MAX_AIR ? "is-visible" : ""}`}>
+        <span className="vital-label">Breath</span>
+        <span
+          className="vital-track"
+          role="meter"
+          aria-label={`Breath ${Math.ceil(state.air)} of ${MAX_AIR} seconds`}
+          aria-valuemin={0}
+          aria-valuemax={MAX_AIR}
+          aria-valuenow={Math.ceil(state.air)}
+          data-testid="status-air"
+        >
+          {bubbles.map((filled, index) => (
+            <i key={index} className={`vital-bubble ${filled ? "is-full" : "is-empty"}`} aria-hidden="true" />
+          ))}
+        </span>
+      </div>
+      <button
+        className="berry-eat"
+        type="button"
+        onClick={onEat}
+        disabled={!canEat(state)}
+        title="Eat a handful of wild berries"
+        data-testid="button-eat-berries"
+      >
+        <span>Wild berries <b>{state.berries}</b></span>
+        <em>Eat <kbd className="keycap">F</kbd></em>
+      </button>
+    </section>
+  );
+}
+
+const DEATH_TEXT: Record<DamageCause, { title: string; detail: string }> = {
+  fall: { title: "The ground won.", detail: "A hard landing ended the wander. Watch the drop before you step off." },
+  drowning: { title: "The water kept you.", detail: "Your breath ran out below the surface. Find air sooner next time." },
+  starvation: { title: "The wild wore you down.", detail: "Hunger emptied your health. Clear leaves for berries and eat before you weaken." },
+  void: { title: "You slipped out of the world.", detail: "The void is not a place to explore. Return to solid ground." },
+};
+
+export function DeathScreen({
+  state,
+  onRespawn,
+  onQuit,
+}: {
+  state: SurvivalState;
+  onRespawn: () => void;
+  onQuit: () => void;
+}) {
+  const death = state.cause ? DEATH_TEXT[state.cause] : DEATH_TEXT.void;
+  return (
+    <div className="death-overlay" data-testid="panel-death" role="dialog" aria-modal="true" aria-labelledby="death-title">
+      <section className="death-card">
+        <p className="menu-eyebrow">The wild keeps its own counsel</p>
+        <h2 id="death-title">{death.title}</h2>
+        <p>{death.detail}</p>
+        <div className="death-actions">
+          <button className="death-respawn" type="button" onClick={onRespawn} data-testid="button-respawn">
+            Respawn in the wild
+          </button>
+          <button className="death-quit" type="button" onClick={onQuit} data-testid="button-death-quit">
+            Save and quit
+          </button>
+        </div>
+        <small>Your gathered blocks and berries stay with you.</small>
+      </section>
+    </div>
+  );
+}
+
 export function Crosshair({ target }: { target: AimTarget | null }) {
   return (
     <div
@@ -193,10 +334,13 @@ export function Hotbar({
   inventory,
   selectedIndex,
   onSelect,
+  unlimited = false,
 }: {
   inventory: Inventory;
   selectedIndex: number;
   onSelect: (index: number) => void;
+  /** Creative worlds do not consume blocks when placing. */
+  unlimited?: boolean;
 }) {
   const selected = BLOCK_TYPES[selectedIndex] ?? "grass";
   const hotbarPage = Math.floor(selectedIndex / HOTBAR_SLOTS);
@@ -212,7 +356,7 @@ export function Hotbar({
               key={type}
               className={`hotbar-slot ${selected === type ? "selected" : ""}`}
               type="button"
-              aria-label={`Select ${BLOCK_META[type].label}, ${inventory[type]} available`}
+              aria-label={`Select ${BLOCK_META[type].label}, ${unlimited ? "unlimited" : inventory[type]} available`}
               aria-pressed={selected === type}
               data-testid={`button-hotbar-${type}`}
               onClick={() => onSelect(index)}
@@ -224,7 +368,7 @@ export function Hotbar({
                 aria-hidden="true"
               />
               <span className="slot-label">{BLOCK_META[type].label}</span>
-              <span className="slot-count" data-testid={`count-${type}`}>{inventory[type]}</span>
+              <span className="slot-count" data-testid={`count-${type}`}>{unlimited ? "∞" : inventory[type]}</span>
             </button>
           );
         })}
@@ -259,11 +403,14 @@ export function CraftPanel({
   inventory,
   onClose,
   onCraft,
+  unlimited = false,
 }: {
   open: boolean;
   inventory: Inventory;
   onClose: () => void;
   onCraft: (recipe: CraftRecipe) => void;
+  /** Creative worlds craft without spending gathered materials. */
+  unlimited?: boolean;
 }) {
   return (
     <section
@@ -281,7 +428,7 @@ export function CraftPanel({
       </header>
       <div className="craft-list">
         {CRAFTING_RECIPES.map((recipe) => {
-          const afford = canCraft(recipe, inventory);
+          const afford = unlimited || canCraft(recipe, inventory);
           const [sideColor, topColor] = BLOCK_COLORS[recipe.output];
           return (
             <button
@@ -301,11 +448,15 @@ export function CraftPanel({
                 <strong>{recipe.label}</strong>
                 <em>{recipe.work}</em>
                 <span className="craft-cost">
-                  {recipe.inputs.map((input) => (
-                    <b key={input.item} className={(inventory[input.item] ?? 0) >= input.count ? "" : "short"}>
-                      {BLOCK_META[input.item].short} {inventory[input.item] ?? 0}/{input.count}
-                    </b>
-                  ))}
+                  {unlimited ? (
+                    <b>creative · no materials spent</b>
+                  ) : (
+                    recipe.inputs.map((input) => (
+                      <b key={input.item} className={(inventory[input.item] ?? 0) >= input.count ? "" : "short"}>
+                        {BLOCK_META[input.item].short} {inventory[input.item] ?? 0}/{input.count}
+                      </b>
+                    ))
+                  )}
                 </span>
               </span>
             </button>

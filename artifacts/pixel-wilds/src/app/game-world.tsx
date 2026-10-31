@@ -20,10 +20,12 @@ import { createAtlasTexture } from "../game/textures";
 import {
   createPlayerMotion,
   isEyeUnderwater,
+  isInWater,
   updatePlayerMotion,
   type PlayerMotion,
   type Position,
 } from "../game/physics";
+import type { SurvivalEnvironment } from "../game/player/survival";
 import {
   DOUBLE_TAP_MS,
   REACH_BLOCKS,
@@ -48,6 +50,12 @@ export function GameWorld({
   mobileMove,
   renderRadius,
   paused,
+  allowFlight,
+  fov,
+  survivalMode = false,
+  onEnvironment,
+  onFall,
+  onVoid,
 }: {
   world: WorldData;
   onTarget: (target: AimTarget | null) => void;
@@ -58,8 +66,16 @@ export function GameWorld({
   savedPosition: Position | null;
   mobileMove: { forward: number; side: number; jump: boolean };
   renderRadius: number;
-  /** True while the workbench (or any overlay) is open: no moving or turning. */
+  /** True while the workbench or pause menu is open: no moving or turning. */
   paused: boolean;
+  /** Survival worlds keep the player grounded; creative worlds may fly. */
+  allowFlight: boolean;
+  fov: number;
+  /** Survival reports hazards to the session; creative ignores them. */
+  survivalMode?: boolean;
+  onEnvironment?: (environment: SurvivalEnvironment) => void;
+  onFall?: (impactSpeed: number) => void;
+  onVoid?: () => void;
 }) {
   const worldRef = useRef(world);
   worldRef.current = world;
@@ -104,6 +120,8 @@ export function GameWorld({
   const forwardBoost = useRef(false);
   const pausedRef = useRef(paused);
   pausedRef.current = paused;
+  const allowFlightRef = useRef(allowFlight);
+  allowFlightRef.current = allowFlight;
   const touchLook = useRef<{ pointerId: number; x: number; y: number } | null>(null);
   const callbacks = useRef({
     onTarget,
@@ -113,6 +131,10 @@ export function GameWorld({
     onChunkChange,
     world,
     mobileMove,
+    survivalMode,
+    onEnvironment,
+    onFall,
+    onVoid,
   });
   callbacks.current = {
     onTarget,
@@ -122,12 +144,25 @@ export function GameWorld({
     onChunkChange,
     world,
     mobileMove,
+    survivalMode,
+    onEnvironment,
+    onFall,
+    onVoid,
   };
 
   useEffect(() => {
     camera.rotation.order = "YXZ";
     camera.position.set(player.x, player.y, player.z);
   }, [camera]);
+
+  // Settings can change mid-session; keep the projection in sync.
+  useEffect(() => {
+    const perspective = camera as THREE.PerspectiveCamera;
+    if (perspective.fov !== fov) {
+      perspective.fov = fov;
+      perspective.updateProjectionMatrix();
+    }
+  }, [camera, fov]);
 
   useEffect(() => {
     const canvas = gl.domElement;
@@ -144,7 +179,7 @@ export function GameWorld({
         lastWTap.current = now;
       }
       // Double-tapping Space toggles flight: tap, tap, and you are airborne.
-      if (code === "Space" && !event.repeat && !pausedRef.current) {
+      if (code === "Space" && !event.repeat && !pausedRef.current && allowFlightRef.current) {
         const now = performance.now();
         if (now - lastSpaceTap.current < DOUBLE_TAP_MS) {
           lastSpaceTap.current = 0;
@@ -250,6 +285,8 @@ export function GameWorld({
   mobileRef.current = mobileMove;
   const positionClock = useRef(0);
   const aimClock = useRef(0);
+  const environmentClock = useRef(0);
+  const voidReported = useRef(false);
 
   useFrame((_, delta) => {
     const dt = Math.min(delta, 0.05);
@@ -269,6 +306,10 @@ export function GameWorld({
       : Number(Boolean(keys.KeyD)) -
         Number(Boolean(keys.KeyA)) +
         mobileRef.current.side;
+    const wasGrounded = player.grounded;
+    const previousVelocityY = player.velocityY;
+    const wasFlying = player.flying;
+    const wasInWater = isInWater(callbacks.current.world, player);
     updatePlayerMotion(
       callbacks.current.world,
       player,
@@ -283,15 +324,45 @@ export function GameWorld({
       dt,
     );
 
+    // A landing is a single transition from airborne to grounded. Water and
+    // flight absorb the impact, and a normal jump never reaches the threshold.
+    if (
+      callbacks.current.survivalMode &&
+      !wasGrounded &&
+      player.grounded &&
+      !wasFlying &&
+      !wasInWater &&
+      previousVelocityY < 0
+    ) {
+      callbacks.current.onFall?.(-previousVelocityY);
+    }
+
+    environmentClock.current += dt;
+    if (environmentClock.current >= 0.25) {
+      environmentClock.current = 0;
+      callbacks.current.onEnvironment?.({
+        underwater: isEyeUnderwater(callbacks.current.world, player),
+        inWater: isInWater(callbacks.current.world, player),
+        moving: !paused && Math.hypot(player.velocityX, player.velocityZ) > 0.6,
+        sprinting:
+          !paused && Boolean(keys.ShiftLeft || keys.ShiftRight || (forwardBoost.current && keys.KeyW)),
+      });
+    }
+
     if (player.y < -40) {
-      const wasFlying = player.flying;
+      if (callbacks.current.survivalMode) {
+        if (!voidReported.current) {
+          voidReported.current = true;
+          callbacks.current.onVoid?.();
+        }
+      } else if (wasFlying) {
+        window.dispatchEvent(new CustomEvent("pixel-wilds-fly", { detail: false }));
+      }
       Object.assign(
         player,
         createPlayerMotion(callbacks.current.world, findSpawn(callbacks.current.world)),
       );
-      if (wasFlying) {
-        window.dispatchEvent(new CustomEvent("pixel-wilds-fly", { detail: false }));
-      }
+      player.flying = false;
     }
     camera.rotation.set(pitch.current, yaw.current, 0, "YXZ");
     camera.position.set(player.x, player.y, player.z);

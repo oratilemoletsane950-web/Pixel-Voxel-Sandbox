@@ -16,10 +16,13 @@ import {
 } from "../game/world";
 import {
   createPlayerMotion,
+  isEyeUnderwater,
+  isInWater,
   updatePlayerMotion,
   type PlayerMotion,
   type Position,
 } from "../game/physics";
+import type { SurvivalEnvironment } from "../game/player/survival";
 import { DOUBLE_TAP_MS, TURN_SPEED } from "../game/player/controls";
 import {
   findColumnTop,
@@ -40,6 +43,12 @@ export function VoxelFallback({
   mobileMove,
   started,
   onStart,
+  paused = false,
+  allowFlight = true,
+  survivalMode = false,
+  onEnvironment,
+  onFall,
+  onVoid,
 }: {
   world: WorldData;
   onTarget: (target: AimTarget | null) => void;
@@ -51,6 +60,13 @@ export function VoxelFallback({
   mobileMove: { forward: number; side: number; jump: boolean };
   started: boolean;
   onStart: () => void;
+  paused?: boolean;
+  /** Survival worlds keep the player grounded; creative worlds may fly. */
+  allowFlight?: boolean;
+  survivalMode?: boolean;
+  onEnvironment?: (environment: SurvivalEnvironment) => void;
+  onFall?: (impactSpeed: number) => void;
+  onVoid?: () => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [player] = useState<PlayerMotion>(() =>
@@ -65,9 +81,15 @@ export function VoxelFallback({
   const forwardBoost = useRef(false);
   const yawRef = useRef(0);
   const lastPositionSent = useRef(0);
+  const lastEnvironmentSent = useRef(0);
   const lastChunkKey = useRef("");
+  const voidReported = useRef(false);
   moveRef.current = mobileMove;
   startedRef.current = started;
+  const pausedRef = useRef(paused);
+  pausedRef.current = paused;
+  const allowFlightRef = useRef(allowFlight);
+  allowFlightRef.current = allowFlight;
 
   const ordered = useMemo(
     () =>
@@ -86,6 +108,10 @@ export function VoxelFallback({
     onPosition,
     onChunkChange,
     onStart,
+    survivalMode,
+    onEnvironment,
+    onFall,
+    onVoid,
   });
   latest.current = {
     world,
@@ -96,6 +122,10 @@ export function VoxelFallback({
     onPosition,
     onChunkChange,
     onStart,
+    survivalMode,
+    onEnvironment,
+    onFall,
+    onVoid,
   };
 
   useEffect(() => {
@@ -195,7 +225,7 @@ export function VoxelFallback({
         if (now - lastWTap.current <= DOUBLE_TAP_MS && lastWTap.current > 0) forwardBoost.current = true;
         lastWTap.current = now;
       }
-      if (event.code === "Space" && !event.repeat && startedRef.current) {
+      if (event.code === "Space" && !event.repeat && startedRef.current && allowFlightRef.current) {
         const now = performance.now();
         if (now - lastSpaceTap.current < DOUBLE_TAP_MS) {
           lastSpaceTap.current = 0;
@@ -256,7 +286,7 @@ export function VoxelFallback({
       context.setTransform(ratio, 0, 0, ratio, 0, 0);
       context.imageSmoothingEnabled = false;
 
-      if (startedRef.current) {
+      if (startedRef.current && !pausedRef.current) {
         // Arrow keys turn the walking direction; the isometric view stays put.
         const turn = Number(Boolean(keys.current.ArrowLeft)) - Number(Boolean(keys.current.ArrowRight));
         if (turn !== 0) yawRef.current += turn * TURN_SPEED * dt;
@@ -268,6 +298,10 @@ export function VoxelFallback({
           Number(Boolean(keys.current.KeyD)) -
           Number(Boolean(keys.current.KeyA)) +
           moveRef.current.side;
+        const wasGrounded = player.grounded;
+        const previousVelocityY = player.velocityY;
+        const wasFlying = player.flying;
+        const wasInWater = isInWater(latest.current.world, player);
         updatePlayerMotion(
           latest.current.world,
           player,
@@ -286,6 +320,41 @@ export function VoxelFallback({
         if (chunkKeyNow !== lastChunkKey.current) {
           lastChunkKey.current = chunkKeyNow;
           latest.current.onChunkChange(chunk.x, chunk.z);
+        }
+        if (
+          latest.current.survivalMode &&
+          !wasGrounded &&
+          player.grounded &&
+          !wasFlying &&
+          !wasInWater &&
+          previousVelocityY < 0
+        ) {
+          latest.current.onFall?.(-previousVelocityY);
+        }
+        if (time - lastEnvironmentSent.current > 250) {
+          lastEnvironmentSent.current = time;
+          latest.current.onEnvironment?.({
+            underwater: isEyeUnderwater(latest.current.world, player),
+            inWater: isInWater(latest.current.world, player),
+            moving: Math.hypot(player.velocityX, player.velocityZ) > 0.6,
+            sprinting: Boolean(keys.current.ShiftLeft || keys.current.ShiftRight || (forwardBoost.current && keys.current.KeyW)),
+          });
+        }
+        if (player.y < -40) {
+          const wasFlying = player.flying;
+          if (latest.current.survivalMode) {
+            if (!voidReported.current) {
+              voidReported.current = true;
+              latest.current.onVoid?.();
+            }
+          } else if (wasFlying) {
+            window.dispatchEvent(new CustomEvent("pixel-wilds-fly", { detail: false }));
+          }
+          Object.assign(
+            player,
+            createPlayerMotion(latest.current.world, findSpawn(latest.current.world)),
+          );
+          player.flying = false;
         }
         if (time - lastPositionSent.current > 350) {
           lastPositionSent.current = time;

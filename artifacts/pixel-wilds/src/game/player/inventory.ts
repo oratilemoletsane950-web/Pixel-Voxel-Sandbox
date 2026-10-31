@@ -1,15 +1,23 @@
 /**
- * Player inventory and its save slot.
+ * Player inventory and its per-world save slot.
  *
- * Split out of `App.tsx` so inventory persistence can be tested, reused by a
- * future menu or server, and extended (new block types, stacks, tools) without
- * touching the React component tree.
+ * Every world owns its own inventory and position. The old single-player save
+ * key is still read when no world id is supplied, which keeps existing data
+ * reachable during the registry migration.
  */
 import { BLOCK_TYPES, type BlockType } from "../blocks";
 import type { Position } from "../physics";
+import {
+  LEGACY_PLAYER_SAVE_KEY,
+  PLAYER_SAVE_PREFIX,
+  browserStorage,
+  type KeyValueStorage,
+} from "../storage";
+import type { GameMode } from "../world/profile";
 
 export type Inventory = Record<BlockType, number>;
 
+/** Creative starts with a stocked palette; survival starts with nothing. */
 export const DEFAULT_INVENTORY: Inventory = Object.fromEntries(
   BLOCK_TYPES.map((type) => [
     type,
@@ -27,26 +35,41 @@ export const DEFAULT_INVENTORY: Inventory = Object.fromEntries(
   ]),
 ) as Inventory;
 
-export const PLAYER_SAVE_KEY = "pixel-wilds-player-v2";
+export function createInventory(mode: GameMode): Inventory {
+  if (mode === "creative") return { ...DEFAULT_INVENTORY };
+  return Object.fromEntries(BLOCK_TYPES.map((type) => [type, 0])) as Inventory;
+}
+
+/** Kept for callers that still refer to the pre-registry player key. */
+export const PLAYER_SAVE_KEY = LEGACY_PLAYER_SAVE_KEY;
 
 export interface PlayerSave {
   inventory: Inventory;
   position: Position | null;
 }
 
+function playerSaveKey(worldId: string | null): string {
+  return worldId ? `${PLAYER_SAVE_PREFIX}${worldId}` : LEGACY_PLAYER_SAVE_KEY;
+}
+
 /** Reads the saved player, tolerating missing, malformed or foreign values. */
-export function readPlayerSave(): PlayerSave | null {
+export function readPlayerSave(
+  worldId?: string,
+  storage: KeyValueStorage | null = browserStorage(),
+): PlayerSave | null {
+  if (!storage) return null;
   try {
-    const parsed = JSON.parse(localStorage.getItem(PLAYER_SAVE_KEY) || "null");
+    const parsed: unknown = JSON.parse(storage.getItem(playerSaveKey(worldId ?? null)) || "null");
     if (!parsed || typeof parsed !== "object") return null;
-    const inventory = { ...DEFAULT_INVENTORY };
-    if (parsed.inventory && typeof parsed.inventory === "object") {
+    const record = parsed as { inventory?: unknown; position?: unknown };
+    const inventory = Object.fromEntries(BLOCK_TYPES.map((type) => [type, 0])) as Inventory;
+    if (record.inventory && typeof record.inventory === "object") {
       for (const type of BLOCK_TYPES) {
-        const count = Number(parsed.inventory[type]);
+        const count = Number((record.inventory as Record<string, unknown>)[type]);
         if (Number.isFinite(count) && count >= 0) inventory[type] = Math.floor(count);
       }
     }
-    const position = parsed.position;
+    const position = record.position as Partial<Position> | null | undefined;
     if (
       position &&
       Number.isFinite(position.x) &&
@@ -65,12 +88,25 @@ export function readPlayerSave(): PlayerSave | null {
 }
 
 /** Persists inventory and position. Returns false when storage is unavailable. */
-export function savePlayer(inventory: Inventory, position: Position | null): boolean {
+export function savePlayer(
+  worldId: string | null,
+  inventory: Inventory,
+  position: Position | null,
+  storage: KeyValueStorage | null = browserStorage(),
+): boolean {
+  if (!storage) return false;
   try {
-    localStorage.setItem(PLAYER_SAVE_KEY, JSON.stringify({ inventory, position }));
+    storage.setItem(playerSaveKey(worldId), JSON.stringify({ inventory, position }));
     return true;
   } catch {
-    // The world helper remains the primary save path if local storage is unavailable.
     return false;
   }
+}
+
+export function deletePlayerSave(
+  worldId: string,
+  storage: KeyValueStorage | null = browserStorage(),
+): void {
+  if (!storage || !worldId) return;
+  storage.removeItem(`${PLAYER_SAVE_PREFIX}${worldId}`);
 }

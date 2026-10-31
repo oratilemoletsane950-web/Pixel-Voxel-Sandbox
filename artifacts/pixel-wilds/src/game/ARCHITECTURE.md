@@ -14,15 +14,21 @@ src/game/
   vegetation/     species registry · stamps · shapes · placement · ground cover
   worldgen/       one file per stage + the pipeline that orders them
   world/          types · terrain cache · access · streaming · spawn · persistence
+                  profile (validated world metadata) · registry (in persistence)
   chunk.ts        chunk storage (unchanged)
   mesher.ts       chunk -> meshes (unchanged)
   textures.ts     atlas generation (unchanged)
   physics.ts      player movement (unchanged)
   crafting.ts     recipes (unchanged)
+  player/survival.ts  health, hunger, breath, foraging, fall damage and saves
   settlements.ts  settlement plan/stamp (generation disabled, see below)
 
-src/app/          the UI: game-world (WebGL view) · chunk-mesh · voxel-fallback
-                  (2D) · hud panels · block palette
+src/app/          the UI: game-screen (one world session) · world-menu
+                  (launcher, world select/create, pause, settings) ·
+                  game-world (WebGL view) · chunk-mesh · voxel-fallback (2D) ·
+                  hud panels · block palette
+src/game/storage.ts   KeyValueStorage seam and save-key constants
+src/game/settings.ts  validated, persisted app settings
 src/game/player/  inventory & save · aiming/raycast · session (world + spawn) ·
                   input tuning constants
 ```
@@ -101,9 +107,30 @@ or the render loop. Reuse `BLOCK_META` / `BLOCK_COLORS` from
 
 ### Add a save backend (IndexedDB, file, server)
 
-Implement `KeyValueStorage` (`world/persistence.ts`) and pass it to
-`saveWorld`/`loadWorld`. The default is `browserStorage()`; tests already use an
-in-memory backend through this seam.
+Implement `KeyValueStorage` (`game/storage.ts`) and pass it to the registry,
+`saveWorldData`/`loadWorldData` and the player save helpers. The default is
+`browserStorage()`; tests use an in-memory backend through this seam.
+
+### Add a world setting
+
+Add the field to `WorldRules` (`world/profile.ts`), default it in
+`DEFAULT_WORLD_RULES`, validate it in `isValidWorldProfile`, then render it in
+`app/world-menu.tsx`. Existing saves are upgraded by the default; no migration
+branch is needed. Gameplay stages read the profile rules instead of branching
+on a world name or mode string.
+
+### Save layout (v4)
+
+- `pixel-wilds-worlds-v1` — `{ version, activeId, worlds: WorldProfile[] }`.
+- `pixel-wilds-world-data-v1:<worldId>` — `{ version, seed, edits }`.
+- `pixel-wilds-player-v3:<worldId>` — `{ inventory, position }`.
+- `pixel-wilds-survival-v1:<worldId>` — `{ health, hunger, berries }`.
+- `pixel-wilds-settings-v1` — view distance and field of view.
+
+The first launch without a registry migrates the old `pixel-wilds-world-v3:*`
+seed slots into profiles under `legacy-<seed>` ids and copies the old global
+player save into the world that was active. Legacy keys are left untouched, so
+migration never destroys a save it has not copied.
 
 ## Invariants to preserve
 
@@ -113,6 +140,19 @@ in-memory backend through this seam.
   matter. Every stage must stay chunk-independent.
 - `window` is only touched in `world/persistence.ts` (`browserStorage`) and the
   React layer. Game modules stay headless and testable with `node:test`.
+
+## Increment map
+
+1. **Done:** launcher, world profiles/selection/creation, rename/duplicate/
+delete, per-world terrain and player saves with migration, pause + Save and
+   Quit, persisted view distance/FOV, creative-vs-survival inventory and flight
+   gating.
+2. **Done:** survival health/hunger/breath, fall/drowning/starvation/void
+   damage, difficulty tuning, death/respawn, berry foraging and a separate
+   vitals save.
+3. **Next:** block hardness and tool tiers; day/night and weather; then LAN
+   hosting/discovery over WebRTC or a local relay (a browser cannot listen on a
+   port), structures wired to profiles, import/export.
 
 ## Known remaining work
 
@@ -127,8 +167,9 @@ in-memory backend through this seam.
 
 ## UI layout
 
-`App.tsx` is now wiring only (~430 lines): game state, streaming, saving, input
-subscriptions and composition. Rendering, panels and player helpers are in
-separate modules (`src/app/*`, `src/game/player/*`), and the 3D and 2D
+`App.tsx` is now wiring only (~200 lines): launcher state, profiles, settings
+and routing. One running world is owned by `src/app/game-screen.tsx`, including
+streaming, saving and survival state. Rendering, panels and player helpers are
+in separate modules (`src/app/*`, `src/game/player/*`), and the 3D and 2D
 renderers implement the same callback contract, so either can be replaced
 without touching the shell.
