@@ -20,9 +20,9 @@ export function initialWorld(
   try {
     // Start with only the spawn neighbourhood; the worker fills the prefetch
     // ring in the background instead of blocking the first frame.
-    return loadWorldData(profile.id, profile.seed, x, z, 2);
+    return loadWorldData(profile.id, profile.seed, x, z, 2, undefined, profile.rules.structures);
   } catch {
-    return createWorld(profile.seed, x, z, 2);
+    return createWorld(profile.seed, x, z, 2, profile.rules.structures);
   }
 }
 

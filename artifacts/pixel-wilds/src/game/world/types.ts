@@ -27,6 +27,8 @@ export interface WorldData {
   chunks: Record<string, Chunk>;
   /** Player changes, keyed first by chunk so they re-apply when a chunk streams back in. */
   edits: Record<string, Record<string, WorldBlockType | null>>;
+  /** Copied from the world profile so generation stays a pure function of its input. */
+  structures?: boolean;
 }
 
 export function blockKey(x: number, y: number, z: number): string {

@@ -41,6 +41,7 @@ import {
 } from "../game/player/mining";
 import type { DropField, ItemDrop } from "../game/player/drops";
 import type { WeatherState } from "../game/world/weather";
+import { weatherExposure } from "../game/world/weather-exposure";
 import { findSpawn } from "../game/player/session";
 import { BLOCK_COLORS } from "./block-palette";
 
@@ -420,6 +421,12 @@ export function VoxelFallback({
             inWater: isInWater(latest.current.world, player),
             moving: Math.hypot(player.velocityX, player.velocityZ) > 0.6,
             sprinting: Boolean(keys.current.ShiftLeft || keys.current.ShiftRight || (forwardBoost.current && keys.current.KeyW)),
+            ...weatherExposure(
+              latest.current.world,
+              player,
+              latest.current.weather,
+              latest.current.weather.kind === "snow",
+            ),
           });
         }
         if (player.y < -40) {

@@ -51,6 +51,7 @@ import {
   type ItemDrop,
 } from "../game/player/drops";
 import type { WeatherState } from "../game/world/weather";
+import { weatherExposure } from "../game/world/weather-exposure";
 import { findSpawn } from "../game/player/session";
 import { BLOCK_COLORS } from "./block-palette";
 import { ChunkMesh, chunkSignature, type ChunkMaterials } from "./chunk-mesh";
@@ -620,6 +621,12 @@ export function GameWorld({
         moving: !paused && Math.hypot(player.velocityX, player.velocityZ) > 0.6,
         sprinting:
           !paused && Boolean(keys.ShiftLeft || keys.ShiftRight || (forwardBoost.current && keys.KeyW)),
+        ...weatherExposure(
+          callbacks.current.world,
+          player,
+          callbacks.current.weather,
+          callbacks.current.weather.kind === "snow",
+        ),
       });
     }
 

@@ -9,9 +9,23 @@ import { CHUNK_PIPELINE } from "./pipeline";
  * which is why the world module also owned ore placement and flower scatter.
  * It now only chooses the stage set; the order lives in the pipeline.
  */
-export function generateChunk(terrain: Terrain, cx: number, cz: number): Chunk {
+export interface GenerateChunkOptions {
+  structures?: boolean;
+}
+
+export function generateChunk(
+  terrain: Terrain,
+  cx: number,
+  cz: number,
+  options: GenerateChunkOptions = {},
+): Chunk {
   const chunk = createChunk(cx, cz);
-  CHUNK_PIPELINE.run({ seed: terrain.seed, terrain, writer: new ChunkWriter(chunk) });
+  CHUNK_PIPELINE.run({
+    seed: terrain.seed,
+    terrain,
+    writer: new ChunkWriter(chunk),
+    structures: options.structures === true,
+  });
   recountChunk(chunk);
   return chunk;
 }

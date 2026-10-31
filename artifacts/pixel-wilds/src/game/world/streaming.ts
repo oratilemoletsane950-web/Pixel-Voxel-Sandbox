@@ -88,7 +88,7 @@ export function ensureChunks(
   for (const key of drop) delete chunks[key];
   drop = [];
   for (const entry of missing.slice(0, maxNew)) {
-    const chunk = generateChunk(terrain, entry.x, entry.z);
+    const chunk = generateChunk(terrain, entry.x, entry.z, { structures: world.structures });
     applyEditsToChunk(world, chunk);
     chunks[chunkKey(entry.x, entry.z)] = chunk;
   }
@@ -112,9 +112,10 @@ export function createWorld(
   centerX = 0,
   centerZ = 0,
   radius = 3,
+  structures = false,
 ): WorldData {
   const normalized = normalizeWorldSeed(seed);
-  const world: WorldData = { seed: normalized, chunks: {}, edits: {} };
+  const world: WorldData = { seed: normalized, chunks: {}, edits: {}, structures };
   const center = getChunkCoordinates(centerX, centerZ);
   return ensureChunks(world, center.x, center.z, radius);
 }

@@ -71,7 +71,10 @@ function App() {
 
   const createWorld = (input: CreateWorldInput) => {
     try {
-      const profile = createWorldProfile(input);
+      const profile = createWorldProfile({
+        ...input,
+        rules: { structures: input.structures !== false },
+      });
       saveWorldProfile(profile);
       loadWorldData(profile.id, profile.seed, 0, 0, 5);
       setActiveWorldProfile(profile.id);

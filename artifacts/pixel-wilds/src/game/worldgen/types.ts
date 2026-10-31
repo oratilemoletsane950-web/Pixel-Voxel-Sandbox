@@ -7,6 +7,8 @@ export interface GenerationContext {
   readonly seed: number;
   readonly terrain: Terrain;
   readonly writer: ChunkWriter;
+  /** Settlement and other profile-gated passes read this rather than a global. */
+  readonly structures?: boolean;
 }
 
 /** One ordered pass over a chunk. */

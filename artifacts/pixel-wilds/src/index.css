@@ -509,6 +509,9 @@ button:focus-visible { outline: 3px solid #f08a58; outline-offset: 3px; }
 }
 .field input[type='range'] { accent-color: #e77e56; }
 .field small { font: 9px/1.5 var(--app-font-mono); color: #7c9088; }
+.checkbox-field { flex-direction: row; align-items: center; flex-wrap: wrap; gap: 8px; }
+.checkbox-field input { width: 16px; height: 16px; accent-color: #e77e56; }
+.checkbox-field small { flex-basis: 100%; }
 .field-row { display: flex; gap: 7px; }
 .field-row input { flex: 1; }
 .field-error { margin: 0; padding: 8px 10px; background: rgba(217, 108, 77, .12); border-left: 3px solid #d96c4d; font: 10px var(--app-font-mono); color: #8f3a25; }
@@ -735,3 +738,26 @@ button:focus-visible { outline: 3px solid #f08a58; outline-offset: 3px; }
   .storage-head { padding:12px; }
   .storage-head h2 { font-size:19px; }
 }
+
+/* Full-screen regional map. */
+.map-overlay { position: fixed; inset: 0; z-index: 40; display: flex; flex-direction: column; gap: 14px; padding: 22px clamp(16px, 4vw, 44px); background: rgba(20, 40, 34, .93); color: #f7f0d8; overflow: auto; }
+.map-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.map-head h2 { margin: 2px 0 0; font: 24px/1.1 var(--app-font-display, Georgia, serif); }
+.map-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, 290px); gap: 18px; align-items: start; flex: 1; }
+.map-canvas-wrap { min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.map-canvas { width: 100%; max-height: calc(100vh - 170px); object-fit: contain; border: 2px solid #7c9088; background: #17342c; image-rendering: pixelated; cursor: crosshair; }
+.map-hint, .map-empty { margin: 0; font: 10px/1.5 var(--app-font-mono); color: #a9bbb1; }
+.map-side { display: flex; flex-direction: column; gap: 14px; padding: 14px; border: 1px solid #557265; background: rgba(255, 251, 236, .06); }
+.map-side .field > span { color: #a9bbb1; }
+.map-side .field input { color: #f7f0d8; border-color: #557265; background: rgba(255,255,255,.08); }
+.map-waypoints { display: flex; flex-direction: column; gap: 8px; max-height: 42vh; overflow: auto; }
+.map-waypoint { display: flex; align-items: center; gap: 9px; padding: 7px 8px; background: rgba(255,255,255,.06); }
+.map-dot { width: 10px; height: 10px; border-radius: 50%; flex: 0 0 auto; }
+.map-waypoint-body { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.map-waypoint-body strong { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.map-waypoint-body small { font: 9px var(--app-font-mono); color: #a9bbb1; }
+@media (max-width: 760px) { .map-body { grid-template-columns: 1fr; } .map-side { order: -1; } .map-canvas { max-height: 52vh; } }
+
+/* Weather exposure readout under the vitals. */
+.vital-exposure { display: flex; justify-content: space-between; gap: 10px; padding: 4px 8px 0; font: 9px var(--app-font-mono); letter-spacing: .04em; color: #6d857b; }
+.vital-exposure .is-cold { color: #b14f3d; font-weight: 700; }

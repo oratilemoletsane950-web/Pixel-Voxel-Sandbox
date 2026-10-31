@@ -17,12 +17,14 @@ export const MAX_HEALTH = 20;
 export const MAX_HUNGER = 20;
 export const MAX_AIR = 15;
 export const MAX_BERRIES = 99;
+export const MAX_WETNESS = 100;
+export const MAX_WARMTH = 100;
 export const BERRIES_PER_HANDFUL = 6;
 
 /** Falling faster than this (blocks/s) starts to hurt. */
 export const FALL_DAMAGE_SPEED = 8;
 
-export type DamageCause = "fall" | "drowning" | "starvation" | "void";
+export type DamageCause = "fall" | "drowning" | "starvation" | "exposure" | "void";
 
 /** The renderer observes the world; the survival model judges it. */
 export interface SurvivalEnvironment {
@@ -32,6 +34,12 @@ export interface SurvivalEnvironment {
   inWater: boolean;
   moving: boolean;
   sprinting: boolean;
+  /** How hard precipitation is falling at the player, 0 to 1. */
+  precipitation?: number;
+  /** A solid roof stops rain and wind. */
+  sheltered?: boolean;
+  /** 0 mild, 1 freezing. */
+  ambientCold?: number;
 }
 
 export interface SurvivalState {
@@ -40,11 +48,16 @@ export interface SurvivalState {
   air: number;
   berries: number;
   alive: boolean;
+  /** 0 dry to 100 soaked. Wet clothes lose warmth much faster. */
+  wetness: number;
+  /** 0 freezing to 100 comfortably warm. */
+  warmth: number;
   /** Set only when a fatal hazard lands. */
   cause: DamageCause | null;
   /** Internal second counters, reset on respawn and never persisted. */
   starveClock: number;
   drownClock: number;
+  coldClock: number;
   regenClock: number;
 }
 
@@ -110,9 +123,12 @@ export function createSurvivalState(): SurvivalState {
     air: MAX_AIR,
     berries: 0,
     alive: true,
+    wetness: 0,
+    warmth: MAX_WARMTH,
     cause: null,
     starveClock: 0,
     drownClock: 0,
+    coldClock: 0,
     regenClock: 0,
   };
 }
@@ -191,8 +207,26 @@ export function tickSurvival(
   const tuning = SURVIVAL_TUNING[difficulty];
   const activity = environment.sprinting ? 2.2 : environment.moving ? 1.45 : 1;
 
+  const precipitation = clamp(environment.precipitation ?? 0, 0, 1);
+  const sheltered = environment.sheltered === true;
+  const wetness = clamp(
+    state.wetness +
+      (precipitation > 0 && !sheltered ? precipitation * 18 : sheltered ? -22 : -6) * dt,
+    0,
+    MAX_WETNESS,
+  );
+  const ambientCold = clamp(environment.ambientCold ?? 0, 0, 1);
+  const warmth = clamp(
+    state.warmth +
+      (sheltered ? 4 : -(ambientCold * 1.6 + (wetness / MAX_WETNESS) * 0.75)) * dt,
+    0,
+    MAX_WARMTH,
+  );
+
   let next: SurvivalState = {
     ...state,
+    wetness,
+    warmth,
     hunger: clamp(state.hunger - tuning.hungerDrain * activity * dt, 0, MAX_HUNGER),
   };
 
@@ -229,6 +263,18 @@ export function tickSurvival(
 
   next.starveClock = 0;
 
+  if (warmth <= 0 && ambientCold > 0) {
+    const chilled = state.coldClock + dt;
+    if (chilled >= 5) {
+      next = applyDamage(next, 1, "exposure");
+      next.coldClock = chilled - 5;
+    } else {
+      next.coldClock = chilled;
+    }
+    return next;
+  }
+  next.coldClock = 0;
+
   // A well-fed player slowly recovers, spending a little hunger to do so.
   if (next.hunger >= 18 && next.health < MAX_HEALTH) {
     const regenerated = state.regenClock + dt;
@@ -250,10 +296,12 @@ export function tickSurvival(
 }
 
 interface StoredSurvival {
-  version: 1;
+  version: 1 | 2;
   health: number;
   hunger: number;
   berries: number;
+  wetness?: number;
+  warmth?: number;
 }
 
 /** Reads a saved vitals snapshot, rejecting malformed or dead-on-load values. */
@@ -275,6 +323,8 @@ export function readSurvivalSave(
       health: clamp(Math.round(health), 1, MAX_HEALTH),
       hunger: clamp(Number.isFinite(hunger) ? hunger : MAX_HUNGER, 0, MAX_HUNGER),
       berries: clamp(Number.isFinite(berries) ? Math.floor(berries) : 0, 0, MAX_BERRIES),
+      wetness: clamp(Number(record.wetness) || 0, 0, MAX_WETNESS),
+      warmth: clamp(Number.isFinite(Number(record.warmth)) ? Number(record.warmth) : MAX_WARMTH, 0, MAX_WARMTH),
     };
   } catch {
     return null;
@@ -288,10 +338,12 @@ export function saveSurvival(
 ): boolean {
   if (!storage || !worldId) return false;
   const snapshot: StoredSurvival = {
-    version: 1,
+    version: 2,
     health: state.health,
     hunger: state.hunger,
     berries: state.berries,
+    wetness: state.wetness,
+    warmth: state.warmth,
   };
   try {
     storage.setItem(`${SURVIVAL_SAVE_PREFIX}${worldId}`, JSON.stringify(snapshot));

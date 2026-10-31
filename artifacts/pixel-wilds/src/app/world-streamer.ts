@@ -40,6 +40,7 @@ export class WorldStreamer {
     private readonly options: {
       seed: number;
       radius: number;
+      structures?: boolean;
       world: () => WorldData;
       center: () => ChunkPoint;
       look: () => StreamLook | null;
@@ -88,6 +89,7 @@ export class WorldStreamer {
       type: "generate",
       requestId,
       seed: current.seed,
+      structures: current.structures ?? this.options.structures,
       points: points.map(({ x, z }) => ({ x, z })),
     });
   }

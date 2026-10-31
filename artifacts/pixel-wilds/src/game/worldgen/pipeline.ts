@@ -16,6 +16,7 @@
  * remove rock without disturbing the roof that vegetation and spawns rely on.
  */
 import { Pipeline } from "../core/pipeline";
+import { stampSettlements } from "../settlements";
 import { caveStage } from "./caves";
 import { geologyStage } from "./geology";
 import { groundCoverStage } from "./groundCover";
@@ -25,11 +26,21 @@ import type { GenerationContext } from "./types";
 
 export const CHUNK_PIPELINE = new Pipeline<GenerationContext>("chunk generation");
 
+/** Structures are profile-gated; the stage remains registered for every world. */
+export const settlementStage = Object.freeze({
+  id: "settlements",
+  order: 50,
+  run: ({ writer, terrain, seed, structures }: GenerationContext) => {
+    if (structures) stampSettlements(writer, terrain, seed);
+  },
+});
+
 CHUNK_PIPELINE.register(geologyStage)
   .register(oreStage)
   .register(caveStage)
   .register(groundCoverStage)
-  .register(vegetationStage);
+  .register(vegetationStage)
+  .register(settlementStage);
 
 /** The stage ids in execution order. Useful for docs, diagnostics and tests. */
 export function chunkStageOrder(): string[] {

@@ -436,6 +436,7 @@ export function loadWorldData(
   centerZ = 0,
   radius = 3,
   storage: KeyValueStorage | null = browserStorage(),
+  structures = false,
 ): WorldData {
   const center = getChunkCoordinates(centerX, centerZ);
   if (storage) {
@@ -448,6 +449,7 @@ export function loadWorldData(
             seed: parsed.seed,
             chunks: {},
             edits: readEdits(parsed.edits),
+            structures,
           };
           return ensureChunks(world, center.x, center.z, radius);
         }
@@ -456,7 +458,7 @@ export function loadWorldData(
       console.warn("This world's save could not be read; generating it again.", error);
     }
   }
-  const world = createWorld(seed, centerX, centerZ, radius);
+  const world = createWorld(seed, centerX, centerZ, radius, structures);
   try {
     saveWorldData(worldId, world, storage);
   } catch (error) {

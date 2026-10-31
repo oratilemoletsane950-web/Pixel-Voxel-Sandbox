@@ -295,6 +295,12 @@ export function SurvivalHud({ state, onEat }: { state: SurvivalState; onEat: () 
           ))}
         </span>
       </div>
+      {(state.wetness >= 15 || state.warmth < 80) && (
+        <div className="vital-exposure" data-testid="status-exposure">
+          <span>Wet {Math.round(state.wetness)}%</span>
+          <span className={state.warmth < 25 ? "is-cold" : ""}>Warmth {Math.round(state.warmth)}%</span>
+        </div>
+      )}
       <button
         className="berry-eat"
         type="button"
@@ -314,6 +320,7 @@ const DEATH_TEXT: Record<DamageCause, { title: string; detail: string }> = {
   fall: { title: "The ground won.", detail: "A hard landing ended the wander. Watch the drop before you step off." },
   drowning: { title: "The water kept you.", detail: "Your breath ran out below the surface. Find air sooner next time." },
   starvation: { title: "The wild wore you down.", detail: "Hunger emptied your health. Clear leaves for berries and eat before you weaken." },
+  exposure: { title: "The cold found you.", detail: "Soaked and unsheltered, your warmth ran out. Build a roof or wait out the storm before you freeze." },
   void: { title: "You slipped out of the world.", detail: "The void is not a place to explore. Return to solid ground." },
 };
 
@@ -464,6 +471,7 @@ export function Hotbar({
   toolDurability = 0,
   onCycleTool,
   onOpenPack,
+  onOpenMap,
 }: {
   inventory: Inventory;
   selectedIndex: number;
@@ -474,6 +482,7 @@ export function Hotbar({
   toolDurability?: number;
   onCycleTool?: () => void;
   onOpenPack?: () => void;
+  onOpenMap?: () => void;
 }) {
   const selected = BLOCK_TYPES[selectedIndex] ?? "grass";
   const hotbarPage = Math.floor(selectedIndex / HOTBAR_SLOTS);
@@ -527,6 +536,15 @@ export function Hotbar({
           onClick={() => onOpenPack?.()}
         >
           Pack
+        </button>
+        <button
+          className="hotbar-pack"
+          type="button"
+          aria-label="Open world map"
+          data-testid="button-open-map"
+          onClick={() => onOpenMap?.()}
+        >
+          Map
         </button>
       </div>
       <div className="hint-line" data-testid="status-controls">
@@ -764,6 +782,7 @@ export function MobileControls({
   onUse,
   onToggleCraft,
   onTogglePack,
+  onToggleMap,
 }: {
   onMove: Dispatch<SetStateAction<MobileMove>>;
   target: AimTarget | null;
@@ -773,6 +792,7 @@ export function MobileControls({
   onUse: (cell: BlockCell) => void;
   onToggleCraft: () => void;
   onTogglePack: () => void;
+  onToggleMap: () => void;
 }) {
   return (
     <>
@@ -852,6 +872,14 @@ export function MobileControls({
           onClick={onTogglePack}
         >
           Pack
+        </button>
+        <button
+          type="button"
+          aria-label="Open world map"
+          data-testid="button-touch-map"
+          onClick={onToggleMap}
+        >
+          Map
         </button>
       </div>
     </>

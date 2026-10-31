@@ -110,11 +110,21 @@ import {
   type SurvivalState,
 } from "../game/player/survival";
 import type { AppSettings } from "../game/settings";
+import {
+  addWaypoint,
+  readWaypoints,
+  removeWaypoint,
+  saveWaypoints,
+  type WaypointPoint,
+} from "../game/map/waypoints";
 import { BLOCK_META } from "./block-palette";
 import { GameWorld } from "./game-world";
 import { VoxelFallback } from "./voxel-fallback";
 import { WorldStreamer } from "./world-streamer";
 import { StoragePanel, type OpenContainer } from "./storage-panels";
+import { MapPanel } from "./map-panel";
+import { WeatherAudio } from "./weather-audio";
+import { weatherExposure } from "../game/world/weather-exposure";
 import {
   BrandLockup,
   Compass,
@@ -201,7 +211,10 @@ export function GameScreen({
   const [rulesOpen, setRulesOpen] = useState(false);
   const [packOpen, setPackOpen] = useState(false);
   const [craftOpen, setCraftOpen] = useState(false);
+  const [mapOpen, setMapOpen] = useState(false);
   const [pauseOpen, setPauseOpen] = useState(false);
+  const [waypoints, setWaypoints] = useState(() => readWaypoints(profile.id));
+  const weatherAudio = useRef<WeatherAudio | null>(null);
   const [flying, setFlying] = useState(false);
   const [saveState, setSaveState] = useState<"saved" | "unsaved">("saved");
   const [notice, setNotice] = useState("");
@@ -224,7 +237,8 @@ export function GameScreen({
   miningToolRef.current = miningTool;
   const mobileMiningRef = useRef<MiningHoldState | null>(null);
   const [mobileMiningActive, setMobileMiningActive] = useState(false);
-  const paused = packOpen || craftOpen || pauseOpen || Boolean(openChest) || !survival.alive;
+  const paused =
+    packOpen || craftOpen || mapOpen || pauseOpen || Boolean(openChest) || !survival.alive;
 
   useEffect(() => {
     const probe = document.createElement("canvas");
@@ -243,9 +257,13 @@ export function GameScreen({
 
   // Leaving pointer lock hands the mouse back so panels can be clicked.
   useEffect(() => {
-    if (!packOpen && !craftOpen && !pauseOpen && !openChest) return;
+    if (!packOpen && !craftOpen && !mapOpen && !pauseOpen && !openChest) return;
     if (document.pointerLockElement) document.exitPointerLock?.();
-  }, [craftOpen, openChest, packOpen, pauseOpen]);
+  }, [craftOpen, mapOpen, openChest, packOpen, pauseOpen]);
+
+  useEffect(() => {
+    saveWaypoints(profile.id, waypoints);
+  }, [profile.id, waypoints]);
 
   // The renderer reports flight toggles so the HUD can show walking or flying.
   useEffect(() => {
@@ -376,6 +394,7 @@ export function GameScreen({
     const streamer = new WorldStreamer({
       seed: profile.seed,
       radius: settings.renderRadius + 2,
+      structures: profile.rules.structures,
       world: () => worldRef.current,
       center: () => streamCenter.current,
       look: () => streamLook.current,
@@ -854,6 +873,10 @@ export function GameScreen({
         cycleEquippedTool();
         return;
       }
+      if (event.code === "KeyM" && !event.repeat && !event.ctrlKey && !event.metaKey && !pauseOpen) {
+        setMapOpen((open) => !open);
+        return;
+      }
       if (
         event.code === "KeyE" &&
         !event.repeat &&
@@ -864,7 +887,8 @@ export function GameScreen({
         return;
       }
       if (event.code === "Escape") {
-        if (packOpen) setPackOpen(false);
+        if (mapOpen) setMapOpen(false);
+        else if (packOpen) setPackOpen(false);
         else if (openChest) setOpenChest(null);
         else if (craftOpen) setCraftOpen(false);
         else if (pauseOpen) {
@@ -911,7 +935,7 @@ export function GameScreen({
       document.removeEventListener("pointerlockchange", onPointerChange);
       window.removeEventListener("beforeunload", saveOnExit);
     };
-  }, [craftOpen, cycleEquippedTool, dropField, eatForaged, openChest, packOpen, pauseOpen, profile.id, savePlayerState, started, supportsWebGL, survivalMode, useBlock]);
+  }, [craftOpen, cycleEquippedTool, dropField, eatForaged, mapOpen, openChest, packOpen, pauseOpen, profile.id, savePlayerState, started, supportsWebGL, survivalMode, useBlock]);
 
   useEffect(() => {
     savePlayerState();
@@ -919,10 +943,21 @@ export function GameScreen({
 
   const beginExplore = () => {
     setPauseOpen(false);
+    setMapOpen(false);
     setStarted(true);
+    weatherAudio.current?.resume();
     if (supportsWebGL !== true || window.matchMedia("(pointer: coarse)").matches) return;
     const canvas = document.querySelector(".game-canvas canvas") as HTMLCanvasElement | null;
     canvas?.requestPointerLock?.();
+  };
+
+  const pinWaypoint = (point: WaypointPoint, label: string) => {
+    setWaypoints((current) => addWaypoint(current, point, label));
+    showNotice("Waypoint pinned");
+  };
+
+  const dropWaypoint = (id: string) => {
+    setWaypoints((current) => removeWaypoint(current, id));
   };
 
   const respawn = () => {
@@ -946,6 +981,25 @@ export function GameScreen({
     () => weatherAt(world.seed, worldTime, isColdBiome(biome)),
     [biome, world.seed, worldTime],
   );
+  const sheltered = useMemo(
+    () =>
+      playerPosition
+        ? weatherExposure(world, playerPosition, weather, isColdBiome(biome)).sheltered
+        : false,
+    [biome, playerPosition, weather, world],
+  );
+
+  useEffect(() => {
+    weatherAudio.current = new WeatherAudio();
+    return () => {
+      weatherAudio.current?.dispose();
+      weatherAudio.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    weatherAudio.current?.update(weather.kind, weather.intensity, sheltered);
+  }, [sheltered, weather]);
   const openContainerInfo: OpenContainer | null = useMemo(() => {
     if (!openChest) return null;
     const found = getBlock(worldRef.current, openChest.x, openChest.y, openChest.z);
@@ -1114,6 +1168,7 @@ export function GameScreen({
           toolDurability={currentToolDurability}
           onCycleTool={cycleEquippedTool}
           onOpenPack={() => setPackOpen(true)}
+          onOpenMap={() => setMapOpen(true)}
         />
         <StoragePanel
           open={storageOpen}
@@ -1150,6 +1205,16 @@ export function GameScreen({
           upgrades={toolState.upgrades}
           unlimited={unlimited}
         />
+        <MapPanel
+          open={mapOpen}
+          world={world}
+          player={playerPosition}
+          heading={lookYaw}
+          waypoints={waypoints}
+          onAdd={pinWaypoint}
+          onRemove={dropWaypoint}
+          onClose={() => setMapOpen(false)}
+        />
         <ToastNote notice={notice} />
         <WelcomeOverlay hidden={started || paused} onBegin={beginExplore} />
         <MobileControls
@@ -1161,6 +1226,7 @@ export function GameScreen({
           onUse={useBlock}
           onToggleCraft={() => setCraftOpen((open) => !open)}
           onTogglePack={() => setPackOpen((open) => !open)}
+          onToggleMap={() => setMapOpen((open) => !open)}
         />
       </div>
 

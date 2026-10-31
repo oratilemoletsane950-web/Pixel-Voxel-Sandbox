@@ -14,6 +14,7 @@ interface GenerateRequest {
   type: "generate";
   requestId: number;
   seed: number;
+  structures?: boolean;
   points: Array<{ x: number; z: number }>;
 }
 
@@ -45,7 +46,7 @@ scope.onmessage = (event) => {
     const terrain = getTerrain(request.seed);
     const chunks: Chunk[] = [];
     for (const point of request.points) {
-      chunks.push(generateChunk(terrain, point.x, point.z));
+      chunks.push(generateChunk(terrain, point.x, point.z, { structures: request.structures }));
     }
     scope.postMessage(
       { type: "chunks", requestId: request.requestId, chunks },

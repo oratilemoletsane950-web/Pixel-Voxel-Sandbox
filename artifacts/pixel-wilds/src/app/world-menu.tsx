@@ -30,6 +30,7 @@ export interface CreateWorldInput {
   seed: number;
   mode: GameMode;
   difficulty: Difficulty;
+  structures?: boolean;
 }
 
 const MODE_LABELS: Record<GameMode, string> = {
@@ -320,6 +321,7 @@ export function WorldCreate({
   const [seed, setSeed] = useState(() => String(Math.floor(Math.random() * MAX_SEED)));
   const [mode, setMode] = useState<GameMode>("creative");
   const [difficulty, setDifficulty] = useState<Difficulty>("normal");
+  const [structures, setStructures] = useState(true);
   const [error, setError] = useState("");
 
   const randomizeSeed = () => {
@@ -337,7 +339,7 @@ export function WorldCreate({
       setError("Give the world a name.");
       return;
     }
-    onCreate({ name: name.trim(), seed: parsed, mode, difficulty });
+    onCreate({ name: name.trim(), seed: parsed, mode, difficulty, structures });
   };
 
   return (
@@ -420,6 +422,17 @@ export function WorldCreate({
           <small>Controls hunger, starvation, drowning and fall damage in survival.</small>
         </label>
 
+        <label className="field checkbox-field">
+          <input
+            type="checkbox"
+            checked={structures}
+            onChange={(event) => setStructures(event.target.checked)}
+            data-testid="checkbox-structures"
+          />
+          <span>Generate settlements</span>
+          <small>Scatters small villages with paths, buildings and farm plots on the surface.</small>
+        </label>
+
         {error && <p className="field-error" role="alert">{error}</p>}
 
         <div className="create-actions">
@@ -431,7 +444,7 @@ export function WorldCreate({
         </div>
       </form>
 
-      <p className="menu-foot">Structures, cheats and LAN rules live on the world profile for later stages.</p>
+      <p className="menu-foot">Cheats and LAN rules live on the world profile for later stages.</p>
     </main>
   );
 }
