@@ -1,0 +1,406 @@
+/**
+ * HUD components: status, world card and rules, crosshair, readouts, hotbar,
+ * workbench, toast, welcome screen and touch controls.
+ *
+ * These are presentational: state and callbacks come from `App`, so a new panel
+ * or control is added here without touching input handling, streaming or the
+ * renderer.
+ */
+import type { Dispatch, SetStateAction } from "react";
+
+import { BLOCK_TYPES } from "../game/blocks";
+import { CHUNK_SIZE } from "../game/chunk";
+import { CRAFTING_RECIPES, canCraft, type CraftRecipe } from "../game/crafting";
+import type { AimTarget } from "../game/player/aiming";
+import { HOTBAR_SLOTS } from "../game/player/controls";
+import type { Inventory } from "../game/player/inventory";
+import { MAX_RENDER_RADIUS, MIN_RENDER_RADIUS, type BlockCell } from "../game/world";
+import { BLOCK_COLORS, BLOCK_META } from "./block-palette";
+
+export interface MobileMove {
+  forward: number;
+  side: number;
+  jump: boolean;
+}
+
+export type SaveState = "saved" | "unsaved";
+
+export function BrandLockup() {
+  return (
+    <div className="brand-lockup" aria-label="Pixel Wilds">
+      <div className="brand-stamp" aria-hidden="true"><span /></div>
+      <div>
+        <div className="brand-name">pixel wilds</div>
+        <div className="brand-kicker">a pocket wilderness</div>
+      </div>
+    </div>
+  );
+}
+
+export function WorldStatus({
+  saveState,
+  flying,
+  renderRadius,
+  onRenderRadiusChange,
+  onSave,
+}: {
+  saveState: SaveState;
+  flying: boolean;
+  renderRadius: number;
+  onRenderRadiusChange: (value: number) => void;
+  onSave: () => void;
+}) {
+  return (
+    <div className="top-right">
+      <div className={`status-pill ${saveState === "saved" ? "is-saved" : ""}`} data-testid="status-save">
+        <i className="status-dot" />
+        {saveState === "saved" ? "landscape saved" : "saving landscape"}
+      </div>
+      {flying && (
+        <div className="status-pill is-flying" data-testid="status-flying">
+          <i className="status-dot" />
+          flying · space up · ctrl down
+        </div>
+      )}
+      <label className="distance-control" title="How far you can see">
+        <span>view {Math.round(renderRadius * CHUNK_SIZE * 0.5)} m</span>
+        <input
+          type="range"
+          min={MIN_RENDER_RADIUS}
+          max={MAX_RENDER_RADIUS}
+          value={renderRadius}
+          aria-label="View distance"
+          data-testid="slider-view-distance"
+          onChange={(event) => onRenderRadiusChange(Number(event.target.value))}
+        />
+      </label>
+      <button
+        className="icon-button"
+        type="button"
+        aria-label="Save your current landscape"
+        title="Save landscape"
+        data-testid="button-save-world"
+        onClick={onSave}
+      >
+        <svg width="16" height="16" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+          <path d="M3 3.5h11.3L17 6.2v10.3H3V3.5Z" stroke="currentColor" strokeWidth="1.5" />
+          <path d="M6 3.8v5h7v-5M6.1 16.2v-5h7.8v5" stroke="currentColor" strokeWidth="1.5" />
+          <path d="M8 13h4" stroke="currentColor" strokeWidth="1.2" />
+        </svg>
+      </button>
+    </div>
+  );
+}
+
+export function WorldCard({
+  seed,
+  biome,
+  rulesOpen,
+  onToggleRules,
+}: {
+  seed: number;
+  biome: string;
+  rulesOpen: boolean;
+  onToggleRules: () => void;
+}) {
+  return (
+    <div className="world-card">
+      <small>WORLD SEED</small>
+      <strong data-testid="status-world-seed">{seed}</strong>
+
+      <small>GENERATED BIOME</small>
+      <strong>{biome.toUpperCase()}</strong>
+      <p>Terrain and ecology follow the local climate.</p>
+      <button
+        className="rules-toggle"
+        type="button"
+        aria-expanded={rulesOpen}
+        aria-controls="world-generation-rules"
+        onClick={onToggleRules}
+      >
+        {rulesOpen ? "Hide world rules" : "How blocks generate"}
+      </button>
+    </div>
+  );
+}
+
+export function WorldRulesPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
+  return (
+    <aside
+      className="world-rules-panel"
+      id="world-generation-rules"
+      aria-label="World generation rules"
+      hidden={!open}
+    >
+      <div className="world-rules-heading">
+        <h2>How the wild grows</h2>
+        <button type="button" aria-label="Close world rules" onClick={onClose}>
+          ×
+        </button>
+      </div>
+      <p><b>Scale:</b> every block is 0.5 m. You are 2 m (4 blocks) tall, doors are 5 blocks high, and a step up is one block.</p>
+      <p><b>Layers:</b> bedrock, deep rock, mineral bands, soil and surface vegetation form the land.</p>
+      <p><b>Landforms:</b> seeded geological fields shape valleys, plateaus, ridges and mountains.</p>
+      <p><b>Water:</b> rivers carve wet valleys, with lakes and sediment-rich banks.</p>
+      <p><b>Biomes:</b> temperature, moisture, elevation and soil shape forests, wetlands, grasslands and deserts.</p>
+      <p><b>Plants:</b> seeded ecological rules place trees, ferns, reeds, mushrooms and grass.</p>
+      <p><b>Crafting:</b> press <kbd className="keycap">C</kbd> for the workbench - planks from logs, doors, chairs and tables from planks, dressed stone, marble, bricks, roof tiles and glass from what you gather. Place them anywhere you like.</p>
+      <p><b>One persistent wilderness:</b> 16×16 chunks stream in around you; your edits persist.</p>
+    </aside>
+  );
+}
+
+export function Crosshair({ target }: { target: AimTarget | null }) {
+  return (
+    <div
+      className={`crosshair ${target ? "crosshair-active" : ""}`}
+      data-testid="status-crosshair"
+      aria-label={target ? `Aiming at ${target.cell.type}` : "Aim crosshair"}
+    >
+      <span className="crosshair-center" />
+    </div>
+  );
+}
+
+export function FieldReadouts({
+  biome,
+  coordinates,
+  loadedChunkCount,
+  loadedBlockCount,
+  renderRadius,
+}: {
+  biome: string;
+  coordinates: string;
+  loadedChunkCount: number;
+  loadedBlockCount: number;
+  renderRadius: number;
+}) {
+  return (
+    <div className="bottom-left">
+      <div className="readout" data-testid="status-coordinates">
+        FIELD POSITION{biome ? ` · ${biome.toUpperCase()}` : ""}
+        <strong>{coordinates}</strong>
+      </div>
+      <div className="readout" data-testid="status-block-count">
+        CHUNKS LOADED
+        <strong>{loadedChunkCount} · {loadedBlockCount.toLocaleString()} blocks · {Math.round(renderRadius * CHUNK_SIZE * 0.5)} m view</strong>
+      </div>
+    </div>
+  );
+}
+
+export function Hotbar({
+  inventory,
+  selectedIndex,
+  onSelect,
+}: {
+  inventory: Inventory;
+  selectedIndex: number;
+  onSelect: (index: number) => void;
+}) {
+  const selected = BLOCK_TYPES[selectedIndex] ?? "grass";
+  const hotbarPage = Math.floor(selectedIndex / HOTBAR_SLOTS);
+  const hotbarPages = Math.ceil(BLOCK_TYPES.length / HOTBAR_SLOTS);
+  return (
+    <div className="bottom-hud">
+      <div className="hotbar" role="toolbar" aria-label="Block selection" data-testid="hotbar">
+        {BLOCK_TYPES.slice(hotbarPage * HOTBAR_SLOTS, (hotbarPage + 1) * HOTBAR_SLOTS).map((type, slot) => {
+          const index = hotbarPage * HOTBAR_SLOTS + slot;
+          const [sideColor, topColor] = BLOCK_COLORS[type];
+          return (
+            <button
+              key={type}
+              className={`hotbar-slot ${selected === type ? "selected" : ""}`}
+              type="button"
+              aria-label={`Select ${BLOCK_META[type].label}, ${inventory[type]} available`}
+              aria-pressed={selected === type}
+              data-testid={`button-hotbar-${type}`}
+              onClick={() => onSelect(index)}
+            >
+              <span className="slot-number">{slot === 9 ? "0" : slot + 1}</span>
+              <span
+                className="voxel-swatch"
+                style={{ background: `linear-gradient(135deg, ${topColor} 0 50%, ${sideColor} 50% 100%)` }}
+                aria-hidden="true"
+              />
+              <span className="slot-label">{BLOCK_META[type].label}</span>
+              <span className="slot-count" data-testid={`count-${type}`}>{inventory[type]}</span>
+            </button>
+          );
+        })}
+        <button
+          className="hotbar-page"
+          type="button"
+          aria-label="Next block page"
+          data-testid="button-hotbar-page"
+          onClick={() => onSelect(((hotbarPage + 1) % hotbarPages) * HOTBAR_SLOTS)}
+        >
+          {hotbarPage + 1}/{hotbarPages}
+        </button>
+      </div>
+      <div className="hint-line" data-testid="status-controls">
+        <span className="hint-item"><kbd className="keycap">W</kbd><kbd className="keycap">A</kbd><kbd className="keycap">S</kbd><kbd className="keycap">D</kbd> wander</span>
+        <span className="hint-item"><kbd className="keycap">←</kbd><kbd className="keycap">→</kbd> turn</span>
+        <span className="hint-item"><kbd className="keycap">SPACE</kbd> jump · autojump on</span>
+        <span className="hint-item"><kbd className="keycap">SPACE ×2</kbd> fly</span>
+        <span className="hint-item"><kbd className="keycap">C</kbd> craft</span>
+        <span className="hint-item"><kbd className="keycap">LMB</kbd> gather</span>
+        <span className="hint-item"><kbd className="keycap">RMB</kbd> place</span>
+        <span className="hint-item"><kbd className="keycap">SHIFT</kbd> run</span>
+        <span className="hint-item"><kbd className="keycap">1–9 / 0</kbd> choose</span>
+        <span className="hint-item"><kbd className="keycap">Q</kbd><kbd className="keycap">E</kbd> block page</span>
+      </div>
+    </div>
+  );
+}
+
+export function CraftPanel({
+  open,
+  inventory,
+  onClose,
+  onCraft,
+}: {
+  open: boolean;
+  inventory: Inventory;
+  onClose: () => void;
+  onCraft: (recipe: CraftRecipe) => void;
+}) {
+  return (
+    <section
+      className={`craft-panel ${open ? "open" : ""}`}
+      aria-label="Workbench"
+      aria-hidden={!open}
+      data-testid="panel-craft"
+    >
+      <header className="craft-head">
+        <div>
+          <strong>Workbench</strong>
+          <p>Spend gathered blocks on furniture and dressed stone - then place it like any block.</p>
+        </div>
+        <button type="button" aria-label="Close workbench" onClick={onClose}>×</button>
+      </header>
+      <div className="craft-list">
+        {CRAFTING_RECIPES.map((recipe) => {
+          const afford = canCraft(recipe, inventory);
+          const [sideColor, topColor] = BLOCK_COLORS[recipe.output];
+          return (
+            <button
+              key={recipe.id}
+              className={`craft-row ${afford ? "" : "is-missing"}`}
+              type="button"
+              disabled={!afford}
+              data-testid={`button-craft-${recipe.id}`}
+              onClick={() => onCraft(recipe)}
+            >
+              <span
+                className="voxel-swatch"
+                style={{ background: `linear-gradient(135deg, ${topColor} 0 50%, ${sideColor} 50% 100%)` }}
+                aria-hidden="true"
+              />
+              <span className="craft-body">
+                <strong>{recipe.label}</strong>
+                <em>{recipe.work}</em>
+                <span className="craft-cost">
+                  {recipe.inputs.map((input) => (
+                    <b key={input.item} className={(inventory[input.item] ?? 0) >= input.count ? "" : "short"}>
+                      {BLOCK_META[input.item].short} {inventory[input.item] ?? 0}/{input.count}
+                    </b>
+                  ))}
+                </span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      <footer className="craft-foot">press C to close · mine logs, stone and clay to refill</footer>
+    </section>
+  );
+}
+
+export function ToastNote({ notice }: { notice: string }) {
+  return (
+    <div className={`toast-note ${notice ? "show" : ""}`} role="status" data-testid="status-notice">{notice}</div>
+  );
+}
+
+export function WelcomeOverlay({ hidden, onBegin }: { hidden: boolean; onBegin: () => void }) {
+  return (
+    <div className={`welcome-overlay ${hidden ? "hidden" : ""}`}>
+      <section className="welcome-card" aria-labelledby="welcome-title">
+        <div className="welcome-mark" aria-hidden="true" />
+        <h1 id="welcome-title">The wild is yours.</h1>
+        <p>Wander a little, gather what catches your eye, then make this strange place your own.</p>
+        <button className="welcome-start" type="button" onClick={onBegin} data-testid="button-enter-world">
+          <span>Enter the wild</span>
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 8h9M8 4l4 4-4 4" stroke="currentColor" strokeWidth="1.5" /></svg>
+        </button>
+        <p className="welcome-foot">click the land to capture your view</p>
+      </section>
+    </div>
+  );
+}
+
+export function MobileControls({
+  onMove,
+  target,
+  onMine,
+  onPlace,
+  onToggleCraft,
+}: {
+  onMove: Dispatch<SetStateAction<MobileMove>>;
+  target: AimTarget | null;
+  onMine: (cell: BlockCell) => void;
+  onPlace: (cell: BlockCell, adjacent: AimTarget["adjacent"]) => void;
+  onToggleCraft: () => void;
+}) {
+  return (
+    <>
+      <div className="mobile-controls" aria-label="Touch movement controls">
+        <span />
+        <button type="button" aria-label="Move forward" data-testid="button-move-forward"
+          onTouchStart={(event) => { event.preventDefault(); onMove((value) => ({ ...value, forward: 1 })); }}
+          onTouchEnd={(event) => { event.preventDefault(); onMove((value) => ({ ...value, forward: 0 })); }}
+          onTouchCancel={() => onMove((value) => ({ ...value, forward: 0 }))}>↑</button>
+        <span />
+        <button type="button" aria-label="Move left" data-testid="button-move-left"
+          onTouchStart={(event) => { event.preventDefault(); onMove((value) => ({ ...value, side: -1 })); }}
+          onTouchEnd={(event) => { event.preventDefault(); onMove((value) => ({ ...value, side: 0 })); }}
+          onTouchCancel={() => onMove((value) => ({ ...value, side: 0 }))}>←</button>
+        <button type="button" aria-label="Jump" data-testid="button-jump"
+          onTouchStart={(event) => { event.preventDefault(); onMove((value) => ({ ...value, jump: true })); }}
+          onTouchEnd={(event) => { event.preventDefault(); onMove((value) => ({ ...value, jump: false })); }}
+          onTouchCancel={() => onMove((value) => ({ ...value, jump: false }))}>↑</button>
+        <button type="button" aria-label="Move right" data-testid="button-move-right"
+          onTouchStart={(event) => { event.preventDefault(); onMove((value) => ({ ...value, side: 1 })); }}
+          onTouchEnd={(event) => { event.preventDefault(); onMove((value) => ({ ...value, side: 0 })); }}
+          onTouchCancel={() => onMove((value) => ({ ...value, side: 0 }))}>→</button>
+      </div>
+      <div className="mobile-actions" aria-label="Touch building controls">
+        <button
+          type="button"
+          aria-label="Mine targeted block"
+          data-testid="button-touch-mine"
+          onClick={() => { if (target) onMine(target.cell); }}
+        >
+          Mine
+        </button>
+        <button
+          type="button"
+          aria-label="Place selected block"
+          data-testid="button-touch-place"
+          onClick={() => { if (target) onPlace(target.cell, target.adjacent); }}
+        >
+          Place
+        </button>
+        <button
+          type="button"
+          aria-label="Open workbench"
+          data-testid="button-touch-craft"
+          onClick={onToggleCraft}
+        >
+          Craft
+        </button>
+      </div>
+    </>
+  );
+}
