@@ -359,6 +359,21 @@ function drawTile(ctx: Ctx, ox: number, oy: number, info: BlockInfo, face: numbe
       for (let k = 0; k < 8; k += 1) px(Math.floor(rand() * S), Math.floor(rand() * S), info.speckle[1]);
       break;
     }
+    case "chest": {
+      // A lidded storage box: plank grain, dark iron bands and a front latch.
+      fill(base);
+      for (let y = 0; y < S; y += 1) for (let x = 0; x < S; x += 1) {
+        if (rand() < 0.12) px(x, y, shade(base, 0.88 + rand() * 0.2));
+      }
+      for (const y of [0, 1, 7, 8, S - 2, S - 1]) for (let x = 0; x < S; x += 1) px(x, y, shade(base, 0.54));
+      for (const x of [1, 2, 13, 14]) for (let y = 0; y < S; y += 1) px(x, y, shade(base, 0.64));
+      if (face !== FACE_TOP && face !== FACE_BOTTOM) {
+        for (let y = 3; y < 7; y += 1) for (let x = 6; x < 10; x += 1) px(x, y, "#d8b04a");
+        px(7, 7, "#f1d36d");
+        px(8, 7, "#b98f36");
+      }
+      break;
+    }
     case "marble": {
       // Pale stone with soft grey veins wandering across the face.
       fill(base);

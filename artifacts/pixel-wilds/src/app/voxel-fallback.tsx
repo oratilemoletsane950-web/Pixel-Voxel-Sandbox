@@ -40,6 +40,7 @@ import {
   type MiningTool,
 } from "../game/player/mining";
 import type { DropField, ItemDrop } from "../game/player/drops";
+import type { WeatherState } from "../game/world/weather";
 import { findSpawn } from "../game/player/session";
 import { BLOCK_COLORS } from "./block-palette";
 
@@ -51,6 +52,7 @@ export function VoxelFallback({
   onPosition,
   onChunkChange,
   onMineProgress,
+  onLook,
   savedPosition,
   mobileMove,
   started,
@@ -61,6 +63,8 @@ export function VoxelFallback({
   tool = null,
   drops,
   onCollectDrops,
+  weather,
+  onUse,
   survivalMode = false,
   onEnvironment,
   onFall,
@@ -73,6 +77,7 @@ export function VoxelFallback({
   onPosition: (position: Position) => void;
   onChunkChange: (chunkX: number, chunkZ: number) => void;
   onMineProgress?: (progress: number) => void;
+  onLook?: (yaw: number) => void;
   savedPosition: Position | null;
   mobileMove: { forward: number; side: number; jump: boolean };
   started: boolean;
@@ -85,6 +90,8 @@ export function VoxelFallback({
   tool?: MiningTool | null;
   drops: DropField;
   onCollectDrops: (drops: ItemDrop[]) => void;
+  weather: WeatherState;
+  onUse: (cell: BlockCell) => void;
   survivalMode?: boolean;
   onEnvironment?: (environment: SurvivalEnvironment) => void;
   onFall?: (impactSpeed: number) => void;
@@ -103,6 +110,7 @@ export function VoxelFallback({
   const forwardBoost = useRef(false);
   const yawRef = useRef(0);
   const lastPositionSent = useRef(0);
+  const lastLookSent = useRef(0);
   const lastEnvironmentSent = useRef(0);
   const lastChunkKey = useRef("");
   const voidReported = useRef(false);
@@ -132,11 +140,14 @@ export function VoxelFallback({
     onPosition,
     onChunkChange,
     onMineProgress,
+    onLook,
     onStart,
     worldTime,
     tool,
     drops,
     onCollectDrops,
+    weather,
+    onUse,
     survivalMode,
     onEnvironment,
     onFall,
@@ -151,11 +162,14 @@ export function VoxelFallback({
     onPosition,
     onChunkChange,
     onMineProgress,
+    onLook,
     onStart,
     worldTime,
     tool,
     drops,
     onCollectDrops,
+    weather,
+    onUse,
     survivalMode,
     onEnvironment,
     onFall,
@@ -272,7 +286,10 @@ export function VoxelFallback({
       const hit = targetRef.current;
       if (!hit) return;
       if (event.button === 0) startMining(hit.cell);
-      if (event.button === 2) latest.current.onPlace(hit.cell, hit.adjacent);
+      if (event.button === 2) {
+        if (hit.cell.type === "chest") latest.current.onUse(hit.cell);
+        else latest.current.onPlace(hit.cell, hit.adjacent);
+      }
     };
     const onPointerUp = (event: PointerEvent) => {
       if (event.button === 0) stopMining();
@@ -451,6 +468,10 @@ export function VoxelFallback({
           lastPositionSent.current = time;
           latest.current.onPosition({ x: player.x, y: player.y, z: player.z });
         }
+        if (time - lastLookSent.current > 250) {
+          lastLookSent.current = time;
+          latest.current.onLook?.(yawRef.current);
+        }
       }
 
       const width = rect.width;
@@ -529,7 +550,36 @@ export function VoxelFallback({
         );
       }
 
-      const darkness = (1 - light) * 0.36;
+      const weatherState = latest.current.weather;
+      if (weatherState.kind !== "clear") {
+        const storm = weatherState.kind === "storm";
+        const snow = weatherState.kind === "snow";
+        const count = storm ? 120 : 78;
+        context.save();
+        context.globalAlpha = snow ? 0.72 : 0.46;
+        if (snow) {
+          context.fillStyle = "#f3f6eb";
+          for (let index = 0; index < count; index += 1) {
+            const x = (index * 73 + time * 0.018) % width;
+            const y = (index * 47 + time * 0.055) % height;
+            context.fillRect(x, y, 2, 2);
+          }
+        } else {
+          context.strokeStyle = storm ? "#a9d1e2" : "#c1dfE8";
+          context.lineWidth = storm ? 1.4 : 1;
+          for (let index = 0; index < count; index += 1) {
+            const x = (index * 83 + time * 0.12) % width;
+            const y = (index * 59 + time * 0.38) % height;
+            context.beginPath();
+            context.moveTo(x, y);
+            context.lineTo(x - 3, y + 12);
+            context.stroke();
+          }
+        }
+        context.restore();
+      }
+
+      const darkness = (1 - light) * 0.36 + (weatherState.wet ? 0.1 : 0);
       if (darkness > 0.01) {
         context.fillStyle = `rgba(9, 18, 24, ${darkness})`;
         context.fillRect(0, 0, width, height);

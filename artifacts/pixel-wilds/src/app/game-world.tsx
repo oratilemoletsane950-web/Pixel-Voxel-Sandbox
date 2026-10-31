@@ -50,6 +50,7 @@ import {
   type DropField,
   type ItemDrop,
 } from "../game/player/drops";
+import type { WeatherState } from "../game/world/weather";
 import { findSpawn } from "../game/player/session";
 import { BLOCK_COLORS } from "./block-palette";
 import { ChunkMesh, chunkSignature, type ChunkMaterials } from "./chunk-mesh";
@@ -125,6 +126,68 @@ function DroppedLoot({
   );
 }
 
+const WEATHER_PARTICLES = 700;
+
+function WeatherParticles({ weather }: { weather: WeatherState }) {
+  const { camera } = useThree();
+  const pointsRef = useRef<THREE.Points>(null);
+  const positions = useMemo(() => {
+    const data = new Float32Array(WEATHER_PARTICLES * 3);
+    for (let index = 0; index < WEATHER_PARTICLES; index += 1) {
+      data[index * 3] = ((index * 37) % 100) / 100 * 50 - 25;
+      data[index * 3 + 1] = ((index * 53) % 100) / 100 * 38;
+      data[index * 3 + 2] = ((index * 71) % 100) / 100 * 50 - 25;
+    }
+    return data;
+  }, []);
+  const geometry = useMemo(() => new THREE.BufferGeometry(), []);
+  const material = useMemo(() => new THREE.PointsMaterial({
+    color: "#b8dbea",
+    size: 0.12,
+    transparent: true,
+    opacity: 0.6,
+    depthWrite: false,
+    sizeAttenuation: true,
+  }), []);
+  useEffect(() => {
+    geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+    geometry.setDrawRange(0, 0);
+    return () => geometry.dispose();
+  }, [geometry, positions]);
+  useEffect(() => () => material.dispose(), [material]);
+
+  useFrame((_, delta) => {
+    const kind = weather.kind;
+    if (pointsRef.current) pointsRef.current.visible = kind !== "clear";
+    if (kind === "clear") return;
+    const count = kind === "storm" ? WEATHER_PARTICLES : kind === "snow" ? 420 : 520;
+    geometry.setDrawRange(0, count);
+    const fall = kind === "snow" ? 2.8 : 17;
+    const wind = kind === "storm" ? 4.5 : 1.1;
+    for (let index = 0; index < count; index += 1) {
+      const offset = index * 3;
+      positions[offset] += wind * delta * (0.35 + ((index * 17) % 10) / 10);
+      positions[offset + 1] -= fall * delta;
+      if (positions[offset + 1] < camera.position.y - 10) {
+        positions[offset] = camera.position.x + (((index * 73) % 100) / 100 - 0.5) * 46;
+        positions[offset + 1] = camera.position.y + 20 + ((index * 29) % 100) / 100 * 8;
+        positions[offset + 2] = camera.position.z + (((index * 47) % 100) / 100 - 0.5) * 46;
+      }
+    }
+    geometry.attributes.position.needsUpdate = true;
+    material.color.set(kind === "snow" ? "#f3f6eb" : kind === "storm" ? "#8bb6cf" : "#a7d1df");
+    material.size = kind === "snow" ? 0.2 : 0.1;
+    material.opacity = kind === "snow" ? 0.86 : 0.5;
+  });
+
+  return (
+    <points ref={pointsRef} frustumCulled={false}>
+      <primitive object={geometry} attach="geometry" />
+      <primitive object={material} attach="material" />
+    </points>
+  );
+}
+
 export function GameWorld({
   world,
   onTarget,
@@ -133,6 +196,7 @@ export function GameWorld({
   onPosition,
   onChunkChange,
   onMineProgress,
+  onLook,
   savedPosition,
   mobileMove,
   renderRadius,
@@ -143,6 +207,8 @@ export function GameWorld({
   tool = null,
   drops,
   onCollectDrops,
+  weather,
+  onUse,
   survivalMode = false,
   onEnvironment,
   onFall,
@@ -155,6 +221,7 @@ export function GameWorld({
   onPosition: (position: Position) => void;
   onChunkChange: (chunkX: number, chunkZ: number) => void;
   onMineProgress?: (progress: number) => void;
+  onLook?: (yaw: number) => void;
   savedPosition: Position | null;
   mobileMove: { forward: number; side: number; jump: boolean };
   renderRadius: number;
@@ -169,6 +236,8 @@ export function GameWorld({
   /** Live dropped blocks, simulated in the render frame. */
   drops: DropField;
   onCollectDrops: (drops: ItemDrop[]) => void;
+  weather: WeatherState;
+  onUse: (cell: BlockCell) => void;
   /** Survival reports hazards to the session; creative ignores them. */
   survivalMode?: boolean;
   onEnvironment?: (environment: SurvivalEnvironment) => void;
@@ -204,6 +273,8 @@ export function GameWorld({
   const dirRef = useRef<THREE.DirectionalLight>(null);
   const worldTimeRef = useRef(worldTime);
   worldTimeRef.current = worldTime;
+  const weatherRef = useRef(weather);
+  weatherRef.current = weather;
   const viewDistance = renderRadius * CHUNK_SIZE;
   useEffect(() => {
     const perspective = camera as THREE.PerspectiveCamera;
@@ -236,9 +307,12 @@ export function GameWorld({
     onPosition,
     onChunkChange,
     onMineProgress,
+    onLook,
     world,
     mobileMove,
     tool,
+    weather,
+    onUse,
     survivalMode,
     onEnvironment,
     onFall,
@@ -251,9 +325,12 @@ export function GameWorld({
     onPosition,
     onChunkChange,
     onMineProgress,
+    onLook,
     world,
     mobileMove,
     tool,
+    weather,
+    onUse,
     survivalMode,
     onEnvironment,
     onFall,
@@ -372,8 +449,10 @@ export function GameWorld({
       }
       const hit = target.current;
       if (!hit) return;
-      if (event.button === 0) startMining(hit.cell);
-      if (event.button === 2) callbacks.current.onPlace(hit.cell, hit.adjacent);
+      if (event.button === 0) startMining(hit.cell);        if (event.button === 2) {
+          if (hit.cell.type === "chest") callbacks.current.onUse(hit.cell);
+          else callbacks.current.onPlace(hit.cell, hit.adjacent);
+        }
     };
     const onMouseUp = (event: MouseEvent) => {
       if (event.button === 0) stopMining();
@@ -427,6 +506,7 @@ export function GameWorld({
   const mobileRef = useRef(mobileMove);
   mobileRef.current = mobileMove;
   const positionClock = useRef(0);
+  const lookClock = useRef(0);
   const aimClock = useRef(0);
   const environmentClock = useRef(0);
   const voidReported = useRef(false);
@@ -515,24 +595,25 @@ export function GameWorld({
     const underwater = isEyeUnderwater(callbacks.current.world, player);
     const time = worldTimeRef.current;
     const palette = skyPalette(time);
+    const wet = weatherRef.current.wet;
     const fog = fogRef.current;
     if (fog) {
-      fog.color.set(underwater ? "#2a6f86" : palette.fog);
-      fog.near = underwater ? 1 : viewDistance * 0.55;
-      fog.far = underwater ? 34 : viewDistance - 6;
+      fog.color.set(underwater ? "#2a6f86" : wet ? "#8d9fa3" : palette.fog);
+      fog.near = underwater ? 1 : viewDistance * (wet ? 0.4 : 0.55);
+      fog.far = underwater ? 34 : viewDistance - (wet ? 10 : 6);
     }
-    backgroundRef.current?.set(underwater ? "#2a6f86" : palette.sky);
+    backgroundRef.current?.set(underwater ? "#2a6f86" : wet ? "#98a9ad" : palette.sky);
 
     const hemi = hemiRef.current;
     if (hemi) {
       hemi.color.set(palette.ambient);
       hemi.groundColor.set(palette.ground);
-      hemi.intensity = 0.35 + palette.light * 0.55;
+      hemi.intensity = (0.35 + palette.light * 0.55) * (wet ? 0.78 : 1);
     }
     const dir = dirRef.current;
     if (dir) {
       dir.color.set(palette.sun);
-      dir.intensity = palette.light;
+      dir.intensity = palette.light * (wet ? 0.55 : 1);
     }
 
     const sunDistance = viewDistance * 0.9;
@@ -572,6 +653,11 @@ export function GameWorld({
     if (positionClock.current >= 0.4) {
       positionClock.current = 0;
       callbacks.current.onPosition({ x: player.x, y: player.y, z: player.z });
+    }
+    lookClock.current += dt;
+    if (lookClock.current >= 0.25) {
+      lookClock.current = 0;
+      callbacks.current.onLook?.(yaw.current);
     }
 
     aimClock.current += dt;
@@ -632,6 +718,7 @@ export function GameWorld({
     <>
       <color ref={backgroundRef} attach="background" args={["#a9d9d1"]} />
       <fog ref={fogRef} attach="fog" args={["#b7ddd0", viewDistance * 0.55, viewDistance - 6]} />
+      <WeatherParticles weather={weather} />
       <hemisphereLight ref={hemiRef} args={["#f9e9ba", "#567558", 1.45]} />
       <directionalLight
         ref={dirRef}

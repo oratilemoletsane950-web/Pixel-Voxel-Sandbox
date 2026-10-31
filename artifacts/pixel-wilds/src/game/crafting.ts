@@ -60,6 +60,14 @@ export const CRAFTING_RECIPES: CraftRecipe[] = [
     work: "Hang the planks on hinges - it is buildable, and walk-through",
   },
   {
+    id: "chest",
+    label: "Chest",
+    output: "chest",
+    count: 1,
+    inputs: [{ item: "planks", count: 8 }],
+    work: "Join eight boards into a lidded store" ,
+  },
+  {
     id: "chair",
     label: "Chair",
     output: "chair",

@@ -25,6 +25,8 @@ src/game/
   player/mining.ts    hardness, tool speed, harvest tiers and progress
   player/tools.ts     tool catalogue, recipes, wear, selection and saves
   player/drops.ts     dropped-block physics, pickup and per-world saves
+  containers.ts       chest contents, capacity, transfers and saves
+  world/weather.ts   seed-and-clock weather episodes shared by renderers
   settlements.ts  settlement plan/stamp (generation disabled, see below)
 
 src/app/          the UI: game-screen (one world session) · world-menu
@@ -132,6 +134,7 @@ on a world name or mode string.
 - `pixel-wilds-clock-v1:<worldId>` — `{ seconds }` within the twelve-minute cycle.
 - `pixel-wilds-tools-v1:<worldId>` — `{ belt, equipped }` tool durability and hand slot.
 - `pixel-wilds-drops-v1:<worldId>` — dropped block items with settled positions.
+- `pixel-wilds-chests-v1:<worldId>` — chest contents keyed by `x,y,z`.
 - `pixel-wilds-settings-v1` — view distance and field of view.
 
 The first launch without a registry migrates the old `pixel-wilds-world-v3:*`
@@ -142,6 +145,8 @@ migration never destroys a save it has not copied.
 ## Invariants to preserve
 
 - One block = 0.5 m; the player is 4 blocks tall (see `blocks/types.ts`).
+- New world blocks append after the existing scenery slots. Chest was added
+  after bedrock deliberately so old saved numeric block ids keep their meaning.
 - Chunk layout is column-major `(lx * 16 + lz) * 256 + y`.
 - World generation is a pure function of `(seed, x, z)`; chunk order must never
   matter. Every stage must stay chunk-independent.
@@ -166,22 +171,33 @@ delete, per-world terrain and player saves with migration, pause + Save and
 5. **Done:** dropped-block items in both renderers, gravity and floor settling,
    delayed pickup, a bounded per-world drop save, and direct-to-inventory
    fallback when the drop field is full.
-6. **Next:** weather; LAN hosting/discovery over WebRTC or a local relay (a
-   browser cannot listen on a port); structures wired to profiles; import/export.
+6. **Done:** chest blocks and a transferable container UI, deterministic
+   seed-and-clock weather with rain/snow/storm particles in both renderers,
+   and a live compass heading fed back from the camera.
+7. **Next:** structures wired to profiles; import/export; LAN hosting/discovery
+   over WebRTC or a local relay (a browser cannot listen on a port).
 
 ## Known remaining work
 
 - `src/game/settlements.ts` (~2.4k lines): plan + stamp + furniture. Generation
   is disabled; when it is re-enabled, split blueprints/stamping/furnishing and
-  register the stage in `worldgen/pipeline.ts`.
+  register the stage in `  worldgen/pipeline.ts`.
+- Weather needs the render-only episode model connected to survival, farming,
+  shelter and audio before it is a gameplay system rather than atmosphere.
 - Caves deliberately leave a three-block roof and skip water columns. Surface
   entrances, underground lighting and cave-specific decoration remain future
   work.
 - Tools cover pickaxe, axe and shovel work; there is no repair bench, no
   tool-specific art, and no dropped tools. Mined blocks now become pickup
-  entities, but there is no full inventory screen, chest or container system.
-  The touch **Mine** button still breaks a block immediately instead of using
+  entities, and chests have a compact transfer panel, but there is no full
+  backpack screen, drag-and-drop, furnace or other container variety. The
+  touch **Mine** button still breaks a block immediately instead of using
   hold-to-mine duration.
+- Chests are keyed by block position; duplicating a world copies terrain but
+  not chest contents. World deletion removes the chest save.
+- Weather is visual only for now: it does not yet drive temperature, wetness,
+  crop growth, shelter checks or survival damage. The compass is a HUD aid; a
+  full map with waypoints is still open.
 - `artifacts/mockup-sandbox` duplicates the shadcn UI components in this app;
   it is a design sandbox, not shipped game code.
 - The production bundle is a single ~1.3 MB chunk (Three.js dominates) and the

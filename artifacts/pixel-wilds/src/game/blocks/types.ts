@@ -51,12 +51,20 @@ export const BLOCK_TYPES = [
   "table",
   "marble",
   "gold",
+  "chest",
 ] as const;
 
 /** Scenery that is part of the world but is cleared rather than collected. */
 export const SCENERY_BLOCK_TYPES = ["flower", "wheat", "fern", "tall_grass", "reed", "mushroom", "vine", "water", "bedrock"] as const;
 
-export const WORLD_BLOCK_TYPES = [...BLOCK_TYPES, ...SCENERY_BLOCK_TYPES] as const;
+// Keep existing numeric ids stable: chest is a later addition, so it sits
+// after the long-standing collectible and scenery slots rather than shifting
+// every scenery id when the hotbar palette grows.
+export const WORLD_BLOCK_TYPES = [
+  ...BLOCK_TYPES.filter((type) => type !== "chest"),
+  ...SCENERY_BLOCK_TYPES,
+  "chest",
+] as const;
 
 export type BlockType = (typeof BLOCK_TYPES)[number];
 export type WorldBlockType = (typeof WORLD_BLOCK_TYPES)[number];
@@ -90,7 +98,8 @@ export type TexturePattern =
   | "chair"
   | "table"
   | "marble"
-  | "gilded";
+  | "gilded"
+  | "chest";
 
 export type Rgb = [string, string, string];
 

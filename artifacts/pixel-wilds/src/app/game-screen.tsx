@@ -33,6 +33,15 @@ import { BLOCK_INFO } from "../game/blocks";
 import { MAX_BUILD_HEIGHT } from "../game/chunk";
 import { PLAYER_RADIUS, type Position } from "../game/physics";
 import { applyCraft, canCraft, type CraftRecipe } from "../game/crafting";
+import {
+  containerKey,
+  containerTotal,
+  deposit as depositIntoContainer,
+  readContainers,
+  saveContainers,
+  withdraw as withdrawFromContainer,
+  type ContainerMap,
+} from "../game/containers";
 import { HOTBAR_SLOTS } from "../game/player/controls";
 import {
   createInventory,
@@ -65,6 +74,7 @@ import {
   type ToolId,
   type ToolState,
 } from "../game/player/tools";
+import { isColdBiome, weatherAt } from "../game/world/weather";
 import {
   MAX_HEALTH,
   MAX_HUNGER,
@@ -87,6 +97,8 @@ import { GameWorld } from "./game-world";
 import { VoxelFallback } from "./voxel-fallback";
 import {
   BrandLockup,
+  Compass,
+  ContainerPanel,
   CraftPanel,
   Crosshair,
   DeathScreen,
@@ -96,6 +108,7 @@ import {
   SurvivalHud,
   ToastNote,
   WelcomeOverlay,
+  WeatherBadge,
   WorldCard,
   WorldClock,
   WorldRulesPanel,
@@ -150,11 +163,19 @@ export function GameScreen({
   const toolStateRef = useRef(toolState);
   toolStateRef.current = toolState;
   const dropField = useMemo(() => createDropField(readDropSave(profile.id)), [profile.id]);
+  const savedContainers = useMemo(() => readContainers(profile.id), [profile.id]);
+  const [containers, setContainers] = useState<ContainerMap>(savedContainers);
+  const containersRef = useRef(containers);
+  containersRef.current = containers;
+  const [openChest, setOpenChest] = useState<{ x: number; y: number; z: number } | null>(null);
   const [playerPosition, setPlayerPosition] = useState<Position | null>(
     savedPlayer?.position ?? null,
   );
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [target, setTarget] = useState<AimTarget | null>(null);
+  const targetRef = useRef(target);
+  targetRef.current = target;
+  const [lookYaw, setLookYaw] = useState(0);
   const [miningProgress, setMiningProgress] = useState(0);
   const [started, setStarted] = useState(false);
   const [rulesOpen, setRulesOpen] = useState(false);
@@ -178,7 +199,7 @@ export function GameScreen({
       ? { ...currentTool, creative: true }
       : CREATIVE_MINING_TOOL
     : currentTool;
-  const paused = craftOpen || pauseOpen || !survival.alive;
+  const paused = craftOpen || pauseOpen || Boolean(openChest) || !survival.alive;
 
   useEffect(() => {
     const probe = document.createElement("canvas");
@@ -197,9 +218,9 @@ export function GameScreen({
 
   // Leaving pointer lock hands the mouse back so panels can be clicked.
   useEffect(() => {
-    if (!craftOpen && !pauseOpen) return;
+    if (!craftOpen && !pauseOpen && !openChest) return;
     if (document.pointerLockElement) document.exitPointerLock?.();
-  }, [craftOpen, pauseOpen]);
+  }, [craftOpen, openChest, pauseOpen]);
 
   // The renderer reports flight toggles so the HUD can show walking or flying.
   useEffect(() => {
@@ -272,6 +293,10 @@ export function GameScreen({
     return () => window.clearInterval(timer);
   }, [dropField, profile.id]);
 
+  useEffect(() => {
+    saveContainers(profile.id, containers);
+  }, [containers, profile.id]);
+
   // The player's chunk is only recorded here; a timer then generates a few
   // missing chunks per tick (nearest first), so walking never causes one stall.
   const streamChunks = useCallback((chunkX: number, chunkZ: number) => {
@@ -311,6 +336,36 @@ export function GameScreen({
     [profile.id, showNotice],
   );
 
+  const useBlock = useCallback((cell: BlockCell) => {
+    if (getBlock(worldRef.current, cell.x, cell.y, cell.z) !== "chest") return;
+    setCraftOpen(false);
+    setOpenChest({ x: cell.x, y: cell.y, z: cell.z });
+  }, []);
+
+  const transferChestItem = useCallback(
+    (item: BlockType, amount: number, mode: "deposit" | "withdraw") => {
+      if (!openChest) return;
+      const key = containerKey(openChest);
+      const current = containersRef.current[key] ?? {};
+      const result = mode === "deposit"
+        ? depositIntoContainer(current, inventory, item, amount)
+        : withdrawFromContainer(current, inventory, item, amount);
+      if (result.moved === 0) {
+        showNotice(result.blocked ? "Chest is full" : "Nothing to move");
+        return;
+      }
+      const next = { ...containersRef.current };
+      if (containerTotal(result.contents) === 0) delete next[key];
+      else next[key] = result.contents;
+      containersRef.current = next;
+      setContainers(next);
+      setInventory(result.inventory);
+      saveContainers(profile.id, next);
+      showNotice(`${mode === "deposit" ? "Stored" : "Took"} ${result.moved} ${BLOCK_META[item].label.toLowerCase()}`);
+    },
+    [inventory, openChest, profile.id, showNotice],
+  );
+
   const collectDrops = useCallback(
     (drops: ItemDrop[]) => {
       if (drops.length === 0) return;
@@ -338,6 +393,9 @@ export function GameScreen({
         showNotice("Bedrock will not budge");
         return;
       }
+      const chestKey = found === "chest" ? containerKey(cell) : null;
+      const chestContents = chestKey ? containersRef.current[chestKey] : null;
+      const chestStored = chestContents ? containerTotal(chestContents) : 0;
       const activeTool = equippedTool(toolStateRef.current);
       if (!unlimited && !canHarvest(found, activeTool)) {
         showNotice(harvestRefusal(found, activeTool) || "That block needs a stronger tool");
@@ -382,6 +440,22 @@ export function GameScreen({
         toolStateRef.current = worn.state;
         setToolState(worn.state);
         if (worn.broke) message = `${message} · ${activeTool.label} broke`;
+      }
+      if (chestKey) {
+        const next = { ...containersRef.current };
+        delete next[chestKey];
+        containersRef.current = next;
+        setContainers(next);
+      }
+      if (chestStored > 0) {
+        setInventory((currentInventory) => {
+          const next = { ...currentInventory };
+          for (const [item, count] of Object.entries(chestContents ?? {})) {
+            if (count) next[item as BlockType] += count;
+          }
+          return next;
+        });
+        message = `${message} · ${chestStored} stored items recovered`;
       }
       showNotice(message);
     },
@@ -561,8 +635,13 @@ export function GameScreen({
         cycleEquippedTool();
         return;
       }
+      if (event.code === "KeyE" && !event.repeat && !openChest && targetRef.current?.cell.type === "chest") {
+        useBlock(targetRef.current.cell);
+        return;
+      }
       if (event.code === "Escape") {
-        if (craftOpen) setCraftOpen(false);
+        if (openChest) setOpenChest(null);
+        else if (craftOpen) setCraftOpen(false);
         else if (pauseOpen) {
           setPauseOpen(false);
           if (supportsWebGL === true && !window.matchMedia("(pointer: coarse)").matches) {
@@ -596,6 +675,7 @@ export function GameScreen({
       if (survivalMode) saveSurvival(profile.id, survivalRef.current);
       saveToolState(profile.id, toolStateRef.current);
       saveDropState(profile.id, dropField);
+      saveContainers(profile.id, containersRef.current);
     };
     window.addEventListener("beforeunload", saveOnExit);
     return () => {
@@ -606,7 +686,7 @@ export function GameScreen({
       document.removeEventListener("pointerlockchange", onPointerChange);
       window.removeEventListener("beforeunload", saveOnExit);
     };
-  }, [craftOpen, cycleEquippedTool, dropField, eatForaged, pauseOpen, profile.id, savePlayerState, started, supportsWebGL, survivalMode]);
+  }, [craftOpen, cycleEquippedTool, dropField, eatForaged, openChest, pauseOpen, profile.id, savePlayerState, started, supportsWebGL, survivalMode, useBlock]);
 
   useEffect(() => {
     savePlayerState();
@@ -637,6 +717,10 @@ export function GameScreen({
   const loadedBlockCount = useMemo(() => getLoadedBlockCount(world), [world]);
   const loadedChunkCount = useMemo(() => getLoadedChunkCount(world), [world]);
   const biome = getBiomeAt(world.seed, playerPosition?.x ?? 0.5, playerPosition?.z ?? 0.5);
+  const weather = useMemo(
+    () => weatherAt(world.seed, worldTime, isColdBiome(biome)),
+    [biome, world.seed, worldTime],
+  );
   const coordinates = playerPosition
     ? `${Math.floor(playerPosition.x)} · ${Math.floor(playerPosition.y)} · ${Math.floor(playerPosition.z)}`
     : "ROAM FREE";
@@ -649,6 +733,7 @@ export function GameScreen({
       if (survivalMode) saveSurvival(profile.id, survivalRef.current);
       saveToolState(profile.id, toolStateRef.current);
       saveDropState(profile.id, dropField);
+      saveContainers(profile.id, containersRef.current);
       setSaveState("saved");
       showNotice("Landscape tucked away");
       return true;
@@ -680,6 +765,7 @@ export function GameScreen({
           onPosition={setPlayerPosition}
           onChunkChange={streamChunks}
           onMineProgress={setMiningProgress}
+          onLook={setLookYaw}
           savedPosition={playerPosition}
           mobileMove={mobileMove}
           started={started}
@@ -690,6 +776,8 @@ export function GameScreen({
           tool={miningTool}
           drops={dropField}
           onCollectDrops={collectDrops}
+          weather={weather}
+          onUse={useBlock}
           survivalMode={survivalMode}
           onEnvironment={handleEnvironment}
           onFall={handleFall}
@@ -715,9 +803,10 @@ export function GameScreen({
             onMine={mineBlock}
             onPlace={placeBlock}
             onPosition={setPlayerPosition}
-            onChunkChange={streamChunks}
-            onMineProgress={setMiningProgress}
-            savedPosition={playerPosition}
+          onChunkChange={streamChunks}
+          onMineProgress={setMiningProgress}
+          onLook={setLookYaw}
+          savedPosition={playerPosition}
             mobileMove={mobileMove}
             renderRadius={settings.renderRadius}
             paused={paused}
@@ -727,6 +816,8 @@ export function GameScreen({
             tool={miningTool}
             drops={dropField}
             onCollectDrops={collectDrops}
+            weather={weather}
+            onUse={useBlock}
             survivalMode={survivalMode}
             onEnvironment={handleEnvironment}
             onFall={handleFall}
@@ -738,6 +829,8 @@ export function GameScreen({
       <div className="hud">
         <BrandLockup />
         <WorldClock seconds={worldTime} />
+        <WeatherBadge weather={weather} />
+        <Compass yaw={lookYaw} />
         <WorldStatus
           saveState={saveState}
           flying={flying}
@@ -771,6 +864,15 @@ export function GameScreen({
           toolDurability={currentToolDurability}
           onCycleTool={cycleEquippedTool}
         />
+        <ContainerPanel
+          open={Boolean(openChest)}
+          position={openChest ? `${openChest.x} · ${openChest.y} · ${openChest.z}` : ""}
+          contents={openChest ? containers[containerKey(openChest)] ?? {} : {}}
+          inventory={inventory}
+          onClose={() => setOpenChest(null)}
+          onDeposit={(item, amount) => transferChestItem(item, amount, "deposit")}
+          onWithdraw={(item, amount) => transferChestItem(item, amount, "withdraw")}
+        />
         <CraftPanel
           open={craftOpen}
           inventory={inventory}
@@ -789,6 +891,7 @@ export function GameScreen({
           target={target}
           onMine={mineBlock}
           onPlace={placeBlock}
+          onUse={useBlock}
           onToggleCraft={() => setCraftOpen((open) => !open)}
         />
       </div>

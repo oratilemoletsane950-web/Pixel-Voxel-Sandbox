@@ -123,6 +123,7 @@ const CATALOGUE: BlockDefinition[] = [
   defineBlock(TIMBER, { name: "table", hardness: 1.6, label: "Table", short: "TBL", colors: ["#8d6846", "#b58a5c", "#6b4c34"], speckle: GRAINED, pattern: "table" }),
   defineBlock(ROCK, { name: "marble", hardness: 3.2, label: "Marble", short: "MRB", colors: ["#dcd9cf", "#f1efe7", "#c2bfb4"], speckle: ["#f7f5ee", "#a3a199", "#d8d5cb"], pattern: "marble" }),
   defineBlock(ROCK, { name: "gold", hardness: 3.5, label: "Royal gold", short: "GLD", colors: ["#c99b2e", "#e6c455", "#a87d1f"], speckle: ["#f6e08a", "#8f6a17", "#dcb13c"], pattern: "gilded" }),
+  defineBlock(TIMBER, { name: "chest", hardness: 1.8, label: "Chest", short: "CHS", colors: ["#815d3c", "#b48855", "#684a31"], speckle: ["#d0a16d", "#5c402b", "#9a7044"], pattern: "chest" }),
 
   // Scenery
   defineBlock(PLANT, { name: "flower", label: "Wild bloom", short: "FLR", colors: ["#59845b", "#7aa76a", "#507b54"], speckle: ["#f4d276", "#d8796e", "#93b56a"], pattern: "flower" }),

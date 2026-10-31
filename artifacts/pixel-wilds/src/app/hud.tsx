@@ -10,6 +10,11 @@ import type { Dispatch, SetStateAction } from "react";
 
 import { BLOCK_TYPES } from "../game/blocks";
 import { CHUNK_SIZE } from "../game/chunk";
+import {
+  CONTAINER_CAPACITY,
+  containerTotal,
+  type ContainerContents,
+} from "../game/containers";
 import { CRAFTING_RECIPES, canAfford, canCraft, type CraftRecipe } from "../game/crafting";
 import {
   TOOL_DEFINITIONS,
@@ -35,6 +40,7 @@ import {
   phaseLabel,
   type BlockCell,
 } from "../game/world";
+import type { WeatherState } from "../game/world/weather";
 import { BLOCK_COLORS, BLOCK_META } from "./block-palette";
 
 export interface MobileMove {
@@ -54,6 +60,29 @@ export function WorldClock({ seconds }: { seconds: number }) {
     >
       <span>{formatWorldTime(seconds)}</span>
       <small>{phaseLabel(seconds)}</small>
+    </div>
+  );
+}
+
+const WEATHER_ICONS: Record<WeatherState["kind"], string> = {
+  clear: "☼",
+  rain: "///",
+  snow: "❄",
+  storm: "⚡",
+};
+
+export function WeatherBadge({ weather }: { weather: WeatherState }) {
+  return (
+    <div
+      className={`weather-badge weather-${weather.kind}`}
+      data-testid="status-weather"
+      aria-label={`Weather: ${weather.label}`}
+    >
+      <span className="weather-icon" aria-hidden="true">{WEATHER_ICONS[weather.kind]}</span>
+      <span>
+        <strong>{weather.label}</strong>
+        <small>{weather.wet ? "find shelter or keep moving" : "good light for building"}</small>
+      </span>
     </div>
   );
 }
@@ -340,6 +369,21 @@ export function Crosshair({
         />
       )}
       <span className="crosshair-center" />
+    </div>
+  );
+}
+
+export function Compass({ yaw }: { yaw: number }) {
+  const degrees = ((-yaw * 180 / Math.PI) % 360 + 360) % 360;
+  const labels = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+  const label = labels[Math.round(degrees / 45) % labels.length];
+  return (
+    <div className="compass-hud" data-testid="status-compass" aria-label={`Facing ${label}, ${Math.round(degrees)} degrees`}>
+      <span className="compass-ring" aria-hidden="true">
+        <i className="compass-needle" style={{ transform: `translateX(-50%) rotate(${degrees}deg)` }} />
+        <b>{label}</b>
+      </span>
+      <span className="compass-copy">facing <strong>{label}</strong><small>{Math.round(degrees)}°</small></span>
     </div>
   );
 }
@@ -631,6 +675,72 @@ export function CraftPanel({
   );
 }
 
+export function ContainerPanel({
+  open,
+  position,
+  contents,
+  inventory,
+  onClose,
+  onDeposit,
+  onWithdraw,
+}: {
+  open: boolean;
+  position: string;
+  contents: ContainerContents;
+  inventory: Inventory;
+  onClose: () => void;
+  onDeposit: (item: keyof Inventory, amount: number) => void;
+  onWithdraw: (item: keyof Inventory, amount: number) => void;
+}) {
+  const total = containerTotal(contents);
+  const rows = BLOCK_TYPES.filter((type) => (contents[type] ?? 0) > 0 || inventory[type] > 0);
+  const full = total >= CONTAINER_CAPACITY;
+  return (
+    <section
+      className={`container-panel ${open ? "open" : ""}`}
+      aria-label="Chest contents"
+      aria-hidden={!open}
+      data-testid="panel-container"
+    >
+      <header className="container-head">
+        <div>
+          <strong>Chest</strong>
+          <p>{position} · {total}/{CONTAINER_CAPACITY} stored</p>
+        </div>
+        <button type="button" aria-label="Close chest" onClick={onClose} data-testid="button-close-container">×</button>
+      </header>
+      <div className="container-list">
+        {rows.length === 0 ? (
+          <p className="container-empty">Both your pack and this chest are empty. Gather some blocks first.</p>
+        ) : rows.map((type) => {
+          const stored = contents[type] ?? 0;
+          const carried = inventory[type] ?? 0;
+          return (
+            <div className="container-row" key={type} data-testid={`container-row-${type}`}>
+              <span
+                className="voxel-swatch"
+                style={{ background: `linear-gradient(135deg, ${BLOCK_COLORS[type][1]} 0 50%, ${BLOCK_COLORS[type][0]} 50% 100%)` }}
+                aria-hidden="true"
+              />
+              <span className="container-copy">
+                <strong>{BLOCK_META[type].label}</strong>
+                <small>pack {carried} · chest {stored}</small>
+              </span>
+              <span className="container-actions">
+                <button type="button" disabled={carried < 1 || full} onClick={() => onDeposit(type, 1)}>Store</button>
+                <button type="button" disabled={carried < 1 || full} onClick={() => onDeposit(type, 8)}>×8</button>
+                <button type="button" disabled={stored < 1} onClick={() => onWithdraw(type, 1)}>Take</button>
+                <button type="button" disabled={stored < 1} onClick={() => onWithdraw(type, 8)}>×8</button>
+              </span>
+            </div>
+          );
+        })}
+      </div>
+      <footer className="container-foot">Store blocks here to free hotbar space · chest contents survive save and reload</footer>
+    </section>
+  );
+}
+
 export function ToastNote({ notice }: { notice: string }) {
   return (
     <div className={`toast-note ${notice ? "show" : ""}`} role="status" data-testid="status-notice">{notice}</div>
@@ -659,12 +769,14 @@ export function MobileControls({
   target,
   onMine,
   onPlace,
+  onUse,
   onToggleCraft,
 }: {
   onMove: Dispatch<SetStateAction<MobileMove>>;
   target: AimTarget | null;
   onMine: (cell: BlockCell) => void;
   onPlace: (cell: BlockCell, adjacent: AimTarget["adjacent"]) => void;
+  onUse: (cell: BlockCell) => void;
   onToggleCraft: () => void;
 }) {
   return (
@@ -705,6 +817,15 @@ export function MobileControls({
           onClick={() => { if (target) onPlace(target.cell, target.adjacent); }}
         >
           Place
+        </button>
+        <button
+          type="button"
+          aria-label="Use targeted chest"
+          data-testid="button-touch-use"
+          disabled={target?.cell.type !== "chest"}
+          onClick={() => { if (target?.cell.type === "chest") onUse(target.cell); }}
+        >
+          Use
         </button>
         <button
           type="button"
