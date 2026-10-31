@@ -124,6 +124,9 @@ const CATALOGUE: BlockDefinition[] = [
   defineBlock(ROCK, { name: "marble", hardness: 3.2, label: "Marble", short: "MRB", colors: ["#dcd9cf", "#f1efe7", "#c2bfb4"], speckle: ["#f7f5ee", "#a3a199", "#d8d5cb"], pattern: "marble" }),
   defineBlock(ROCK, { name: "gold", hardness: 3.5, label: "Royal gold", short: "GLD", colors: ["#c99b2e", "#e6c455", "#a87d1f"], speckle: ["#f6e08a", "#8f6a17", "#dcb13c"], pattern: "gilded" }),
   defineBlock(TIMBER, { name: "chest", hardness: 1.8, label: "Chest", short: "CHS", colors: ["#815d3c", "#b48855", "#684a31"], speckle: ["#d0a16d", "#5c402b", "#9a7044"], pattern: "chest" }),
+  defineBlock(ROCK, { name: "furnace", hardness: 3.0, label: "Furnace", short: "FRN", colors: ["#6f6862", "#8d857b", "#514b46"], speckle: ["#b9aa96", "#3f3a36", "#d07a45"], pattern: "bricks" }),
+  defineBlock(TIMBER, { name: "barrel", hardness: 1.7, label: "Barrel", short: "BRL", colors: ["#81613e", "#a77d4e", "#62472f"], speckle: ["#c79a62", "#4f3928", "#8d6b47"], pattern: "planks" }),
+  defineBlock(ROCK, { name: "hopper", hardness: 2.2, label: "Hopper", short: "HPR", colors: ["#555c5c", "#737d7b", "#3e4546"], speckle: ["#a2ada7", "#2f3535", "#7d8986"], pattern: "metal" }),
 
   // Scenery
   defineBlock(PLANT, { name: "flower", label: "Wild bloom", short: "FLR", colors: ["#59845b", "#7aa76a", "#507b54"], speckle: ["#f4d276", "#d8796e", "#93b56a"], pattern: "flower" }),

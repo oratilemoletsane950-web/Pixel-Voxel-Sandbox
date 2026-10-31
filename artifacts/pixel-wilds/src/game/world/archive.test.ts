@@ -79,7 +79,10 @@ function createFullWorld(storage: MemoryStorage) {
   saveDropState(profile.id, drops, storage);
 
   saveContainers(profile.id, {
-    [containerKey({ x: 2, y: 40, z: 2 })]: { gold: 5, planks: 3 },
+    [containerKey({ x: 2, y: 40, z: 2 })]: {
+      kind: "chest",
+      contents: { gold: 5, planks: 3 },
+    },
   }, storage);
 
   return profile;
@@ -116,7 +119,10 @@ test("a world archive contains every per-world save and imports under a new id",
   assert.equal(readWorldClock(imported.id, storage), 321);
   assert.equal(readToolState(imported.id, storage).belt.wood_pickaxe, 12);
   assert.equal(readDropSave(imported.id, storage)[0]?.item, "gold");
-  assert.equal(readContainers(imported.id, storage)[containerKey({ x: 2, y: 40, z: 2 })]?.gold, 5);
+  assert.equal(
+    readContainers(imported.id, storage)[containerKey({ x: 2, y: 40, z: 2 })]?.contents.gold,
+    5,
+  );
 
   // Import copies values; changing the source must not alter the import.
   const changed = createInventory("survival");

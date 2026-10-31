@@ -52,18 +52,30 @@ export const BLOCK_TYPES = [
   "marble",
   "gold",
   "chest",
+  // Appended after the original vocabulary. WORLD_BLOCK_TYPES pins these
+  // after the legacy scenery ids so old chunk saves keep their meaning.
+  "furnace",
+  "barrel",
+  "hopper",
 ] as const;
 
 /** Scenery that is part of the world but is cleared rather than collected. */
 export const SCENERY_BLOCK_TYPES = ["flower", "wheat", "fern", "tall_grass", "reed", "mushroom", "vine", "water", "bedrock"] as const;
 
-// Keep existing numeric ids stable: chest is a later addition, so it sits
-// after the long-standing collectible and scenery slots rather than shifting
-// every scenery id when the hotbar palette grows.
+/** New container blocks, kept out of the legacy collectible id range. */
+export const CONTAINER_BLOCK_TYPES = ["furnace", "barrel", "hopper"] as const;
+export type ContainerBlockType = (typeof CONTAINER_BLOCK_TYPES)[number];
+
+// Keep existing numeric ids stable: chest and the newer container blocks are
+// appended after the long-standing collectible and scenery slots. Adding a
+// block to BLOCK_TYPES must therefore add it here explicitly, not by filtering.
 export const WORLD_BLOCK_TYPES = [
-  ...BLOCK_TYPES.filter((type) => type !== "chest"),
+  ...BLOCK_TYPES.filter((type) =>
+    type !== "chest" && type !== "furnace" && type !== "barrel" && type !== "hopper",
+  ),
   ...SCENERY_BLOCK_TYPES,
   "chest",
+  ...CONTAINER_BLOCK_TYPES,
 ] as const;
 
 export type BlockType = (typeof BLOCK_TYPES)[number];
@@ -99,7 +111,8 @@ export type TexturePattern =
   | "table"
   | "marble"
   | "gilded"
-  | "chest";
+  | "chest"
+  | "metal";
 
 export type Rgb = [string, string, string];
 

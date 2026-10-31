@@ -17,7 +17,7 @@ import {
   type WorldData,
 } from "./types";
 
-function applyEdits(world: WorldData, chunk: Chunk): void {
+export function applyEditsToChunk(world: WorldData, chunk: Chunk): void {
   const edits = world.edits[chunkKey(chunk.cx, chunk.cz)];
   if (!edits) return;
   const startX = chunk.cx * CHUNK_SIZE;
@@ -89,7 +89,7 @@ export function ensureChunks(
   drop = [];
   for (const entry of missing.slice(0, maxNew)) {
     const chunk = generateChunk(terrain, entry.x, entry.z);
-    applyEdits(world, chunk);
+    applyEditsToChunk(world, chunk);
     chunks[chunkKey(entry.x, entry.z)] = chunk;
   }
   return { ...world, chunks };

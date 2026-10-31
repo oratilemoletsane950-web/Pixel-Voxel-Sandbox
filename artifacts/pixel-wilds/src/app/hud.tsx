@@ -10,11 +10,6 @@ import type { Dispatch, SetStateAction } from "react";
 
 import { BLOCK_TYPES } from "../game/blocks";
 import { CHUNK_SIZE } from "../game/chunk";
-import {
-  CONTAINER_CAPACITY,
-  containerTotal,
-  type ContainerContents,
-} from "../game/containers";
 import { CRAFTING_RECIPES, canAfford, canCraft, type CraftRecipe } from "../game/crafting";
 import {
   TOOL_DEFINITIONS,
@@ -464,6 +459,7 @@ export function Hotbar({
   tool = null,
   toolDurability = 0,
   onCycleTool,
+  onOpenPack,
 }: {
   inventory: Inventory;
   selectedIndex: number;
@@ -473,6 +469,7 @@ export function Hotbar({
   tool?: ToolDefinition | null;
   toolDurability?: number;
   onCycleTool?: () => void;
+  onOpenPack?: () => void;
 }) {
   const selected = BLOCK_TYPES[selectedIndex] ?? "grass";
   const hotbarPage = Math.floor(selectedIndex / HOTBAR_SLOTS);
@@ -518,12 +515,22 @@ export function Hotbar({
         >
           {hotbarPage + 1}/{hotbarPages}
         </button>
+        <button
+          className="hotbar-pack"
+          type="button"
+          aria-label="Open field pack"
+          data-testid="button-open-pack"
+          onClick={() => onOpenPack?.()}
+        >
+          Pack
+        </button>
       </div>
       <div className="hint-line" data-testid="status-controls">
         <span className="hint-item"><kbd className="keycap">W</kbd><kbd className="keycap">A</kbd><kbd className="keycap">S</kbd><kbd className="keycap">D</kbd> wander</span>
         <span className="hint-item"><kbd className="keycap">←</kbd><kbd className="keycap">→</kbd> turn</span>
         <span className="hint-item"><kbd className="keycap">SPACE</kbd> jump · autojump on</span>
         <span className="hint-item"><kbd className="keycap">SPACE ×2</kbd> fly</span>
+        <span className="hint-item"><kbd className="keycap">B</kbd> pack</span>
         <span className="hint-item"><kbd className="keycap">C</kbd> craft</span>
         <span className="hint-item"><kbd className="keycap">T</kbd> change tool</span>
         <span className="hint-item"><kbd className="keycap">LMB</kbd> hold to mine</span>
@@ -697,72 +704,6 @@ export function CraftPanel({
   );
 }
 
-export function ContainerPanel({
-  open,
-  position,
-  contents,
-  inventory,
-  onClose,
-  onDeposit,
-  onWithdraw,
-}: {
-  open: boolean;
-  position: string;
-  contents: ContainerContents;
-  inventory: Inventory;
-  onClose: () => void;
-  onDeposit: (item: keyof Inventory, amount: number) => void;
-  onWithdraw: (item: keyof Inventory, amount: number) => void;
-}) {
-  const total = containerTotal(contents);
-  const rows = BLOCK_TYPES.filter((type) => (contents[type] ?? 0) > 0 || inventory[type] > 0);
-  const full = total >= CONTAINER_CAPACITY;
-  return (
-    <section
-      className={`container-panel ${open ? "open" : ""}`}
-      aria-label="Chest contents"
-      aria-hidden={!open}
-      data-testid="panel-container"
-    >
-      <header className="container-head">
-        <div>
-          <strong>Chest</strong>
-          <p>{position} · {total}/{CONTAINER_CAPACITY} stored</p>
-        </div>
-        <button type="button" aria-label="Close chest" onClick={onClose} data-testid="button-close-container">×</button>
-      </header>
-      <div className="container-list">
-        {rows.length === 0 ? (
-          <p className="container-empty">Both your pack and this chest are empty. Gather some blocks first.</p>
-        ) : rows.map((type) => {
-          const stored = contents[type] ?? 0;
-          const carried = inventory[type] ?? 0;
-          return (
-            <div className="container-row" key={type} data-testid={`container-row-${type}`}>
-              <span
-                className="voxel-swatch"
-                style={{ background: `linear-gradient(135deg, ${BLOCK_COLORS[type][1]} 0 50%, ${BLOCK_COLORS[type][0]} 50% 100%)` }}
-                aria-hidden="true"
-              />
-              <span className="container-copy">
-                <strong>{BLOCK_META[type].label}</strong>
-                <small>pack {carried} · chest {stored}</small>
-              </span>
-              <span className="container-actions">
-                <button type="button" disabled={carried < 1 || full} onClick={() => onDeposit(type, 1)}>Store</button>
-                <button type="button" disabled={carried < 1 || full} onClick={() => onDeposit(type, 8)}>×8</button>
-                <button type="button" disabled={stored < 1} onClick={() => onWithdraw(type, 1)}>Take</button>
-                <button type="button" disabled={stored < 1} onClick={() => onWithdraw(type, 8)}>×8</button>
-              </span>
-            </div>
-          );
-        })}
-      </div>
-      <footer className="container-foot">Store blocks here to free hotbar space · chest contents survive save and reload</footer>
-    </section>
-  );
-}
-
 export function ToastNote({ notice }: { notice: string }) {
   return (
     <div className={`toast-note ${notice ? "show" : ""}`} role="status" data-testid="status-notice">{notice}</div>
@@ -793,6 +734,7 @@ export function MobileControls({
   onPlace,
   onUse,
   onToggleCraft,
+  onTogglePack,
 }: {
   onMove: Dispatch<SetStateAction<MobileMove>>;
   target: AimTarget | null;
@@ -800,6 +742,7 @@ export function MobileControls({
   onPlace: (cell: BlockCell, adjacent: AimTarget["adjacent"]) => void;
   onUse: (cell: BlockCell) => void;
   onToggleCraft: () => void;
+  onTogglePack: () => void;
 }) {
   return (
     <>
@@ -842,10 +785,10 @@ export function MobileControls({
         </button>
         <button
           type="button"
-          aria-label="Use targeted chest"
+          aria-label="Use targeted container"
           data-testid="button-touch-use"
-          disabled={target?.cell.type !== "chest"}
-          onClick={() => { if (target?.cell.type === "chest") onUse(target.cell); }}
+          disabled={!target || !["chest", "barrel", "furnace", "hopper"].includes(target.cell.type)}
+          onClick={() => { if (target) onUse(target.cell); }}
         >
           Use
         </button>
@@ -856,6 +799,14 @@ export function MobileControls({
           onClick={onToggleCraft}
         >
           Craft
+        </button>
+        <button
+          type="button"
+          aria-label="Open field pack"
+          data-testid="button-touch-pack"
+          onClick={onTogglePack}
+        >
+          Pack
         </button>
       </div>
     </>

@@ -359,6 +359,19 @@ function drawTile(ctx: Ctx, ox: number, oy: number, info: BlockInfo, face: numbe
       for (let k = 0; k < 8; k += 1) px(Math.floor(rand() * S), Math.floor(rand() * S), info.speckle[1]);
       break;
     }
+    case "metal": {
+      fill(base);
+      for (let y = 0; y < S; y += 1) {
+        for (let x = 0; x < S; x += 1) {
+          const edge = x === 0 || y === 0 || x === S - 1 || y === S - 1;
+          const rivet = (x === 2 || x === S - 3) && (y === 2 || y === S - 3);
+          if (edge) px(x, y, shade(base, 0.6));
+          else if (rivet) px(x, y, shade(base, 1.45));
+          else if (rand() < 0.08) px(x, y, shade(base, 0.84 + rand() * 0.22));
+        }
+      }
+      break;
+    }
     case "chest": {
       // A lidded storage box: plank grain, dark iron bands and a front latch.
       fill(base);

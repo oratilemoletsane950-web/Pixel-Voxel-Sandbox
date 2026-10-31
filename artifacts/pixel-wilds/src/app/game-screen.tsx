@@ -34,16 +34,27 @@ import { MAX_BUILD_HEIGHT } from "../game/chunk";
 import { PLAYER_RADIUS, type Position } from "../game/physics";
 import { applyCraft, canCraft, type CraftRecipe } from "../game/crafting";
 import {
+  containerEntries,
   containerKey,
+  containerKindForBlock,
   containerTotal,
+  createContainer,
   deposit as depositIntoContainer,
+  furnaceDeposit,
+  furnaceWithdraw,
+  isContainerBlock,
   readContainers,
   saveContainers,
+  tickFurnaces,
+  tickHoppers,
   withdraw as withdrawFromContainer,
+  type ContainerKind,
   type ContainerMap,
+  type ContainerState,
 } from "../game/containers";
 import { HOTBAR_SLOTS } from "../game/player/controls";
 import {
+  addItem,
   createInventory,
   readPlayerSave,
   savePlayer,
@@ -96,10 +107,11 @@ import type { AppSettings } from "../game/settings";
 import { BLOCK_META } from "./block-palette";
 import { GameWorld } from "./game-world";
 import { VoxelFallback } from "./voxel-fallback";
+import { WorldStreamer } from "./world-streamer";
+import { StoragePanel, type OpenContainer } from "./storage-panels";
 import {
   BrandLockup,
   Compass,
-  ContainerPanel,
   CraftPanel,
   Crosshair,
   DeathScreen,
@@ -177,9 +189,11 @@ export function GameScreen({
   const targetRef = useRef(target);
   targetRef.current = target;
   const [lookYaw, setLookYaw] = useState(0);
+  const streamLook = useRef({ x: 0, z: -1 });
   const [miningProgress, setMiningProgress] = useState(0);
   const [started, setStarted] = useState(false);
   const [rulesOpen, setRulesOpen] = useState(false);
+  const [packOpen, setPackOpen] = useState(false);
   const [craftOpen, setCraftOpen] = useState(false);
   const [pauseOpen, setPauseOpen] = useState(false);
   const [flying, setFlying] = useState(false);
@@ -200,7 +214,7 @@ export function GameScreen({
       ? { ...currentTool, creative: true }
       : CREATIVE_MINING_TOOL
     : currentTool;
-  const paused = craftOpen || pauseOpen || Boolean(openChest) || !survival.alive;
+  const paused = packOpen || craftOpen || pauseOpen || Boolean(openChest) || !survival.alive;
 
   useEffect(() => {
     const probe = document.createElement("canvas");
@@ -219,9 +233,9 @@ export function GameScreen({
 
   // Leaving pointer lock hands the mouse back so panels can be clicked.
   useEffect(() => {
-    if (!craftOpen && !pauseOpen && !openChest) return;
+    if (!packOpen && !craftOpen && !pauseOpen && !openChest) return;
     if (document.pointerLockElement) document.exitPointerLock?.();
-  }, [craftOpen, openChest, pauseOpen]);
+  }, [craftOpen, openChest, packOpen, pauseOpen]);
 
   // The renderer reports flight toggles so the HUD can show walking or flying.
   useEffect(() => {
@@ -298,27 +312,72 @@ export function GameScreen({
     saveContainers(profile.id, containers);
   }, [containers, profile.id]);
 
-  // The player's chunk is only recorded here; a timer then generates a few
-  // missing chunks per tick (nearest first), so walking never causes one stall.
-  const streamChunks = useCallback((chunkX: number, chunkZ: number) => {
-    streamCenter.current = { x: chunkX, z: chunkZ };
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setContainers((current) => {
+        const next = tickFurnaces(current, 0.5);
+        if (next !== current) containersRef.current = next;
+        return next;
+      });
+    }, 500);
+    return () => window.clearInterval(timer);
   }, []);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
-      const next = ensureChunks(
-        worldRef.current,
-        streamCenter.current.x,
-        streamCenter.current.z,
-        settings.renderRadius,
-        3,
-      );
-      if (next === worldRef.current) return;
-      worldRef.current = next;
-      setWorld(next);
-    }, 40);
+      setContainers((current) => {
+        const next = tickHoppers(current);
+        if (next !== current) containersRef.current = next;
+        return next;
+      });
+    }, 2000);
     return () => window.clearInterval(timer);
-  }, [settings.renderRadius]);
+  }, []);
+
+  // The player's chunk is only recorded here. A worker generates the prefetch
+  // ring in priority order, so the render loop never waits for terrain.
+  const streamChunks = useCallback((chunkX: number, chunkZ: number) => {
+    streamCenter.current = { x: chunkX, z: chunkZ };
+  }, []);
+
+  const handleLook = useCallback((yaw: number) => {
+    setLookYaw(yaw);
+    streamLook.current = { x: -Math.sin(yaw), z: -Math.cos(yaw) };
+  }, []);
+
+  useEffect(() => {
+    // A tiny synchronous fallback keeps unusual embedded browsers playable.
+    if (typeof Worker === "undefined") {
+      const timer = window.setInterval(() => {
+        const next = ensureChunks(
+          worldRef.current,
+          streamCenter.current.x,
+          streamCenter.current.z,
+          settings.renderRadius + 2,
+          4,
+        );
+        if (next === worldRef.current) return;
+        worldRef.current = next;
+        setWorld(next);
+      }, 40);
+      return () => window.clearInterval(timer);
+    }
+
+    const streamer = new WorldStreamer({
+      seed: profile.seed,
+      radius: settings.renderRadius + 2,
+      world: () => worldRef.current,
+      center: () => streamCenter.current,
+      look: () => streamLook.current,
+      onWorld: (next) => {
+        worldRef.current = next;
+        setWorld(next);
+      },
+      onError: (message) => showNotice(message),
+    });
+    streamer.start();
+    return () => streamer.dispose();
+  }, [profile.seed, settings.renderRadius, showNotice]);
 
   const setWorldEdited = useCallback(
     (edit: (current: WorldData) => WorldData) => {
@@ -338,7 +397,8 @@ export function GameScreen({
   );
 
   const useBlock = useCallback((cell: BlockCell) => {
-    if (getBlock(worldRef.current, cell.x, cell.y, cell.z) !== "chest") return;
+    const found = getBlock(worldRef.current, cell.x, cell.y, cell.z);
+    if (!isContainerBlock(found)) return;
     setCraftOpen(false);
     setOpenChest({ x: cell.x, y: cell.y, z: cell.z });
   }, []);
@@ -347,22 +407,72 @@ export function GameScreen({
     (item: BlockType, amount: number, mode: "deposit" | "withdraw") => {
       if (!openChest) return;
       const key = containerKey(openChest);
-      const current = containersRef.current[key] ?? {};
+      const found = getBlock(worldRef.current, openChest.x, openChest.y, openChest.z);
+      const kind = containerKindForBlock(found ?? "") ?? "chest";
+      if (kind === "furnace") {
+        showNotice("Use the furnace's input and output controls");
+        return;
+      }
+      const current = containersRef.current[key] ?? createContainer(kind);
       const result = mode === "deposit"
         ? depositIntoContainer(current, inventory, item, amount)
         : withdrawFromContainer(current, inventory, item, amount);
       if (result.moved === 0) {
-        showNotice(result.blocked ? "Chest is full" : "Nothing to move");
+        showNotice(result.blocked ? "That storage is full" : "Nothing to move");
         return;
       }
       const next = { ...containersRef.current };
-      if (containerTotal(result.contents) === 0) delete next[key];
-      else next[key] = result.contents;
+      if (containerTotal(result.container) === 0) delete next[key];
+      else next[key] = result.container;
       containersRef.current = next;
       setContainers(next);
-      setInventory(result.inventory);
+      setInventory(result.inventory as Inventory);
       saveContainers(profile.id, next);
       showNotice(`${mode === "deposit" ? "Stored" : "Took"} ${result.moved} ${BLOCK_META[item].label.toLowerCase()}`);
+    },
+    [inventory, openChest, profile.id, showNotice],
+  );
+
+  const transferFurnaceItem = useCallback(
+    (item: BlockType, amount: number) => {
+      if (!openChest) return;
+      const key = containerKey(openChest);
+      const found = getBlock(worldRef.current, openChest.x, openChest.y, openChest.z);
+      if (found !== "furnace") return;
+      const current = containersRef.current[key] ?? createContainer("furnace");
+      const result = furnaceDeposit(current, inventory, item, amount);
+      if (result.moved === 0) {
+        showNotice("The furnace cannot take that item");
+        return;
+      }
+      const next = { ...containersRef.current, [key]: result.container };
+      containersRef.current = next;
+      setContainers(next);
+      setInventory(result.inventory as Inventory);
+      saveContainers(profile.id, next);
+      showNotice(`Loaded ${result.moved} ${BLOCK_META[item].label.toLowerCase()}`);
+    },
+    [inventory, openChest, profile.id, showNotice],
+  );
+
+  const takeFurnaceOutput = useCallback(
+    (amount: number) => {
+      if (!openChest) return;
+      const key = containerKey(openChest);
+      const found = getBlock(worldRef.current, openChest.x, openChest.y, openChest.z);
+      if (found !== "furnace") return;
+      const current = containersRef.current[key] ?? createContainer("furnace");
+      const result = furnaceWithdraw(current, inventory, amount);
+      if (result.moved === 0) {
+        showNotice("The output is empty");
+        return;
+      }
+      const next = { ...containersRef.current, [key]: result.container };
+      containersRef.current = next;
+      setContainers(next);
+      setInventory(result.inventory as Inventory);
+      saveContainers(profile.id, next);
+      showNotice(`Took ${result.moved} from the furnace`);
     },
     [inventory, openChest, profile.id, showNotice],
   );
@@ -370,19 +480,31 @@ export function GameScreen({
   const collectDrops = useCallback(
     (drops: ItemDrop[]) => {
       if (drops.length === 0) return;
-      setInventory((currentInventory) => {
-        const next = { ...currentInventory };
-        for (const drop of drops) next[drop.item] += 1;
-        return next;
-      });
+      let next = inventory;
+      const spilled: ItemDrop[] = [];
+      for (const drop of drops) {
+        const result = addItem(next, drop.item, 1);
+        next = result.inventory;
+        if (result.overflow > 0) spilled.push(drop);
+      }
+      setInventory(next);
+      for (const drop of spilled) {
+        dropField.spawn(drop.item, {
+          x: Math.floor(playerPosition?.x ?? 0),
+          y: Math.max(0, Math.floor((playerPosition?.y ?? 5) - 4)),
+          z: Math.floor(playerPosition?.z ?? 0),
+        });
+      }
       saveDropState(profile.id, dropField);
       showNotice(
-        drops.length === 1
-          ? `${BLOCK_META[drops[0].item].label} gathered`
-          : `${drops.length} items gathered`,
+        spilled.length > 0
+          ? "Pack full · spilled items remain on the ground"
+          : drops.length === 1
+            ? `${BLOCK_META[drops[0].item].label} gathered`
+            : `${drops.length} items gathered`,
       );
     },
-    [dropField, profile.id, showNotice],
+    [dropField, inventory, playerPosition, profile.id, showNotice],
   );
 
   const mineBlock = useCallback(
@@ -394,9 +516,10 @@ export function GameScreen({
         showNotice("Bedrock will not budge");
         return;
       }
-      const chestKey = found === "chest" ? containerKey(cell) : null;
-      const chestContents = chestKey ? containersRef.current[chestKey] : null;
-      const chestStored = chestContents ? containerTotal(chestContents) : 0;
+      const containerCellKey = isContainerBlock(found) ? containerKey(cell) : null;
+      const storedContainer = containerCellKey ? containersRef.current[containerCellKey] : null;
+      const storedEntries = storedContainer ? containerEntries(storedContainer) : [];
+      const storedTotal = storedEntries.reduce((sum, [, count]) => sum + count, 0);
       const activeTool = equippedTool(toolStateRef.current);
       if (!unlimited && !canHarvest(found, activeTool)) {
         showNotice(harvestRefusal(found, activeTool) || "That block needs a stronger tool");
@@ -442,21 +565,21 @@ export function GameScreen({
         setToolState(worn.state);
         if (worn.broke) message = `${message} · ${activeTool.label} broke`;
       }
-      if (chestKey) {
+      if (containerCellKey) {
         const next = { ...containersRef.current };
-        delete next[chestKey];
+        delete next[containerCellKey];
         containersRef.current = next;
         setContainers(next);
       }
-      if (chestStored > 0) {
+      if (storedTotal > 0) {
         setInventory((currentInventory) => {
-          const next = { ...currentInventory };
-          for (const [item, count] of Object.entries(chestContents ?? {})) {
-            if (count) next[item as BlockType] += count;
+          let next = currentInventory;
+          for (const [item, count] of storedEntries) {
+            next = addItem(next, item, count).inventory;
           }
           return next;
         });
-        message = `${message} · ${chestStored} stored items recovered`;
+        message = `${message} · ${storedTotal} stored items recovered`;
       }
       showNotice(message);
     },
@@ -645,6 +768,10 @@ export function GameScreen({
         eatForaged();
         return;
       }
+      if (event.code === "KeyB" && !event.repeat && !event.ctrlKey && !event.metaKey && !pauseOpen) {
+        setPackOpen((open) => !open);
+        return;
+      }
       if (event.code === "KeyC" && !event.repeat && !event.ctrlKey && !event.metaKey && !pauseOpen) {
         setCraftOpen((open) => !open);
         return;
@@ -653,12 +780,18 @@ export function GameScreen({
         cycleEquippedTool();
         return;
       }
-      if (event.code === "KeyE" && !event.repeat && !openChest && targetRef.current?.cell.type === "chest") {
-        useBlock(targetRef.current.cell);
+      if (
+        event.code === "KeyE" &&
+        !event.repeat &&
+        !openChest &&
+        isContainerBlock(targetRef.current?.cell.type)
+      ) {
+        useBlock(targetRef.current!.cell);
         return;
       }
       if (event.code === "Escape") {
-        if (openChest) setOpenChest(null);
+        if (packOpen) setPackOpen(false);
+        else if (openChest) setOpenChest(null);
         else if (craftOpen) setCraftOpen(false);
         else if (pauseOpen) {
           setPauseOpen(false);
@@ -704,7 +837,7 @@ export function GameScreen({
       document.removeEventListener("pointerlockchange", onPointerChange);
       window.removeEventListener("beforeunload", saveOnExit);
     };
-  }, [craftOpen, cycleEquippedTool, dropField, eatForaged, openChest, pauseOpen, profile.id, savePlayerState, started, supportsWebGL, survivalMode, useBlock]);
+  }, [craftOpen, cycleEquippedTool, dropField, eatForaged, openChest, packOpen, pauseOpen, profile.id, savePlayerState, started, supportsWebGL, survivalMode, useBlock]);
 
   useEffect(() => {
     savePlayerState();
@@ -739,6 +872,30 @@ export function GameScreen({
     () => weatherAt(world.seed, worldTime, isColdBiome(biome)),
     [biome, world.seed, worldTime],
   );
+  const openContainerInfo: OpenContainer | null = useMemo(() => {
+    if (!openChest) return null;
+    const found = getBlock(worldRef.current, openChest.x, openChest.y, openChest.z);
+    const kind = containerKindForBlock(found ?? "");
+    if (!kind) return null;
+    const key = containerKey(openChest);
+    const labels: Record<ContainerKind, string> = {
+      chest: "Chest",
+      barrel: "Barrel",
+      furnace: "Furnace",
+      hopper: "Hopper",
+    };
+    return {
+      key,
+      kind,
+      state: containers[key] ?? createContainer(kind),
+      label: labels[kind],
+    };
+  }, [containers, openChest, world]);
+  const storageOpen = packOpen || Boolean(openChest);
+  const closeStorage = () => {
+    setPackOpen(false);
+    setOpenChest(null);
+  };
   const coordinates = playerPosition
     ? `${Math.floor(playerPosition.x)} · ${Math.floor(playerPosition.y)} · ${Math.floor(playerPosition.z)}`
     : "ROAM FREE";
@@ -783,7 +940,7 @@ export function GameScreen({
           onPosition={setPlayerPosition}
           onChunkChange={streamChunks}
           onMineProgress={setMiningProgress}
-          onLook={setLookYaw}
+          onLook={handleLook}
           savedPosition={playerPosition}
           mobileMove={mobileMove}
           started={started}
@@ -823,7 +980,7 @@ export function GameScreen({
             onPosition={setPlayerPosition}
           onChunkChange={streamChunks}
           onMineProgress={setMiningProgress}
-          onLook={setLookYaw}
+          onLook={handleLook}
           savedPosition={playerPosition}
             mobileMove={mobileMove}
             renderRadius={settings.renderRadius}
@@ -881,15 +1038,28 @@ export function GameScreen({
           tool={currentTool}
           toolDurability={currentToolDurability}
           onCycleTool={cycleEquippedTool}
+          onOpenPack={() => setPackOpen(true)}
         />
-        <ContainerPanel
-          open={Boolean(openChest)}
-          position={openChest ? `${openChest.x} · ${openChest.y} · ${openChest.z}` : ""}
-          contents={openChest ? containers[containerKey(openChest)] ?? {} : {}}
+        <StoragePanel
+          open={storageOpen}
           inventory={inventory}
-          onClose={() => setOpenChest(null)}
+          selected={selected}
+          packOpen={packOpen}
+          container={openContainerInfo}
+          unlimited={unlimited}
+          onClose={closeStorage}
+          onSelect={(item) => {
+            const index = BLOCK_TYPES.indexOf(item);
+            if (index >= 0) setSelectedIndex(index);
+          }}
           onDeposit={(item, amount) => transferChestItem(item, amount, "deposit")}
           onWithdraw={(item, amount) => transferChestItem(item, amount, "withdraw")}
+          onDepositAll={(item) => transferChestItem(item, inventory[item], "deposit")}
+          onWithdrawAll={(item) =>
+            transferChestItem(item, openContainerInfo?.state.contents[item] ?? 0, "withdraw")
+          }
+          onFurnaceDeposit={transferFurnaceItem}
+          onFurnaceWithdraw={takeFurnaceOutput}
         />
         <CraftPanel
           open={craftOpen}
@@ -912,6 +1082,7 @@ export function GameScreen({
           onPlace={placeBlock}
           onUse={useBlock}
           onToggleCraft={() => setCraftOpen((open) => !open)}
+          onTogglePack={() => setPackOpen((open) => !open)}
         />
       </div>
 

@@ -6,6 +6,7 @@
  *   terrain-registry  — cached Terrain instances per seed
  *   access            — block reads, edits and visibility queries
  *   streaming         — chunk generation/streaming and edit replay
+ *   stream-plan       — renderer-independent prefetch and pruning policy
  *   spawn             — safe spawn selection
  *   persistence       — save/load with an injectable storage backend
  *   clock             — world time, daylight palettes and clock persistence
@@ -18,6 +19,7 @@ export * from "./profile";
 export * from "./terrain-registry";
 export * from "./access";
 export * from "./streaming";
+export * from "./stream-plan";
 export * from "./spawn";
 export * from "./persistence";
 export * from "./clock";

@@ -18,9 +18,11 @@ export function initialWorld(
   const x = position?.x ?? 0;
   const z = position?.z ?? 0;
   try {
-    return loadWorldData(profile.id, profile.seed, x, z, 5);
+    // Start with only the spawn neighbourhood; the worker fills the prefetch
+    // ring in the background instead of blocking the first frame.
+    return loadWorldData(profile.id, profile.seed, x, z, 2);
   } catch {
-    return createWorld(profile.seed, x, z, 5);
+    return createWorld(profile.seed, x, z, 2);
   }
 }
 

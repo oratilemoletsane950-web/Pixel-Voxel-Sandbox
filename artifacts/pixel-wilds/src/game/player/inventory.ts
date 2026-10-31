@@ -14,6 +14,19 @@ import {
   type KeyValueStorage,
 } from "../storage";
 import type { GameMode } from "../world/profile";
+export {
+  INVENTORY_CAPACITY,
+  INVENTORY_SLOT_COUNT,
+  STACK_LIMIT,
+  addItem,
+  canAcceptItem,
+  freeInventorySlots,
+  inventoryCapacity,
+  removeItem,
+  sortedInventoryItems,
+  stackCount,
+  type InventorySort,
+} from "../items/stacks";
 
 export type Inventory = Record<BlockType, number>;
 
