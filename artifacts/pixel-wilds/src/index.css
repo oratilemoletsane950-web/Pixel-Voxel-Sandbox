@@ -95,7 +95,8 @@ button:focus-visible { outline: 3px solid #f08a58; outline-offset: 3px; }
 .crosshair:before { width:2px;height:18px; }
 .crosshair:after { width:18px;height:2px; }
 .crosshair-active:before,.crosshair-active:after { background:#ffe27b; }
-.crosshair-center { width:3px;height:3px;background:#203b35;border:1px solid #fff4d7;z-index:1; }
+.crosshair-center { width:3px;height:3px;background:#203b35;border:1px solid #fff4d7;z-index:2; }
+.crosshair-mine { position:absolute;inset:-9px;border-radius:50%;-webkit-mask:radial-gradient(circle,transparent 0 54%,#000 56%);mask:radial-gradient(circle,transparent 0 54%,#000 56%);opacity:.92; }
 .bottom-hud { position:absolute;left:0;right:0;bottom:clamp(18px,3.6vh,38px);display:flex;flex-direction:column;align-items:center;gap:12px; }
 .hotbar { display:flex;gap:5px;padding:7px;background:rgba(28,55,49,.87);border:1px solid rgba(253,231,183,.55);box-shadow:4px 5px 0 rgba(31,60,52,.24);backdrop-filter:blur(9px); }
 .hotbar-slot { position:relative;width:54px;height:58px;padding:5px 4px 4px;display:flex;flex-direction:column;align-items:center;justify-content:space-between;border:1px solid rgba(240,222,177,.16);background:rgba(246,238,211,.09);color:#e9e4cc;cursor:pointer;transition:transform .16s,background .16s,border-color .16s; }

@@ -108,6 +108,8 @@ export interface BlockInfo {
   opaque: boolean;
   /** Alpha used for see-through blocks. */
   alpha: number;
+  /** Seconds of hand mining before the block breaks. */
+  hardness: number;
   collectible: boolean;
   unbreakable: boolean;
   /** Extra colour for ore flecks. */

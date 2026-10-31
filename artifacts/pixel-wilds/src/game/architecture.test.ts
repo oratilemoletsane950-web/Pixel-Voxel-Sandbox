@@ -108,6 +108,7 @@ test("block ids, catalogue and lookup tables agree", () => {
   assert.equal(IS_OPAQUE.length, WORLD_BLOCK_TYPES.length + 1);
   for (const name of BLOCK_TYPES) {
     assert.equal(BLOCK_INFO[name].collectible, true, `${name} should be collectible`);
+    assert.ok(BLOCK_INFO[name].hardness > 0, `${name} needs a positive mining hardness`);
   }
   for (const name of WORLD_BLOCK_TYPES.filter((entry) => !(BLOCK_TYPES as readonly string[]).includes(entry))) {
     assert.equal(BLOCK_INFO[name].collectible, false, `${name} is scenery and must not be collectible`);

@@ -153,10 +153,11 @@ delete, per-world terrain and player saves with migration, pause + Save and
    damage, difficulty tuning, death/respawn, berry foraging and a separate
    vitals save.
 3. **Done:** a persisted twelve-minute day/night cycle with interpolated sky
-   and lighting in both renderers, plus deterministic caves below a safe roof.
-4. **Next:** block hardness and tool tiers; weather; then LAN hosting/discovery
-   over WebRTC or a local relay (a browser cannot listen on a port), structures
-   wired to profiles, import/export.
+   and lighting in both renderers, deterministic caves below a safe roof, and
+   per-block hand-mining hardness with hold-to-mine progress.
+4. **Next:** tool tiers, durability and faster mining; weather; then LAN
+   hosting/discovery over WebRTC or a local relay (a browser cannot listen on a
+   port), structures wired to profiles, import/export.
 
 ## Known remaining work
 
@@ -166,6 +167,8 @@ delete, per-world terrain and player saves with migration, pause + Save and
 - Caves deliberately leave a three-block roof and skip water columns. Surface
   entrances, underground lighting and cave-specific decoration remain future
   work.
+- Hardness currently assumes hand mining. Tool tiers, harvest requirements and
+  durability are the next survival pass.
 - `artifacts/mockup-sandbox` duplicates the shadcn UI components in this app;
   it is a design sandbox, not shipped game code.
 - The production bundle is a single ~1.3 MB chunk (Three.js dominates) and the

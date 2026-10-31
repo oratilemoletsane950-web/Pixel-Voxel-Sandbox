@@ -33,6 +33,7 @@ import {
   getHotbarIndexFromCode,
   type AimTarget,
 } from "../game/player/aiming";
+import { MIN_MINING_SECONDS, advanceMining, miningDuration } from "../game/player/mining";
 import { findSpawn } from "../game/player/session";
 import { BLOCK_COLORS } from "./block-palette";
 
@@ -43,6 +44,7 @@ export function VoxelFallback({
   onPlace,
   onPosition,
   onChunkChange,
+  onMineProgress,
   savedPosition,
   mobileMove,
   started,
@@ -61,6 +63,7 @@ export function VoxelFallback({
   onPlace: (cell: BlockCell, adjacent: AimTarget["adjacent"]) => void;
   onPosition: (position: Position) => void;
   onChunkChange: (chunkX: number, chunkZ: number) => void;
+  onMineProgress?: (progress: number) => void;
   savedPosition: Position | null;
   mobileMove: { forward: number; side: number; jump: boolean };
   started: boolean;
@@ -90,6 +93,8 @@ export function VoxelFallback({
   const lastEnvironmentSent = useRef(0);
   const lastChunkKey = useRef("");
   const voidReported = useRef(false);
+  const miningRef = useRef<{ key: string; progress: number } | null>(null);
+  const lastMiningProgress = useRef(-1);
   moveRef.current = mobileMove;
   startedRef.current = started;
   const pausedRef = useRef(paused);
@@ -113,6 +118,7 @@ export function VoxelFallback({
     onPlace,
     onPosition,
     onChunkChange,
+    onMineProgress,
     onStart,
     worldTime,
     survivalMode,
@@ -128,6 +134,7 @@ export function VoxelFallback({
     onPlace,
     onPosition,
     onChunkChange,
+    onMineProgress,
     onStart,
     worldTime,
     survivalMode,
@@ -201,6 +208,28 @@ export function VoxelFallback({
       };
     };
 
+    const stopMining = () => {
+      if (!miningRef.current) return;
+      miningRef.current = null;
+      lastMiningProgress.current = -1;
+      latest.current.onMineProgress?.(0);
+    };
+
+    const startMining = (cell: BlockCell) => {
+      const duration = miningDuration(cell.type);
+      if (!Number.isFinite(duration) || duration <= MIN_MINING_SECONDS) {
+        stopMining();
+        latest.current.onMine(cell);
+        return;
+      }
+      miningRef.current = {
+        key: blockKey(cell.x, cell.y, cell.z),
+        progress: 0,
+      };
+      lastMiningProgress.current = 0;
+      latest.current.onMineProgress?.(0.01);
+    };
+
     const updateTarget = (nextTarget: AimTarget | null) => {
       const previous = targetRef.current;
       const previousKey = previous
@@ -209,6 +238,7 @@ export function VoxelFallback({
       const nextKey = nextTarget
         ? blockKey(nextTarget.cell.x, nextTarget.cell.y, nextTarget.cell.z)
         : "";
+      if (miningRef.current && nextKey !== miningRef.current.key) stopMining();
       targetRef.current = nextTarget;
       if (previousKey !== nextKey) latest.current.onTarget(nextTarget);
     };
@@ -222,8 +252,11 @@ export function VoxelFallback({
       updateTarget(getTargetAt(event.clientX, event.clientY));
       const hit = targetRef.current;
       if (!hit) return;
-      if (event.button === 0) latest.current.onMine(hit.cell);
+      if (event.button === 0) startMining(hit.cell);
       if (event.button === 2) latest.current.onPlace(hit.cell, hit.adjacent);
+    };
+    const onPointerUp = (event: PointerEvent) => {
+      if (event.button === 0) stopMining();
     };
     const onContextMenu = (event: Event) => event.preventDefault();
     const onKeyDown = (event: KeyboardEvent) => {
@@ -261,6 +294,7 @@ export function VoxelFallback({
       keys.current = {};
       forwardBoost.current = false;
       lastWTap.current = 0;
+      stopMining();
     };
     const onWheel = (event: WheelEvent) => {
       event.preventDefault();
@@ -276,6 +310,8 @@ export function VoxelFallback({
 
     canvas.addEventListener("pointermove", onPointerMove);
     canvas.addEventListener("pointerdown", onPointerDown);
+    window.addEventListener("pointerup", onPointerUp);
+    window.addEventListener("pointercancel", onPointerUp);
     canvas.addEventListener("contextmenu", onContextMenu);
     canvas.addEventListener("wheel", onWheel, { passive: false });
     window.addEventListener("keydown", onKeyDown, { passive: false });
@@ -293,6 +329,8 @@ export function VoxelFallback({
       const ratio = Math.min(window.devicePixelRatio || 1, 1.5);
       context.setTransform(ratio, 0, 0, ratio, 0, 0);
       context.imageSmoothingEnabled = false;
+
+      if (miningRef.current && (pausedRef.current || !startedRef.current)) stopMining();
 
       if (startedRef.current && !pausedRef.current) {
         // Arrow keys turn the walking direction; the isometric view stays put.
@@ -363,6 +401,25 @@ export function VoxelFallback({
             createPlayerMotion(latest.current.world, findSpawn(latest.current.world)),
           );
           player.flying = false;
+        }
+        if (miningRef.current) {
+          const hit = targetRef.current;
+          if (!hit || blockKey(hit.cell.x, hit.cell.y, hit.cell.z) !== miningRef.current.key) {
+            stopMining();
+          } else {
+            const step = advanceMining(miningRef.current.progress, dt, hit.cell.type);
+            miningRef.current.progress = step.progress;
+            if (step.complete) {
+              const cell = hit.cell;
+              miningRef.current = null;
+              lastMiningProgress.current = -1;
+              latest.current.onMineProgress?.(0);
+              latest.current.onMine(cell);
+            } else if (step.progress - lastMiningProgress.current >= 0.02) {
+              lastMiningProgress.current = step.progress;
+              latest.current.onMineProgress?.(step.progress);
+            }
+          }
         }
         if (time - lastPositionSent.current > 350) {
           lastPositionSent.current = time;
@@ -440,6 +497,8 @@ export function VoxelFallback({
       window.cancelAnimationFrame(frame);
       canvas.removeEventListener("pointermove", onPointerMove);
       canvas.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("pointerup", onPointerUp);
+      window.removeEventListener("pointercancel", onPointerUp);
       canvas.removeEventListener("contextmenu", onContextMenu);
       canvas.removeEventListener("wheel", onWheel);
       window.removeEventListener("keydown", onKeyDown);

@@ -16,6 +16,8 @@ export interface BlockTraits {
   solid: boolean;
   opaque: boolean;
   alpha: number;
+  /** Seconds of hand mining; tools will eventually scale this. */
+  hardness: number;
   unbreakable: boolean;
   fleck?: string;
 }
@@ -35,17 +37,18 @@ const SOLID: Prototype<BlockTraits> = prototype<BlockTraits>({
   solid: true,
   opaque: true,
   alpha: 1,
+  hardness: 1.1,
   unbreakable: false,
 });
 
 /** Walk-through decoration: flowers, crops, doors. */
-const PLANT: Prototype<BlockTraits> = SOLID.extend({ solid: false });
+const PLANT: Prototype<BlockTraits> = SOLID.extend({ solid: false, hardness: 0.18 });
 
 /** Blocks you can see through: water, glass, ice. */
-const SEE_THROUGH: Prototype<BlockTraits> = SOLID.extend({ opaque: false });
+const SEE_THROUGH: Prototype<BlockTraits> = SOLID.extend({ opaque: false, hardness: 0.45 });
 
 /** Walk-through and see-through: water. */
-const FLUID: Prototype<BlockTraits> = SOLID.extend({ solid: false, opaque: false });
+const FLUID: Prototype<BlockTraits> = SOLID.extend({ solid: false, opaque: false, hardness: 0.05 });
 
 export function defineBlock(
   family: Prototype<BlockTraits>,
@@ -73,36 +76,36 @@ const CATALOGUE: BlockDefinition[] = [
   defineBlock(SOLID, { name: "moss", label: "Moss", short: "MOS", colors: ["#5d7b3a", "#6f9444", "#4d6a31"], speckle: ["#8db255", "#3f5a28", "#6f9444"] }),
 
   // Rock
-  defineBlock(SOLID, { name: "stone", label: "Stone", short: "STN", colors: STONE_COLORS, speckle: STONE_SPECKLE }),
-  defineBlock(SOLID, { name: "granite", label: "Granite", short: "GRN", colors: ["#a98577", "#bd9a8b", "#8f6f63"], speckle: ["#d8b9a8", "#7f5f55", "#c9a595"] }),
-  defineBlock(SOLID, { name: "limestone", label: "Limestone", short: "LMS", colors: ["#cfc6a6", "#ddd4b4", "#b8af90"], speckle: ["#efe8cc", "#a89f82", "#d8cfae"] }),
-  defineBlock(SOLID, { name: "sandstone", label: "Sandstone", short: "SDS", colors: ["#d4b97a", "#dfc687", "#bfa56a"], speckle: ["#e8d49a", "#b59a5f", "#cbb06f"], pattern: "bands" }),
-  defineBlock(SOLID, { name: "cobblestone", label: "Cobble", short: "CBL", colors: ["#686f6b", "#93968a", "#5a625f"], speckle: STONE_SPECKLE, pattern: "cobble" }),
-  defineBlock(SOLID, { name: "stone_bricks", label: "Stone brick", short: "SBK", colors: ["#868a80", "#9a9d91", "#6f7369"], speckle: ["#b1b3a6", "#5f645c", "#8d9186"], pattern: "bricks" }),
-  defineBlock(SOLID, { name: "coal_ore", label: "Coal ore", short: "COA", colors: STONE_COLORS, speckle: STONE_SPECKLE, pattern: "ore", fleck: "#1c1c20" }),
-  defineBlock(SOLID, { name: "iron_ore", label: "Iron ore", short: "IRN", colors: STONE_COLORS, speckle: STONE_SPECKLE, pattern: "ore", fleck: "#d9a77f" }),
+  defineBlock(SOLID, { name: "stone", hardness: 3.4, label: "Stone", short: "STN", colors: STONE_COLORS, speckle: STONE_SPECKLE }),
+  defineBlock(SOLID, { name: "granite", hardness: 3.6, label: "Granite", short: "GRN", colors: ["#a98577", "#bd9a8b", "#8f6f63"], speckle: ["#d8b9a8", "#7f5f55", "#c9a595"] }),
+  defineBlock(SOLID, { name: "limestone", hardness: 3.0, label: "Limestone", short: "LMS", colors: ["#cfc6a6", "#ddd4b4", "#b8af90"], speckle: ["#efe8cc", "#a89f82", "#d8cfae"] }),
+  defineBlock(SOLID, { name: "sandstone", hardness: 2.8, label: "Sandstone", short: "SDS", colors: ["#d4b97a", "#dfc687", "#bfa56a"], speckle: ["#e8d49a", "#b59a5f", "#cbb06f"], pattern: "bands" }),
+  defineBlock(SOLID, { name: "cobblestone", hardness: 3.2, label: "Cobble", short: "CBL", colors: ["#686f6b", "#93968a", "#5a625f"], speckle: STONE_SPECKLE, pattern: "cobble" }),
+  defineBlock(SOLID, { name: "stone_bricks", hardness: 3.2, label: "Stone brick", short: "SBK", colors: ["#868a80", "#9a9d91", "#6f7369"], speckle: ["#b1b3a6", "#5f645c", "#8d9186"], pattern: "bricks" }),
+  defineBlock(SOLID, { name: "coal_ore", hardness: 4.0, label: "Coal ore", short: "COA", colors: STONE_COLORS, speckle: STONE_SPECKLE, pattern: "ore", fleck: "#1c1c20" }),
+  defineBlock(SOLID, { name: "iron_ore", hardness: 4.5, label: "Iron ore", short: "IRN", colors: STONE_COLORS, speckle: STONE_SPECKLE, pattern: "ore", fleck: "#d9a77f" }),
 
   // Wood & plants
-  defineBlock(SOLID, { name: "wood", label: "Oak log", short: "OAK", colors: ["#956044", "#bd8150", "#80513e"], speckle: ["#d3a16c", "#644a3c", "#80513e"], pattern: "log" }),
-  defineBlock(SOLID, { name: "birch_wood", label: "Birch log", short: "BCH", colors: ["#d9d5c6", "#c9ba90", "#bdb7a4"], speckle: ["#2e2a24", "#a8a08a", "#e9e5d6"], pattern: "log" }),
-  defineBlock(SOLID, { name: "spruce_wood", label: "Spruce log", short: "SPR", colors: ["#5b4330", "#8a6a45", "#4a3526"], speckle: ["#3a2a1e", "#7a5a3c", "#6a4e36"], pattern: "log" }),
+  defineBlock(SOLID, { name: "wood", hardness: 2.2, label: "Oak log", short: "OAK", colors: ["#956044", "#bd8150", "#80513e"], speckle: ["#d3a16c", "#644a3c", "#80513e"], pattern: "log" }),
+  defineBlock(SOLID, { name: "birch_wood", hardness: 2.0, label: "Birch log", short: "BCH", colors: ["#d9d5c6", "#c9ba90", "#bdb7a4"], speckle: ["#2e2a24", "#a8a08a", "#e9e5d6"], pattern: "log" }),
+  defineBlock(SOLID, { name: "spruce_wood", hardness: 2.2, label: "Spruce log", short: "SPR", colors: ["#5b4330", "#8a6a45", "#4a3526"], speckle: ["#3a2a1e", "#7a5a3c", "#6a4e36"], pattern: "log" }),
   defineBlock(SOLID, { name: "leaves", label: "Oak leaves", short: "LVF", colors: ["#4c7957", "#6f9b61", "#416b50"], speckle: ["#91b66a", "#416c50", "#6d985d"], pattern: "leaves" }),
   defineBlock(SOLID, { name: "birch_leaves", label: "Birch leaves", short: "BLV", colors: ["#7fa24f", "#99bb5f", "#6d8f42"], speckle: ["#b6d36f", "#587a36", "#8fb057"], pattern: "leaves" }),
   defineBlock(SOLID, { name: "spruce_leaves", label: "Spruce needles", short: "SLV", colors: ["#2f5a3f", "#3f7050", "#264b35"], speckle: ["#5a8f67", "#1d3d2a", "#3b6a4a"], pattern: "leaves" }),
-  defineBlock(SOLID, { name: "cactus", label: "Cactus", short: "CAC", colors: ["#3f7d3d", "#5ea04a", "#356b34"], speckle: ["#8fcf72", "#2a5a2a", "#4d8f45"], pattern: "cactus" }),
-  defineBlock(SOLID, { name: "thatch", label: "Thatch", short: "THT", colors: ["#c8a653", "#d9b862", "#a98a41"], speckle: ["#e9d28a", "#8f7233", "#c8a653"], pattern: "thatch" }),
+  defineBlock(SOLID, { name: "cactus", hardness: 0.45, label: "Cactus", short: "CAC", colors: ["#3f7d3d", "#5ea04a", "#356b34"], speckle: ["#8fcf72", "#2a5a2a", "#4d8f45"], pattern: "cactus" }),
+  defineBlock(SOLID, { name: "thatch", hardness: 0.5, label: "Thatch", short: "THT", colors: ["#c8a653", "#d9b862", "#a98a41"], speckle: ["#e9d28a", "#8f7233", "#c8a653"], pattern: "thatch" }),
 
   // Crafted
-  defineBlock(SOLID, { name: "planks", label: "Planks", short: "PLK", colors: ["#8d6846", "#c09866", "#70513b"], speckle: GRAINED, pattern: "planks" }),
-  defineBlock(SOLID, { name: "dark_planks", label: "Dark planks", short: "DPL", colors: ["#5a3e2a", "#6e4d35", "#4a3322"], speckle: ["#8a6444", "#3a281b", "#6e4d35"], pattern: "planks" }),
-  defineBlock(SOLID, { name: "brick", label: "Brick", short: "BRK", colors: ["#81584c", "#b47d67", "#67473d"], speckle: ["#d49c81", "#744b43", "#a66d5b"], pattern: "bricks" }),
-  defineBlock(SOLID, { name: "roof", label: "Roof tile", short: "ROF", colors: ["#46534d", "#6b7770", "#35433d"], speckle: ["#89948a", "#394741", "#66746b"], pattern: "shingles" }),
+  defineBlock(SOLID, { name: "planks", hardness: 2.0, label: "Planks", short: "PLK", colors: ["#8d6846", "#c09866", "#70513b"], speckle: GRAINED, pattern: "planks" }),
+  defineBlock(SOLID, { name: "dark_planks", hardness: 2.0, label: "Dark planks", short: "DPL", colors: ["#5a3e2a", "#6e4d35", "#4a3322"], speckle: ["#8a6444", "#3a281b", "#6e4d35"], pattern: "planks" }),
+  defineBlock(SOLID, { name: "brick", hardness: 3.0, label: "Brick", short: "BRK", colors: ["#81584c", "#b47d67", "#67473d"], speckle: ["#d49c81", "#744b43", "#a66d5b"], pattern: "bricks" }),
+  defineBlock(SOLID, { name: "roof", hardness: 3.0, label: "Roof tile", short: "ROF", colors: ["#46534d", "#6b7770", "#35433d"], speckle: ["#89948a", "#394741", "#66746b"], pattern: "shingles" }),
   defineBlock(SEE_THROUGH, { name: "glass", label: "Glass", short: "GLS", colors: ["#5d9997", "#b8e6d8", "#487a7d"], speckle: ["#d2f0df", "#4b8285", "#83bcb3"], pattern: "glass", alpha: 0.42 }),
-  defineBlock(PLANT, { name: "door", label: "Wooden door", short: "DOR", colors: ["#79553a", "#a4774e", "#634430"], speckle: GRAINED, pattern: "door" }),
-  defineBlock(SOLID, { name: "chair", label: "Chair", short: "CHR", colors: ["#6f4e33", "#8d6846", "#593d28"], speckle: GRAINED, pattern: "chair" }),
-  defineBlock(SOLID, { name: "table", label: "Table", short: "TBL", colors: ["#8d6846", "#b58a5c", "#6b4c34"], speckle: GRAINED, pattern: "table" }),
-  defineBlock(SOLID, { name: "marble", label: "Marble", short: "MRB", colors: ["#dcd9cf", "#f1efe7", "#c2bfb4"], speckle: ["#f7f5ee", "#a3a199", "#d8d5cb"], pattern: "marble" }),
-  defineBlock(SOLID, { name: "gold", label: "Royal gold", short: "GLD", colors: ["#c99b2e", "#e6c455", "#a87d1f"], speckle: ["#f6e08a", "#8f6a17", "#dcb13c"], pattern: "gilded" }),
+  defineBlock(PLANT, { name: "door", hardness: 0.8, label: "Wooden door", short: "DOR", colors: ["#79553a", "#a4774e", "#634430"], speckle: GRAINED, pattern: "door" }),
+  defineBlock(SOLID, { name: "chair", hardness: 1.4, label: "Chair", short: "CHR", colors: ["#6f4e33", "#8d6846", "#593d28"], speckle: GRAINED, pattern: "chair" }),
+  defineBlock(SOLID, { name: "table", hardness: 1.6, label: "Table", short: "TBL", colors: ["#8d6846", "#b58a5c", "#6b4c34"], speckle: GRAINED, pattern: "table" }),
+  defineBlock(SOLID, { name: "marble", hardness: 3.2, label: "Marble", short: "MRB", colors: ["#dcd9cf", "#f1efe7", "#c2bfb4"], speckle: ["#f7f5ee", "#a3a199", "#d8d5cb"], pattern: "marble" }),
+  defineBlock(SOLID, { name: "gold", hardness: 3.5, label: "Royal gold", short: "GLD", colors: ["#c99b2e", "#e6c455", "#a87d1f"], speckle: ["#f6e08a", "#8f6a17", "#dcb13c"], pattern: "gilded" }),
 
   // Scenery
   defineBlock(PLANT, { name: "flower", label: "Wild bloom", short: "FLR", colors: ["#59845b", "#7aa76a", "#507b54"], speckle: ["#f4d276", "#d8796e", "#93b56a"], pattern: "flower" }),

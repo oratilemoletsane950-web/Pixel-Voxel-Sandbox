@@ -74,6 +74,7 @@ export function buildBlockTables(
       solid: definition.solid,
       opaque: definition.opaque,
       alpha: definition.alpha,
+      hardness: definition.hardness,
       collectible: collectibleSet.has(name),
       unbreakable: definition.unbreakable,
       fleck: definition.fleck,

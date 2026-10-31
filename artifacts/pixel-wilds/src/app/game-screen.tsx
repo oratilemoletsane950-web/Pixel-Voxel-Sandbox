@@ -127,6 +127,7 @@ export function GameScreen({
   );
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [target, setTarget] = useState<AimTarget | null>(null);
+  const [miningProgress, setMiningProgress] = useState(0);
   const [started, setStarted] = useState(false);
   const [rulesOpen, setRulesOpen] = useState(false);
   const [craftOpen, setCraftOpen] = useState(false);
@@ -494,6 +495,7 @@ export function GameScreen({
     setSurvival(next);
     setPlayerPosition(spawn);
     setSessionKey((key) => key + 1);
+    setMiningProgress(0);
     setPauseOpen(false);
     setCraftOpen(false);
     saveSurvival(profile.id, next);
@@ -543,6 +545,7 @@ export function GameScreen({
           onPlace={placeBlock}
           onPosition={setPlayerPosition}
           onChunkChange={streamChunks}
+          onMineProgress={setMiningProgress}
           savedPosition={playerPosition}
           mobileMove={mobileMove}
           started={started}
@@ -576,6 +579,7 @@ export function GameScreen({
             onPlace={placeBlock}
             onPosition={setPlayerPosition}
             onChunkChange={streamChunks}
+            onMineProgress={setMiningProgress}
             savedPosition={playerPosition}
             mobileMove={mobileMove}
             renderRadius={settings.renderRadius}
@@ -610,7 +614,7 @@ export function GameScreen({
         />
         <WorldRulesPanel open={rulesOpen} onClose={() => setRulesOpen(false)} />
         {survivalMode && <SurvivalHud state={survival} onEat={eatForaged} />}
-        <Crosshair target={target} />
+        <Crosshair target={target} miningProgress={miningProgress} />
         <FieldReadouts
           biome={biome}
           coordinates={coordinates}

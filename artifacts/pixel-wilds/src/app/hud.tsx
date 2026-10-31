@@ -311,13 +311,27 @@ export function DeathScreen({
   );
 }
 
-export function Crosshair({ target }: { target: AimTarget | null }) {
+export function Crosshair({
+  target,
+  miningProgress = 0,
+}: {
+  target: AimTarget | null;
+  miningProgress?: number;
+}) {
+  const percent = Math.round(Math.min(1, Math.max(0, miningProgress)) * 100);
   return (
     <div
       className={`crosshair ${target ? "crosshair-active" : ""}`}
       data-testid="status-crosshair"
-      aria-label={target ? `Aiming at ${target.cell.type}` : "Aim crosshair"}
+      aria-label={target ? `Aiming at ${target.cell.type}${percent ? `, mining ${percent}%` : ""}` : "Aim crosshair"}
     >
+      {percent > 0 && (
+        <span
+          className="crosshair-mine"
+          style={{ background: `conic-gradient(#ffe27b ${percent * 3.6}deg, rgba(255,244,215,.18) 0)` }}
+          aria-hidden="true"
+        />
+      )}
       <span className="crosshair-center" />
     </div>
   );
@@ -408,7 +422,7 @@ export function Hotbar({
         <span className="hint-item"><kbd className="keycap">SPACE</kbd> jump · autojump on</span>
         <span className="hint-item"><kbd className="keycap">SPACE ×2</kbd> fly</span>
         <span className="hint-item"><kbd className="keycap">C</kbd> craft</span>
-        <span className="hint-item"><kbd className="keycap">LMB</kbd> gather</span>
+        <span className="hint-item"><kbd className="keycap">LMB</kbd> hold to mine</span>
         <span className="hint-item"><kbd className="keycap">RMB</kbd> place</span>
         <span className="hint-item"><kbd className="keycap">SHIFT</kbd> run</span>
         <span className="hint-item"><kbd className="keycap">1–9 / 0</kbd> choose</span>

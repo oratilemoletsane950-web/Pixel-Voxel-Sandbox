@@ -39,6 +39,7 @@ import {
   traceVoxelWorld,
   type AimTarget,
 } from "../game/player/aiming";
+import { MIN_MINING_SECONDS, advanceMining, miningDuration } from "../game/player/mining";
 import { findSpawn } from "../game/player/session";
 import { ChunkMesh, chunkSignature, type ChunkMaterials } from "./chunk-mesh";
 
@@ -49,6 +50,7 @@ export function GameWorld({
   onPlace,
   onPosition,
   onChunkChange,
+  onMineProgress,
   savedPosition,
   mobileMove,
   renderRadius,
@@ -67,6 +69,7 @@ export function GameWorld({
   onPlace: (cell: BlockCell, adjacent: AimTarget["adjacent"]) => void;
   onPosition: (position: Position) => void;
   onChunkChange: (chunkX: number, chunkZ: number) => void;
+  onMineProgress?: (progress: number) => void;
   savedPosition: Position | null;
   mobileMove: { forward: number; side: number; jump: boolean };
   renderRadius: number;
@@ -125,6 +128,8 @@ export function GameWorld({
   const keyState = useRef<Record<string, boolean>>({});
   const target = useRef<AimTarget | null>(null);
   const aimCellKey = useRef("");
+  const miningRef = useRef<{ key: string; progress: number } | null>(null);
+  const lastMiningProgress = useRef(-1);
   const lastChunkKey = useRef("");
   const lastSpaceTap = useRef(0);
   const lastWTap = useRef(0);
@@ -140,6 +145,7 @@ export function GameWorld({
     onPlace,
     onPosition,
     onChunkChange,
+    onMineProgress,
     world,
     mobileMove,
     survivalMode,
@@ -153,12 +159,35 @@ export function GameWorld({
     onPlace,
     onPosition,
     onChunkChange,
+    onMineProgress,
     world,
     mobileMove,
     survivalMode,
     onEnvironment,
     onFall,
     onVoid,
+  };
+
+  const stopMining = () => {
+    if (!miningRef.current) return;
+    miningRef.current = null;
+    lastMiningProgress.current = -1;
+    callbacks.current.onMineProgress?.(0);
+  };
+
+  const startMining = (cell: BlockCell) => {
+    const duration = miningDuration(cell.type);
+    if (!Number.isFinite(duration) || duration <= MIN_MINING_SECONDS) {
+      stopMining();
+      callbacks.current.onMine(cell);
+      return;
+    }
+    miningRef.current = {
+      key: blockKey(cell.x, cell.y, cell.z),
+      progress: 0,
+    };
+    lastMiningProgress.current = 0;
+    callbacks.current.onMineProgress?.(0.01);
   };
 
   useEffect(() => {
@@ -251,8 +280,14 @@ export function GameWorld({
       }
       const hit = target.current;
       if (!hit) return;
-      if (event.button === 0) callbacks.current.onMine(hit.cell);
+      if (event.button === 0) startMining(hit.cell);
       if (event.button === 2) callbacks.current.onPlace(hit.cell, hit.adjacent);
+    };
+    const onMouseUp = (event: MouseEvent) => {
+      if (event.button === 0) stopMining();
+    };
+    const onPointerLockChange = () => {
+      if (!document.pointerLockElement) stopMining();
     };
     const onContextMenu = (event: Event) => event.preventDefault();
     const onWheel = (event: WheelEvent) => {
@@ -264,11 +299,14 @@ export function GameWorld({
       keyState.current = {};
       forwardBoost.current = false;
       lastWTap.current = 0;
+      stopMining();
     };
     window.addEventListener("keydown", onKeyDown, { passive: false });
     window.addEventListener("keyup", onKeyUp);
     window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
     window.addEventListener("blur", onBlur);
+    document.addEventListener("pointerlockchange", onPointerLockChange);
     canvas.addEventListener("pointerdown", onTouchStart);
     canvas.addEventListener("pointermove", onTouchMove);
     canvas.addEventListener("pointerup", onTouchEnd);
@@ -280,7 +318,9 @@ export function GameWorld({
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
       window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
       window.removeEventListener("blur", onBlur);
+      document.removeEventListener("pointerlockchange", onPointerLockChange);
       canvas.removeEventListener("pointerdown", onTouchStart);
       canvas.removeEventListener("pointermove", onTouchMove);
       canvas.removeEventListener("pointerup", onTouchEnd);
@@ -464,6 +504,28 @@ export function GameWorld({
         if (aimCellKey.current) {
           aimCellKey.current = "";
           callbacks.current.onTarget(null);
+        }
+      }
+    }
+
+    if (paused) {
+      stopMining();
+    } else if (miningRef.current) {
+      const hit = target.current;
+      if (!hit || blockKey(hit.cell.x, hit.cell.y, hit.cell.z) !== miningRef.current.key) {
+        stopMining();
+      } else {
+        const step = advanceMining(miningRef.current.progress, dt, hit.cell.type);
+        miningRef.current.progress = step.progress;
+        if (step.complete) {
+          const cell = hit.cell;
+          miningRef.current = null;
+          lastMiningProgress.current = -1;
+          callbacks.current.onMineProgress?.(0);
+          callbacks.current.onMine(cell);
+        } else if (step.progress - lastMiningProgress.current >= 0.02) {
+          lastMiningProgress.current = step.progress;
+          callbacks.current.onMineProgress?.(step.progress);
         }
       }
     }
