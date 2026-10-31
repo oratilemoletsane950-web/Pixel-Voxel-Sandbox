@@ -8,13 +8,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
+  createWorldArchive,
   createWorldProfile,
   deleteWorldProfile,
   duplicateWorldProfile,
+  importWorldArchive,
   listWorldProfiles,
   loadWorldData,
   renameWorldProfile,
   saveWorldProfile,
+  serializeWorldArchive,
   setActiveWorldProfile,
   touchWorldProfile,
   type WorldProfile,
@@ -113,6 +116,42 @@ function App() {
     }
   };
 
+  const exportWorld = (id: string) => {
+    try {
+      const archive = createWorldArchive(id);
+      if (!archive) {
+        showNotice("That world could not be exported.");
+        return;
+      }
+      const blob = new Blob([serializeWorldArchive(archive)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      const safeName = archive.profile.name
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "") || "pixel-wilds";
+      anchor.href = url;
+      anchor.download = `${safeName}.pixelwilds.json`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 0);
+      showNotice(`Exported "${archive.profile.name}".`);
+    } catch {
+      showNotice("That world could not be exported.");
+    }
+  };
+
+  const importWorld = async (file: File) => {
+    try {
+      const profile = importWorldArchive(await file.text());
+      refreshProfiles();
+      showNotice(`Imported "${profile.name}".`);
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "That archive could not be imported.");
+    }
+  };
+
   const removeWorld = (id: string) => {
     try {
       deleteWorldProfile(id);
@@ -167,6 +206,8 @@ function App() {
         onPlay={playWorld}
         onRename={renameWorld}
         onDuplicate={duplicateWorld}
+        onExport={exportWorld}
+        onImport={(file) => { void importWorld(file); }}
         onDelete={removeWorld}
       />
     );

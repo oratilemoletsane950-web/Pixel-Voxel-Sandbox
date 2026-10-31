@@ -5,7 +5,7 @@
  * from `App`/`GameScreen`. Form state that only matters while a screen is open
  * (rename draft, delete confirmation, seed text) stays local.
  */
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import {
   DIFFICULTIES,
@@ -133,6 +133,8 @@ export function WorldSelect({
   onPlay,
   onRename,
   onDuplicate,
+  onExport,
+  onImport,
   onDelete,
   notice,
 }: {
@@ -142,9 +144,12 @@ export function WorldSelect({
   onPlay: (id: string) => void;
   onRename: (id: string, name: string) => void;
   onDuplicate: (id: string) => void;
+  onExport: (id: string) => void;
+  onImport: (file: File) => void;
   onDelete: (id: string) => void;
   notice: string;
 }) {
+  const importInput = useRef<HTMLInputElement>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [draftName, setDraftName] = useState("");
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
@@ -172,9 +177,31 @@ export function WorldSelect({
           <p className="menu-eyebrow">Singleplayer</p>
           <h1 className="menu-title">Your worlds</h1>
         </div>
-        <button className="menu-action is-primary is-compact" type="button" onClick={onCreate} data-testid="button-create-world">
-          <strong>New world</strong>
-        </button>
+        <div className="world-header-actions">
+          <input
+            ref={importInput}
+            type="file"
+            accept=".json,application/json"
+            className="visually-hidden"
+            data-testid="input-import-world"
+            onChange={(event) => {
+              const file = event.currentTarget.files?.[0];
+              event.currentTarget.value = "";
+              if (file) onImport(file);
+            }}
+          />
+          <button
+            className="menu-action is-quiet is-compact"
+            type="button"
+            onClick={() => importInput.current?.click()}
+            data-testid="button-import-world"
+          >
+            <strong>Import</strong>
+          </button>
+          <button className="menu-action is-primary is-compact" type="button" onClick={onCreate} data-testid="button-create-world">
+            <strong>New world</strong>
+          </button>
+        </div>
       </header>
 
       <section className="world-panel" aria-label="Saved worlds">
@@ -231,6 +258,14 @@ export function WorldSelect({
                   <button className="chip" type="button" onClick={() => onDuplicate(profile.id)}>
                     Duplicate
                   </button>
+                  <button
+                    className="chip"
+                    type="button"
+                    onClick={() => onExport(profile.id)}
+                    data-testid="button-export-world"
+                  >
+                    Export
+                  </button>
                   {confirmingId === profile.id ? (
                     <>
                       <button
@@ -260,6 +295,9 @@ export function WorldSelect({
         )}
       </section>
 
+      <p className="menu-foot world-archive-note">
+        Export saves a portable JSON archive. Import always creates a new world copy.
+      </p>
       <MenuNotice notice={notice} />
     </main>
   );

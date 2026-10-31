@@ -68,6 +68,7 @@ import {
   equipTool,
   equippedTool,
   readToolState,
+  repairTool as repairFieldTool,
   saveToolState,
   toolDefinition,
   wearTool,
@@ -540,6 +541,23 @@ export function GameScreen({
     [inventory, showNotice, unlimited],
   );
 
+  const repairFieldToolAtBench = useCallback(
+    (id: ToolId) => {
+      const definition = toolDefinition(id);
+      if (!definition) return;
+      const result = repairFieldTool(id, inventory, toolStateRef.current, unlimited);
+      if (!result) {
+        showNotice("Repairing needs the listed materials");
+        return;
+      }
+      setInventory(result.inventory);
+      toolStateRef.current = result.state;
+      setToolState(result.state);
+      showNotice(`${definition.label} repaired · ${definition.maxDurability} uses`);
+    },
+    [inventory, showNotice, unlimited],
+  );
+
   const equipFieldTool = useCallback(
     (id: ToolId) => {
       const next = equipTool(toolStateRef.current, id);
@@ -882,6 +900,7 @@ export function GameScreen({
           onCraft={craft}
           onCraftTool={craftFieldToolAtBench}
           onEquipTool={equipFieldTool}
+          onRepairTool={repairFieldToolAtBench}
           unlimited={unlimited}
         />
         <ToastNote notice={notice} />

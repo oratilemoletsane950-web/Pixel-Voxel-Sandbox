@@ -9,7 +9,7 @@
     "serve": "vite preview --config vite.config.ts --host 0.0.0.0",
     "typecheck": "tsc -p tsconfig.json --noEmit",
 
-    "test": "tsx --test src/game/settlement-hierarchy.test.ts src/game/settlement-placement.test.ts src/game/hierarchy-streaming.test.ts src/game/world.test.ts src/game/world-scale.test.ts src/game/architecture.test.ts src/game/generation-fingerprint.test.ts src/game/world-registry.test.ts src/game/world/clock.test.ts src/game/worldgen/caves.test.ts src/game/player/mining.test.ts src/game/player/survival.test.ts src/game/player/tools.test.ts src/game/player/drops.test.ts src/game/containers.test.ts src/game/world/weather.test.ts",
+    "test": "tsx --test src/game/settlement-hierarchy.test.ts src/game/settlement-placement.test.ts src/game/hierarchy-streaming.test.ts src/game/world.test.ts src/game/world-scale.test.ts src/game/architecture.test.ts src/game/generation-fingerprint.test.ts src/game/world-registry.test.ts src/game/world/clock.test.ts src/game/worldgen/caves.test.ts src/game/player/mining.test.ts src/game/player/survival.test.ts src/game/player/tools.test.ts src/game/player/drops.test.ts src/game/containers.test.ts src/game/world/weather.test.ts src/game/world/archive.test.ts",
     "fingerprint": "tsx characterize.ts"
   },
   "devDependencies": {

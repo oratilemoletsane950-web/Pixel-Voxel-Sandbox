@@ -16,6 +16,7 @@ src/game/
                   (geology · ores · caves · ground cover · vegetation)
   world/          types · terrain cache · access · streaming · spawn · clock · persistence
                   profile (validated world metadata) · registry (in persistence)
+                  save-slots (one table of per-world files) · archive (portable JSON)
   chunk.ts        chunk storage (unchanged)
   mesher.ts       chunk -> meshes (unchanged)
   textures.ts     atlas generation (unchanged)
@@ -23,7 +24,7 @@ src/game/
   crafting.ts     recipes (unchanged)
   player/survival.ts  health, hunger, breath, foraging, fall damage and saves
   player/mining.ts    hardness, tool speed, harvest tiers and progress
-  player/tools.ts     tool catalogue, recipes, wear, selection and saves
+  player/tools.ts     tool catalogue, recipes, wear, repair, selection and saves
   player/drops.ts     dropped-block physics, pickup and per-world saves
   containers.ts       chest contents, capacity, transfers and saves
   world/weather.ts   seed-and-clock weather episodes shared by renderers
@@ -137,6 +138,11 @@ on a world name or mode string.
 - `pixel-wilds-chests-v1:<worldId>` — chest contents keyed by `x,y,z`.
 - `pixel-wilds-settings-v1` — view distance and field of view.
 
+`world/save-slots.ts` is the single ordered table of per-world files. World
+deletion and duplication enumerate it, and a portable archive is simply the
+profile plus every present slot. Adding another per-world save must add one
+entry there; no duplication or archive code needs to change.
+
 The first launch without a registry migrates the old `pixel-wilds-world-v3:*`
 seed slots into profiles under `legacy-<seed>` ids and copies the old global
 player save into the world that was active. Legacy keys are left untouched, so
@@ -174,8 +180,11 @@ delete, per-world terrain and player saves with migration, pause + Save and
 6. **Done:** chest blocks and a transferable container UI, deterministic
    seed-and-clock weather with rain/snow/storm particles in both renderers,
    and a live compass heading fed back from the camera.
-7. **Next:** structures wired to profiles; import/export; LAN hosting/discovery
-   over WebRTC or a local relay (a browser cannot listen on a port).
+7. **Done:** a maintenance repair bench, complete save copying when duplicating
+   a world, and portable JSON world archives with validated import under a new
+   identity. Every per-world save is enumerated from one slot table.
+8. **Next:** structures wired to profiles; LAN hosting/discovery over WebRTC
+   or a local relay (a browser cannot listen on a port).
 
 ## Known remaining work
 
@@ -187,14 +196,18 @@ delete, per-world terrain and player saves with migration, pause + Save and
 - Caves deliberately leave a three-block roof and skip water columns. Surface
   entrances, underground lighting and cave-specific decoration remain future
   work.
-- Tools cover pickaxe, axe and shovel work; there is no repair bench, no
-  tool-specific art, and no dropped tools. Mined blocks now become pickup
-  entities, and chests have a compact transfer panel, but there is no full
-  backpack screen, drag-and-drop, furnace or other container variety. The
-  touch **Mine** button still breaks a block immediately instead of using
-  hold-to-mine duration.
-- Chests are keyed by block position; duplicating a world copies terrain but
-  not chest contents. World deletion removes the chest save.
+- Tools cover pickaxe, axe and shovel work and can be repaired for a cheaper
+  cost than recrafting; there is no tool-specific art and no dropped tools.
+  Mined blocks now become pickup entities, and chests have a compact transfer
+  panel, but there is no full backpack screen, drag-and-drop, furnace or other
+  container variety. The touch **Mine** button still breaks a block
+  immediately instead of using hold-to-mine duration.
+- Chests are keyed by block position. Duplicating a world now copies every
+  per-world save, including chest contents, inventory, vitals, clock, tools
+  and drops. World deletion removes all registered slot files.
+- Portable archives include every per-world save, but there is no cloud sync
+  or automatic backup rotation yet; the downloaded JSON archive is the current
+  backup path.
 - Weather is visual only for now: it does not yet drive temperature, wetness,
   crop growth, shelter checks or survival damage. The compass is a HUD aid; a
   full map with waypoints is still open.

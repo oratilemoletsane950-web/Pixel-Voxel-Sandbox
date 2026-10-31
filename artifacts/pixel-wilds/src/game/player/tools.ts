@@ -41,6 +41,8 @@ export interface ToolDefinition {
   speed: number;
   maxDurability: number;
   recipe: ToolRecipe;
+  /** Cheaper than recrafting; repairs restore the full durability bar. */
+  repair: Ingredient[];
 }
 
 export const TOOL_DEFINITIONS = [
@@ -59,6 +61,7 @@ export const TOOL_DEFINITIONS = [
       ],
       work: "Lash plank heads to a forked oak handle",
     },
+    repair: [{ item: "planks", count: 1 }],
   },
   {
     id: "stone_pickaxe",
@@ -75,6 +78,10 @@ export const TOOL_DEFINITIONS = [
       ],
       work: "Bind a knapped stone head to a plank haft",
     },
+    repair: [
+      { item: "planks", count: 1 },
+      { item: "stone", count: 1 },
+    ],
   },
   {
     id: "iron_pickaxe",
@@ -91,6 +98,10 @@ export const TOOL_DEFINITIONS = [
       ],
       work: "Field-forge an iron head around a plank haft",
     },
+    repair: [
+      { item: "planks", count: 1 },
+      { item: "iron_ore", count: 1 },
+    ],
   },
   {
     id: "wood_axe",
@@ -107,6 +118,7 @@ export const TOOL_DEFINITIONS = [
       ],
       work: "Chip a wedge edge onto an oak handle",
     },
+    repair: [{ item: "planks", count: 1 }],
   },
   {
     id: "stone_axe",
@@ -123,6 +135,10 @@ export const TOOL_DEFINITIONS = [
       ],
       work: "Bind a chipped stone blade to a plank haft",
     },
+    repair: [
+      { item: "planks", count: 1 },
+      { item: "stone", count: 1 },
+    ],
   },
   {
     id: "iron_axe",
@@ -139,6 +155,10 @@ export const TOOL_DEFINITIONS = [
       ],
       work: "Forge a keen iron blade for felling",
     },
+    repair: [
+      { item: "planks", count: 1 },
+      { item: "iron_ore", count: 1 },
+    ],
   },
   {
     id: "wood_shovel",
@@ -155,6 +175,7 @@ export const TOOL_DEFINITIONS = [
       ],
       work: "Shape a broad plank scoop",
     },
+    repair: [{ item: "planks", count: 1 }],
   },
   {
     id: "stone_shovel",
@@ -171,6 +192,10 @@ export const TOOL_DEFINITIONS = [
       ],
       work: "Lash a flat stone blade to a haft",
     },
+    repair: [
+      { item: "planks", count: 1 },
+      { item: "stone", count: 1 },
+    ],
   },
   {
     id: "iron_shovel",
@@ -187,6 +212,10 @@ export const TOOL_DEFINITIONS = [
       ],
       work: "Forge a deep-biting iron spade",
     },
+    repair: [
+      { item: "planks", count: 1 },
+      { item: "iron_ore", count: 1 },
+    ],
   },
 ] as const satisfies readonly ToolDefinition[];
 
@@ -269,6 +298,40 @@ export function craftTool<T extends Record<string, number>>(
 }
 
 /** Wears one tool by a block. A tool at zero durability is removed from hand. */
+export function canRepairTool(
+  id: ToolId,
+  inventory: Record<string, number>,
+  state: ToolState,
+  free = false,
+): boolean {
+  const definition = TOOL_BY_ID[id];
+  const durability = state.belt[id] ?? 0;
+  return durability > 0 && durability < definition.maxDurability &&
+    (free || canAfford(definition.repair, inventory));
+}
+
+/**
+ * Restores a worn tool to full durability for its repair cost. Broken tools
+ * are not repaired: they must be crafted again, so the repair bench is a
+ * maintenance loop rather than a way to recover a lost tool.
+ */
+export function repairTool<T extends Record<string, number>>(
+  id: ToolId,
+  inventory: T,
+  state: ToolState,
+  free = false,
+): { inventory: T; state: ToolState } | null {
+  if (!canRepairTool(id, inventory, state, free)) return null;
+  const definition = TOOL_BY_ID[id];
+  return {
+    inventory: free ? inventory : payCost<T>(definition.repair, inventory),
+    state: {
+      ...state,
+      belt: { ...state.belt, [id]: definition.maxDurability },
+    },
+  };
+}
+
 export function wearTool(
   state: ToolState,
   id: ToolId,

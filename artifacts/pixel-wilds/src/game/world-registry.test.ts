@@ -18,6 +18,7 @@ import {
   saveWorldProfile,
   setBlock,
   touchWorldProfile,
+  WORLD_SAVE_SLOTS,
 } from "./world";
 
 class MemoryStorage implements KeyValueStorage {
@@ -100,6 +101,26 @@ test("duplicating a world copies its terrain history under a new identity", () =
   assert.equal(deleteWorldProfile(copy.id, storage), true);
   const reloadedOriginal = loadWorldData(original.id, original.seed, 3, 3, 1, storage);
   assert.equal(getBlock(reloadedOriginal, 3, 41, 3), "brick", "deleting the copy keeps the original");
+});
+
+test("duplicating a world copies every per-world save slot", () => {
+  const storage = new MemoryStorage();
+  const original = createWorldProfile({ id: "sidecar-source", name: "Source", seed: 55 });
+  saveWorldProfile(original, storage);
+
+  for (const slot of WORLD_SAVE_SLOTS) {
+    storage.setItem(`${slot.prefix}${original.id}`, JSON.stringify({ slot: slot.id }));
+  }
+
+  const copy = duplicateWorldProfile(original.id, storage);
+  assert.ok(copy);
+  for (const slot of WORLD_SAVE_SLOTS) {
+    assert.equal(
+      storage.getItem(`${slot.prefix}${copy.id}`),
+      storage.getItem(`${slot.prefix}${original.id}`),
+      `${slot.label} should be copied`,
+    );
+  }
 });
 
 test("the seed-keyed save and global player are migrated once", () => {

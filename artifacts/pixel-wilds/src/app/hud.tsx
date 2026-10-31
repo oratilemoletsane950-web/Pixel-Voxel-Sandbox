@@ -19,6 +19,7 @@ import { CRAFTING_RECIPES, canAfford, canCraft, type CraftRecipe } from "../game
 import {
   TOOL_DEFINITIONS,
   TOOL_TIER_LABELS,
+  canRepairTool,
   type ToolBelt,
   type ToolDefinition,
   type ToolId,
@@ -544,6 +545,7 @@ export function CraftPanel({
   onCraft,
   onCraftTool,
   onEquipTool,
+  onRepairTool,
   unlimited = false,
 }: {
   open: boolean;
@@ -554,6 +556,7 @@ export function CraftPanel({
   onCraft: (recipe: CraftRecipe) => void;
   onCraftTool: (id: ToolId) => void;
   onEquipTool: (id: ToolId) => void;
+  onRepairTool: (id: ToolId) => void;
   /** Creative worlds craft without spending gathered materials. */
   unlimited?: boolean;
 }) {
@@ -581,6 +584,13 @@ export function CraftPanel({
             const owned = durability > 0;
             const afford = unlimited || canAfford(tool.recipe.inputs, inventory);
             const equipped = equippedToolId === tool.id;
+            const worn = owned && durability < tool.maxDurability;
+            const repairAfford = worn && canRepairTool(
+              tool.id,
+              inventory,
+              { belt: toolbelt, equipped: equippedToolId },
+              unlimited,
+            );
             return (
               <div
                 key={tool.id}
@@ -605,6 +615,18 @@ export function CraftPanel({
                   </span>
                 </span>
                 <span className="tool-actions">
+                  {worn && (
+                    <button
+                      className="tool-repair"
+                      type="button"
+                      disabled={!repairAfford}
+                      title={tool.repair.map((input) => `${BLOCK_META[input.item].label} x${input.count}`).join(" + ")}
+                      data-testid={`button-repair-tool-${tool.id}`}
+                      onClick={() => onRepairTool(tool.id)}
+                    >
+                      Repair
+                    </button>
+                  )}
                   {owned && (
                     <button
                       className="tool-equip"

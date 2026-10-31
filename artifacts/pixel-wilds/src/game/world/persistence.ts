@@ -15,13 +15,8 @@
 import { isWorldBlockType, type WorldBlockType } from "../blocks";
 import { CHUNK_SIZE, WORLD_HEIGHT } from "../chunk";
 import {
-  CONTAINER_SAVE_PREFIX,
-  DROP_SAVE_PREFIX,
   LEGACY_PLAYER_SAVE_KEY,
   PLAYER_SAVE_PREFIX,
-  SURVIVAL_SAVE_PREFIX,
-  TOOL_SAVE_PREFIX,
-  WORLD_CLOCK_PREFIX,
   WORLD_DATA_PREFIX,
   WORLD_REGISTRY_KEY,
   browserStorage,
@@ -34,6 +29,7 @@ import {
   normalizeWorldName,
   type WorldProfile,
 } from "./profile";
+import { copyWorldSaveSlots, deleteWorldSaveSlots } from "./save-slots";
 import { createWorld, ensureChunks } from "./streaming";
 import { getChunkCoordinates, parseBlockKey, type WorldData } from "./types";
 
@@ -395,7 +391,7 @@ export function duplicateWorldProfile(
     lastPlayedAt: now,
     legacySeed: undefined,
   });
-  copyWorldData(id, copy.id, storage);
+  copyWorldSaveSlots(id, copy.id, storage);
   saveWorldProfile(copy, storage);
   return copy;
 }
@@ -411,13 +407,7 @@ export function deleteWorldProfile(
   const worlds = registry.worlds.filter((world) => world.id !== id);
   const activeId = registry.activeId === id ? worlds[0]?.id ?? null : registry.activeId;
   writeRegistry({ version: 1, activeId, worlds }, storage);
-  storage.removeItem(`${WORLD_DATA_PREFIX}${id}`);
-  storage.removeItem(`${PLAYER_SAVE_PREFIX}${id}`);
-  storage.removeItem(`${SURVIVAL_SAVE_PREFIX}${id}`);
-  storage.removeItem(`${WORLD_CLOCK_PREFIX}${id}`);
-  storage.removeItem(`${TOOL_SAVE_PREFIX}${id}`);
-  storage.removeItem(`${DROP_SAVE_PREFIX}${id}`);
-  storage.removeItem(`${CONTAINER_SAVE_PREFIX}${id}`);
+  deleteWorldSaveSlots(id, storage);
   if (profile.legacySeed !== undefined) deleteSavedWorld(profile.legacySeed, storage);
   return true;
 }

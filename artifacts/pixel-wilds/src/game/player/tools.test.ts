@@ -6,6 +6,7 @@ import {
   TOOL_DEFINITIONS,
   TOOL_BY_ID,
   canCraftTool,
+  canRepairTool,
   craftTool,
   createEmptyToolbelt,
   createToolState,
@@ -13,6 +14,7 @@ import {
   equipTool,
   equippedTool,
   readToolState,
+  repairTool,
   saveToolState,
   toolSaveKey,
   wearTool,
@@ -37,6 +39,7 @@ test("the tool catalogue has unique ids and valid recipes", () => {
     assert.ok(tool.speed > 1, `${tool.id} must be faster than bare hands`);
     assert.ok(tool.maxDurability > 0, `${tool.id} needs durability`);
     assert.ok(tool.recipe.inputs.length > 0, `${tool.id} needs a recipe`);
+    assert.ok(tool.repair.length > 0, `${tool.id} needs a repair cost`);
     assert.ok(tool.tier >= 1 && tool.tier <= 3, `${tool.id} has a supported tier`);
   }
 });
@@ -82,6 +85,44 @@ test("wear reduces durability once and brings a broken tool out of hand", () => 
   assert.equal(broken.state.belt.stone_pickaxe, 0);
   assert.equal(broken.state.equipped, null);
   assert.equal(equippedTool(broken.state), null);
+});
+
+test("repair restores a worn tool for a cheaper cost than crafting", () => {
+  const inventory = createInventory("survival");
+  inventory.planks = 3;
+  inventory.stone = 4;
+  const crafted = craftTool("stone_pickaxe", inventory, createToolState());
+  assert.ok(crafted);
+  const worn = wearTool(crafted.state, "stone_pickaxe", 80);
+  assert.equal(worn.state.belt.stone_pickaxe, TOOL_BY_ID.stone_pickaxe.maxDurability - 80);
+  assert.equal(canRepairTool("stone_pickaxe", crafted.inventory, worn.state), true);
+
+  const repaired = repairTool("stone_pickaxe", crafted.inventory, worn.state);
+  assert.ok(repaired);
+  assert.equal(repaired.state.belt.stone_pickaxe, TOOL_BY_ID.stone_pickaxe.maxDurability);
+  assert.equal(repaired.state.equipped, "stone_pickaxe");
+  assert.equal(repaired.inventory.planks, 0);
+  assert.equal(repaired.inventory.stone, 0);
+  assert.equal(repairTool("stone_pickaxe", crafted.inventory, repaired.state), null, "full tools need no repair");
+});
+
+test("repair refuses broken or unaffordable tools and costs nothing in creative", () => {
+  const empty = createInventory("survival");
+  const broken = createToolState();
+  broken.belt.wood_axe = 0;
+  assert.equal(canRepairTool("wood_axe", empty, broken), false);
+  assert.equal(repairTool("wood_axe", empty, broken), null);
+
+  const worn = createToolState();
+  worn.belt.wood_axe = 2;
+  assert.equal(canRepairTool("wood_axe", empty, worn), false);
+  assert.equal(repairTool("wood_axe", empty, worn), null);
+
+  const creative = createInventory("survival");
+  const free = repairTool("wood_axe", creative, worn, true);
+  assert.ok(free);
+  assert.equal(free.inventory, creative, "creative repair leaves the pack untouched");
+  assert.equal(free.state.belt.wood_axe, TOOL_BY_ID.wood_axe.maxDurability);
 });
 
 test("cycling visits bare hands and every usable tool", () => {
