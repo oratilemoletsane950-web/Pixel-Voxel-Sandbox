@@ -19,6 +19,7 @@ export const SMELT_RECIPES: readonly SmeltRecipe[] = Object.freeze([
   { input: "cobblestone", output: "stone", seconds: 9, label: "Smooth cobble into stone" },
   { input: "wood", output: "coal_ore", seconds: 12, label: "Char oak into fuel" },
   { input: "mud", output: "dirt", seconds: 5, label: "Dry mud into dirt" },
+  { input: "wheat_grain", output: "bread", seconds: 10, label: "Bake grain into bread" },
 ]);
 
 export const SMELT_BY_INPUT: Record<string, SmeltRecipe> = Object.fromEntries(

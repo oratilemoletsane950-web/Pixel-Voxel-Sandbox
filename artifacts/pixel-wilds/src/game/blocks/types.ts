@@ -57,6 +57,13 @@ export const BLOCK_TYPES = [
   "furnace",
   "barrel",
   "hopper",
+  // Appended after the legacy and container ranges. These are gameplay items
+  // as well as blocks: light and cave decoration, then the wheat lifecycle.
+  "glow_crystal",
+  "cave_moss",
+  "wheat_seeds",
+  "wheat_grain",
+  "bread",
 ] as const;
 
 /** Scenery that is part of the world but is cleared rather than collected. */
@@ -66,16 +73,40 @@ export const SCENERY_BLOCK_TYPES = ["flower", "wheat", "fern", "tall_grass", "re
 export const CONTAINER_BLOCK_TYPES = ["furnace", "barrel", "hopper"] as const;
 export type ContainerBlockType = (typeof CONTAINER_BLOCK_TYPES)[number];
 
+/** Collectible additions that must keep their own appended id range. */
+export const APPENDED_COLLECTIBLE_BLOCK_TYPES = [
+  "glow_crystal",
+  "cave_moss",
+  "wheat_seeds",
+  "wheat_grain",
+  "bread",
+] as const;
+
+/** Growth stages are scenery: harvested through farming rules, not placed. */
+export const CROP_STAGE_BLOCK_TYPES = ["wheat_sprout", "wheat_ripe"] as const;
+export type CropStageBlockType = (typeof CROP_STAGE_BLOCK_TYPES)[number];
+
+/** Items that live in the pack but can never be placed as construction blocks. */
+export const NON_PLACEABLE_BLOCK_TYPES = ["wheat_grain", "bread"] as const;
+export type NonPlaceableBlockType = (typeof NON_PLACEABLE_BLOCK_TYPES)[number];
+
 // Keep existing numeric ids stable: chest and the newer container blocks are
 // appended after the long-standing collectible and scenery slots. Adding a
 // block to BLOCK_TYPES must therefore add it here explicitly, not by filtering.
 export const WORLD_BLOCK_TYPES = [
-  ...BLOCK_TYPES.filter((type) =>
-    type !== "chest" && type !== "furnace" && type !== "barrel" && type !== "hopper",
+  ...BLOCK_TYPES.filter(
+    (type) =>
+      type !== "chest" &&
+      type !== "furnace" &&
+      type !== "barrel" &&
+      type !== "hopper" &&
+      !(APPENDED_COLLECTIBLE_BLOCK_TYPES as readonly string[]).includes(type),
   ),
   ...SCENERY_BLOCK_TYPES,
   "chest",
   ...CONTAINER_BLOCK_TYPES,
+  ...APPENDED_COLLECTIBLE_BLOCK_TYPES,
+  ...CROP_STAGE_BLOCK_TYPES,
 ] as const;
 
 export type BlockType = (typeof BLOCK_TYPES)[number];
@@ -112,7 +143,10 @@ export type TexturePattern =
   | "marble"
   | "gilded"
   | "chest"
-  | "metal";
+  | "metal"
+  | "glow"
+  | "moss"
+  | "bread";
 
 export type Rgb = [string, string, string];
 
@@ -139,6 +173,10 @@ export interface BlockInfo {
   /** Minimum tool tier required to harvest; 0 means hands are enough. */
   harvestTier: number;
   collectible: boolean;
+  /** False for food/ingredient items that only live in the pack. */
+  placeable: boolean;
+  /** Emits a soft local light in the renderer. */
+  emissive: boolean;
   unbreakable: boolean;
   /** Extra colour for ore flecks. */
   fleck?: string;

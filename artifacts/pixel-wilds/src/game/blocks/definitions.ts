@@ -24,6 +24,8 @@ export interface BlockTraits {
   harvestTier: number;
   unbreakable: boolean;
   fleck?: string;
+  /** Emits a soft local light in the renderer. */
+  emissive?: boolean;
 }
 
 export interface BlockIdentity {
@@ -138,6 +140,16 @@ const CATALOGUE: BlockDefinition[] = [
   defineBlock(PLANT, { name: "vine", label: "Hanging vine", short: "VIN", colors: ["#476d3d", "#6f9650", "#385a37"], speckle: ["#a3b55b", "#365637", "#66914a"], pattern: "vine", opaque: false }),
   defineBlock(FLUID, { name: "water", label: "Water", short: "WTR", colors: ["#246b78", "#55b5bc", "#195665"], speckle: ["#9ad7d1", "#257a88", "#61b7ba"], pattern: "water", alpha: 0.74 }),
   defineBlock(SOLID, { name: "bedrock", label: "Bedrock", short: "BDR", colors: ["#3f3f43", "#4a4a4f", "#2f2f33"], speckle: ["#6b6b72", "#222226", "#55555b"], pattern: "bedrock", unbreakable: true }),
+
+  // Appended cave and farming content. These names were added after every
+  // legacy scenery/container id, so old chunks still decode with the same ids.
+  defineBlock(CRYSTAL, { name: "glow_crystal", hardness: 1.4, label: "Glow crystal", short: "GLW", colors: ["#5f8f9f", "#9fe4e8", "#3f6d7d"], speckle: ["#d7fff4", "#74c6d4", "#a8f0e5"], pattern: "glow", emissive: true, harvestTier: 0 }),
+  defineBlock(SOIL, { name: "cave_moss", hardness: 0.4, label: "Cave moss", short: "CMS", colors: ["#3f6548", "#557a51", "#314f3b"], speckle: ["#7ba56c", "#294535", "#5c8558"], pattern: "moss" }),
+  defineBlock(PLANT, { name: "wheat_seeds", hardness: 0.18, label: "Wheat seeds", short: "SED", colors: ["#c3a957", "#dec36b", "#a58d43"], speckle: ["#f1df9a", "#897334", "#c3a957"], pattern: "speckle" }),
+  defineBlock(PLANT, { name: "wheat_grain", hardness: 0.18, label: "Wheat grain", short: "GRN", colors: ["#d8c16a", "#ead77f", "#b9a152"], speckle: ["#f7e8a8", "#9e873e", "#d8c16a"], pattern: "wheat" }),
+  defineBlock(PLANT, { name: "bread", hardness: 0.18, label: "Fresh bread", short: "BRD", colors: ["#b9773e", "#d99b55", "#925b31"], speckle: ["#efc07a", "#7b4727", "#c98a4b"], pattern: "bread" }),
+  defineBlock(PLANT, { name: "wheat_sprout", hardness: 0.12, label: "Wheat sprout", short: "WSP", colors: ["#6f9a4e", "#8bb45f", "#5b8140"], speckle: ["#b8d47d", "#496b34", "#7fa958"], pattern: "wheat" }),
+  defineBlock(PLANT, { name: "wheat_ripe", hardness: 0.18, label: "Ripe wheat", short: "WRP", colors: ["#c9b24a", "#dfca62", "#ad9639"], speckle: ["#f4e28d", "#947c2d", "#c9b24a"], pattern: "wheat" }),
 ];
 
 export const BLOCK_DEFINITIONS: readonly BlockDefinition[] = Object.freeze(CATALOGUE);

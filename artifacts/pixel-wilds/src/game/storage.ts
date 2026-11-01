@@ -41,6 +41,8 @@ export const TOOL_SAVE_PREFIX = "pixel-wilds-tools-v1:";
 export const DROP_SAVE_PREFIX = "pixel-wilds-drops-v1:";
 /** Placed chest contents per world id. */
 export const CONTAINER_SAVE_PREFIX = "pixel-wilds-chests-v1:";
+/** Planted crop records (position, kind and planting time) per world id. */
+export const CROP_SAVE_PREFIX = "pixel-wilds-crops-v1:";
 /** Pre-registry single-player save, migrated on first launch. */
 export const LEGACY_PLAYER_SAVE_KEY = "pixel-wilds-player-v2";
 /** Application settings shared across worlds. */

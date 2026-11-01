@@ -2,12 +2,14 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { containerKey, readContainers, saveContainers } from "../containers";
+import { createCropField, saveCropField } from "../farming";
 import { createDropField, readDropSave, saveDropState } from "../player/drops";
 import { createInventory, readPlayerSave, savePlayer } from "../player/inventory";
 import { createSurvivalState, readSurvivalSave, saveSurvival } from "../player/survival";
 import { createToolState, readToolState, saveToolState } from "../player/tools";
 import {
   CONTAINER_SAVE_PREFIX,
+  CROP_SAVE_PREFIX,
   DROP_SAVE_PREFIX,
   PLAYER_SAVE_PREFIX,
   SURVIVAL_SAVE_PREFIX,
@@ -84,6 +86,12 @@ function createFullWorld(storage: MemoryStorage) {
       contents: { gold: 5, planks: 3 },
     },
   }, storage);
+
+  saveCropField(
+    profile.id,
+    createCropField([{ kind: "wheat", x: 4, y: 41, z: 4, plantedAt: 20 }]),
+    storage,
+  );
 
   return profile;
 }
@@ -178,6 +186,7 @@ test("save-slot prefixes cover all separate world files", () => {
     TOOL_SAVE_PREFIX,
     DROP_SAVE_PREFIX,
     CONTAINER_SAVE_PREFIX,
+    CROP_SAVE_PREFIX,
   ];
   assert.deepEqual(WORLD_SAVE_SLOTS.map((slot) => slot.prefix), expected);
 });

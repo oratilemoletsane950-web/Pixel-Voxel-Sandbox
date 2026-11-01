@@ -8,6 +8,7 @@
  */
 import {
   CONTAINER_SAVE_PREFIX,
+  CROP_SAVE_PREFIX,
   DROP_SAVE_PREFIX,
   PLAYER_SAVE_PREFIX,
   SURVIVAL_SAVE_PREFIX,
@@ -19,7 +20,7 @@ import {
 } from "../storage";
 
 export interface WorldSaveSlot {
-  id: "data" | "player" | "survival" | "clock" | "tools" | "drops" | "chests";
+  id: "data" | "player" | "survival" | "clock" | "tools" | "drops" | "chests" | "crops";
   prefix: string;
   label: string;
 }
@@ -32,7 +33,8 @@ export const WORLD_SAVE_SLOTS: readonly WorldSaveSlot[] = Object.freeze([
   { id: "clock", prefix: WORLD_CLOCK_PREFIX, label: "world clock" },
   { id: "tools", prefix: TOOL_SAVE_PREFIX, label: "toolbelt" },
   { id: "drops", prefix: DROP_SAVE_PREFIX, label: "dropped items" },
-  { id: "chests", prefix: CONTAINER_SAVE_PREFIX, label: "chests" },
+  { id: "chests", prefix: CONTAINER_SAVE_PREFIX, label: "containers" },
+  { id: "crops", prefix: CROP_SAVE_PREFIX, label: "planted crops" },
 ]);
 
 export type WorldSaveSlotId = WorldSaveSlot["id"];

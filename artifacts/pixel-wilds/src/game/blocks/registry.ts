@@ -10,6 +10,7 @@
 import { BLOCK_DEFINITIONS, type BlockDefinition } from "./definitions";
 import {
   BLOCK_TYPES,
+  NON_PLACEABLE_BLOCK_TYPES,
   WORLD_BLOCK_TYPES,
   type BlockInfo,
   type BlockType,
@@ -78,6 +79,8 @@ export function buildBlockTables(
       tool: definition.tool,
       harvestTier: definition.harvestTier,
       collectible: collectibleSet.has(name),
+      placeable: !(NON_PLACEABLE_BLOCK_TYPES as readonly string[]).includes(name),
+      emissive: definition.emissive === true,
       unbreakable: definition.unbreakable,
       fleck: definition.fleck,
     };

@@ -55,6 +55,7 @@ import { weatherExposure } from "../game/world/weather-exposure";
 import { findSpawn } from "../game/player/session";
 import { BLOCK_COLORS } from "./block-palette";
 import { ChunkMesh, chunkSignature, type ChunkMaterials } from "./chunk-mesh";
+import { CaveLights } from "./cave-lights";
 
 function DroppedLoot({
   field,
@@ -777,6 +778,7 @@ export function GameWorld({
       <color ref={backgroundRef} attach="background" args={["#a9d9d1"]} />
       <fog ref={fogRef} attach="fog" args={["#b7ddd0", viewDistance * 0.55, viewDistance - 6]} />
       <WeatherParticles weather={weather} />
+      <CaveLights worldRef={worldRef} />
       <HeldTool tool={tool} paused={paused} />
       <hemisphereLight ref={hemiRef} args={["#f9e9ba", "#567558", 1.45]} />
       <directionalLight

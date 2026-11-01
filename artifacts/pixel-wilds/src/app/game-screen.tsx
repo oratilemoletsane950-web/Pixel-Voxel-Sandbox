@@ -98,8 +98,10 @@ import {
   MAX_HUNGER,
   addBerries,
   applyDamage,
+  canEatMeal,
   createSurvivalState,
   eatBerries as consumeBerries,
+  eatMeal,
   fallDamage,
   isBerrySource,
   readSurvivalSave,
@@ -109,6 +111,8 @@ import {
   type SurvivalEnvironment,
   type SurvivalState,
 } from "../game/player/survival";
+import { FOODS, wildWheatYield } from "../game/farming";
+import { useFarming } from "./use-farming";
 import type { AppSettings } from "../game/settings";
 import {
   addWaypoint,
@@ -196,6 +200,7 @@ export function GameScreen({
   const [containers, setContainers] = useState<ContainerMap>(savedContainers);
   const containersRef = useRef(containers);
   containersRef.current = containers;
+
   const [openChest, setOpenChest] = useState<{ x: number; y: number; z: number } | null>(null);
   const [playerPosition, setPlayerPosition] = useState<Position | null>(
     savedPlayer?.position ?? null,
@@ -425,6 +430,18 @@ export function GameScreen({
     [profile.id, showNotice],
   );
 
+  const applyCropWorld = useCallback(
+    (next: WorldData) => setWorldEdited(() => next),
+    [setWorldEdited],
+  );
+  const farming = useFarming({
+    worldId: profile.id,
+    active: started && !paused,
+    worldRef,
+    worldTimeRef,
+    onWorldChanged: applyCropWorld,
+  });
+
   const useBlock = useCallback((cell: BlockCell) => {
     const found = getBlock(worldRef.current, cell.x, cell.y, cell.z);
     if (!isContainerBlock(found)) return;
@@ -579,6 +596,31 @@ export function GameScreen({
         return;
       }
 
+      if (found === "wheat" || found === "wheat_ripe" || found === "wheat_sprout") {
+        const harvested = farming.harvest(
+          cell.x,
+          cell.y,
+          cell.z,
+          worldTimeRef.current,
+        );
+        const yields = harvested.record
+          ? harvested.yields
+          : found === "wheat_sprout"
+            ? [{ item: "wheat_seeds" as const, count: 1 }]
+            : wildWheatYield();
+        setWorldEdited((latestWorld) => setBlock(latestWorld, cell.x, cell.y, cell.z, null));
+        for (const { item, count } of yields) {
+          for (let n = 0; n < count; n += 1) dropField.spawn(item, cell);
+        }
+        saveDropState(profile.id, dropField);
+        showNotice(
+          harvested.stage === "ripe" || found === "wheat"
+            ? "Wheat harvested · grain and seed dropped"
+            : "Young wheat picked · seed returned",
+        );
+        return;
+      }
+
       setWorldEdited((latestWorld) => setBlock(latestWorld, cell.x, cell.y, cell.z, null));
       const foraged = survivalMode && isBerrySource(found);
       let message: string;
@@ -677,6 +719,36 @@ export function GameScreen({
       }
       if (!unlimited && inventory[selected] < 1) {
         showNotice(`Out of ${BLOCK_META[selected].label.toLowerCase()}`);
+        return;
+      }
+      if (selected === "wheat_seeds") {
+        const result = farming.plant(
+          currentWorld,
+          adjacent.x,
+          adjacent.y,
+          adjacent.z,
+          worldTimeRef.current,
+        );
+        if (!result.planted) {
+          showNotice(
+            result.reason === "occupied"
+              ? "Something already grows here"
+              : result.reason === "blocked"
+                ? "Clear the space above the soil"
+                : "Wheat needs tilled farmland below it",
+          );
+          return;
+        }
+        setWorldEdited((latestWorld) =>
+          setBlock(latestWorld, adjacent.x, adjacent.y, adjacent.z, "wheat_sprout"),
+        );
+        if (!unlimited) {
+          setInventory((current) => ({
+            ...current,
+            wheat_seeds: Math.max(0, current.wheat_seeds - 1),
+          }));
+        }
+        showNotice("Wheat planted · it ripens with the world clock");
         return;
       }
       const occupant = getBlock(worldRef.current, adjacent.x, adjacent.y, adjacent.z);
@@ -808,6 +880,25 @@ export function GameScreen({
     setSurvival(next);
     showNotice("Wild berries restore a little hunger");
   }, [showNotice, survivalMode]);
+
+  const eatBread = useCallback(() => {
+    if (!survivalMode) return;
+    const current = survivalRef.current;
+    if ((inventory.bread ?? 0) < 1) {
+      showNotice("No bread yet — bake wheat grain in a furnace");
+      return;
+    }
+    if (!canEatMeal(current)) {
+      showNotice("Not hungry yet");
+      return;
+    }
+    const nutrition = FOODS.bread?.nutrition ?? 8;
+    const next = eatMeal(current, nutrition);
+    survivalRef.current = next;
+    setSurvival(next);
+    setInventory((bag) => ({ ...bag, bread: Math.max(0, bag.bread - 1) }));
+    showNotice("Fresh bread restores hunger");
+  }, [inventory.bread, showNotice, survivalMode]);
 
   const handleFall = useCallback(
     (impactSpeed: number) => {
@@ -1037,6 +1128,7 @@ export function GameScreen({
       saveToolState(profile.id, toolStateRef.current);
       saveDropState(profile.id, dropField);
       saveContainers(profile.id, containersRef.current);
+      farming.saveNow();
       setSaveState("saved");
       showNotice("Landscape tucked away");
       return true;
@@ -1150,7 +1242,14 @@ export function GameScreen({
           onToggleRules={() => setRulesOpen((current) => !current)}
         />
         <WorldRulesPanel open={rulesOpen} onClose={() => setRulesOpen(false)} />
-        {survivalMode && <SurvivalHud state={survival} onEat={eatForaged} />}
+        {survivalMode && (
+          <SurvivalHud
+            state={survival}
+            breadCount={inventory.bread ?? 0}
+            onEat={eatForaged}
+            onEatBread={eatBread}
+          />
+        )}
         <Crosshair target={target} miningProgress={miningProgress} />
         <FieldReadouts
           biome={biome}

@@ -13,7 +13,7 @@ src/game/
   terrain/        height model · climate model · surface rules · cached facade
   vegetation/     species registry · stamps · shapes · placement · ground cover
   worldgen/       one file per stage + the pipeline that orders them
-                  (geology · ores · caves · ground cover · vegetation)
+                  (geology · ores · caves with entrances/lighting · ground cover · vegetation)
   world/          types · terrain cache · access · streaming · spawn · clock · persistence
                   profile (validated world metadata) · registry (in persistence)
                   save-slots (one table of per-world files) · archive (portable JSON)
@@ -28,12 +28,13 @@ src/game/
   player/drops.ts     dropped-block physics, pickup and per-world saves
   containers.ts       chest contents, capacity, transfers and saves
   world/weather.ts   seed-and-clock weather episodes shared by renderers
-  settlements.ts  settlement plan/stamp (generation disabled, see below)
+  settlements/    stable facade: plan.ts (sites/layouts) · stamp.ts (blocks) ·
+                  furnish.ts (stairs/furniture); settlements.ts re-exports it
+  farming/        crops (time/save/stages) · food values · crop persistence
 
-src/app/          the UI: game-screen (one world session) · world-menu
-                  (launcher, world select/create, pause, settings) ·
-                  game-world (WebGL view) · chunk-mesh · voxel-fallback (2D) ·
-                  hud panels · block palette
+src/app/          the UI: game-screen (session composition) · world-menu ·
+                  game-world (WebGL view) · cave-lights · chunk-mesh ·
+                  voxel-fallback (2D) · hud panels · use-farming session hook
 src/game/storage.ts   KeyValueStorage seam and save-key constants
 src/game/settings.ts  validated, persisted app settings
 src/game/player/  inventory & save · aiming/raycast · session (world + spawn) ·
@@ -126,7 +127,7 @@ Add the field to `WorldRules` (`world/profile.ts`), default it in
 branch is needed. Gameplay stages read the profile rules instead of branching
 on a world name or mode string.
 
-### Save layout (v4)
+### Save layout (v5)
 
 - `pixel-wilds-worlds-v1` — `{ version, activeId, worlds: WorldProfile[] }`.
 - `pixel-wilds-world-data-v1:<worldId>` — `{ version, seed, edits }`.
@@ -135,7 +136,8 @@ on a world name or mode string.
 - `pixel-wilds-clock-v1:<worldId>` — `{ seconds }` within the twelve-minute cycle.
 - `pixel-wilds-tools-v1:<worldId>` — `{ belt, equipped }` tool durability and hand slot.
 - `pixel-wilds-drops-v1:<worldId>` — dropped block items with settled positions.
-- `pixel-wilds-chests-v1:<worldId>` — chest contents keyed by `x,y,z`.
+- `pixel-wilds-chests-v1:<worldId>` — container contents keyed by `x,y,z`.
+- `pixel-wilds-crops-v1:<worldId>` — planted crop positions, kind and planting time.
 - `pixel-wilds-settings-v1` — view distance and field of view.
 
 `world/save-slots.ts` is the single ordered table of per-world files. World
@@ -183,45 +185,39 @@ delete, per-world terrain and player saves with migration, pause + Save and
 7. **Done:** a maintenance repair bench, complete save copying when duplicating
    a world, and portable JSON world archives with validated import under a new
    identity. Every per-world save is enumerated from one slot table.
-8. **Next:** structures wired to profiles; LAN hosting/discovery over WebRTC
-   or a local relay (a browser cannot listen on a port).
+8. **Done:** structures wired to profiles; cave entrances, glow-crystal lighting,
+   cave dressing, wheat farming/cooking, a split settlement pipeline, and a
+   dedicated app farming session with module-level tests.
+9. **Next:** LAN hosting/discovery over WebRTC or a local relay (a browser
+   cannot listen on a port).
 
 ## Known remaining work
 
-- `src/game/settlements.ts` (~2.4k lines): plan + stamp + furniture. Generation
-  is disabled; when it is re-enabled, split blueprints/stamping/furnishing and
-  register the stage in `  worldgen/pipeline.ts`.
-- Weather needs the render-only episode model connected to survival, farming,
-  shelter and audio before it is a gameplay system rather than atmosphere.
-- Caves deliberately leave a three-block roof and skip water columns. Surface
-  entrances, underground lighting and cave-specific decoration remain future
-  work.
+- Weather drives wetness/warmth, shelter and audio; crops intentionally mature
+  on world time rather than rain, so irrigation is still a future rule.
+- Caves leave a three-block roof outside their deliberate stair entrances and
+  skip water columns. Glow crystals provide local light; a full flood-fill
+  light model is still not implemented.
 - Tools cover pickaxe, axe and shovel work and can be repaired for a cheaper
-  cost than recrafting; there is no tool-specific art and no dropped tools.
-  Mined blocks now become pickup entities, and chests have a compact transfer
-  panel, but there is no full backpack screen, drag-and-drop, furnace or other
-  container variety. The touch **Mine** button still breaks a block
-  immediately instead of using hold-to-mine duration.
-- Chests are keyed by block position. Duplicating a world now copies every
-  per-world save, including chest contents, inventory, vitals, clock, tools
+  cost than recrafting; tool art is HUD/held geometry rather than unique
+  textures. The backpack supports stacks and containers but not drag-and-drop
+  between arbitrary slots.
+- Chests are keyed by block position. Duplicating a world copies every
+  per-world save, including containers, crops, inventory, vitals, clock, tools
   and drops. World deletion removes all registered slot files.
 - Portable archives include every per-world save, but there is no cloud sync
   or automatic backup rotation yet; the downloaded JSON archive is the current
   backup path.
-- Weather is visual only for now: it does not yet drive temperature, wetness,
-  crop growth, shelter checks or survival damage. The compass is a HUD aid; a
-  full map with waypoints is still open.
+- The production bundle is still a single large renderer chunk; code-splitting
+  Three.js remains a packaging improvement.
 - `artifacts/mockup-sandbox` duplicates the shadcn UI components in this app;
   it is a design sandbox, not shipped game code.
-- The production bundle is a single ~1.3 MB chunk (Three.js dominates) and the
-  build warns about the 500 kB threshold. Code-splitting the renderer is a
-  packaging improvement, not a correctness issue.
 
 ## UI layout
 
-`App.tsx` is now wiring only (~200 lines): launcher state, profiles, settings
-and routing. One running world is owned by `src/app/game-screen.tsx`, including
-streaming, saving and survival state. Rendering, panels and player helpers are
-in separate modules (`src/app/*`, `src/game/player/*`), and the 3D and 2D
-renderers implement the same callback contract, so either can be replaced
-without touching the shell.
+`App.tsx` remains wiring only: launcher state, profiles, settings and routing.
+`src/app/game-screen.tsx` composes one running world; domain state lives in
+`game/*` modules, crop session state in `use-farming.ts`, and cave lighting in
+`cave-lights.tsx`. The 3D and 2D renderers implement the same callback contract,
+so either can be replaced without changing the session shell. `data-testid`
+names remain the stable UI contract.

@@ -387,6 +387,39 @@ function drawTile(ctx: Ctx, ox: number, oy: number, info: BlockInfo, face: numbe
       }
       break;
     }
+    case "glow": {
+      fill(base);
+      for (let y = 0; y < S; y += 1) for (let x = 0; x < S; x += 1) {
+        const d = Math.max(Math.abs(x - 7.5), Math.abs(y - 7.5));
+        if (d > 6) px(x, y, shade(base, 0.55));
+        else if (rand() < 0.22 || d < 2) px(x, y, info.speckle[0]);
+        else if (rand() < 0.16) px(x, y, info.speckle[2]);
+      }
+      for (const [x, y] of [[4, 4], [11, 5], [6, 11], [12, 12]]) px(x, y, "#ffffff");
+      break;
+    }
+    case "moss": {
+      fill(base);
+      speckle(0.36, info.speckle);
+      for (let k = 0; k < 9; k += 1) {
+        const x = Math.floor(rand() * S);
+        const y = Math.floor(rand() * S);
+        px(x, y, info.speckle[0]);
+        if (x + 1 < S) px(x + 1, y, info.speckle[2]);
+      }
+      break;
+    }
+    case "bread": {
+      fill(base);
+      for (let y = 0; y < S; y += 1) for (let x = 0; x < S; x += 1) {
+        const d = Math.hypot((x - 7.5) / 7, (y - 8) / 5);
+        if (d > 1) px(x, y, "#2f2420");
+        else if (d > 0.86) px(x, y, info.speckle[1]);
+        else if (rand() < 0.12) px(x, y, info.speckle[0]);
+      }
+      for (const x of [4, 8, 12]) for (let y = 5; y <= 9; y += 2) px(x, y, info.speckle[2]);
+      break;
+    }
     case "marble": {
       // Pale stone with soft grey veins wandering across the face.
       fill(base);

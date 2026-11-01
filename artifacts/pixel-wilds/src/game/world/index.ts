@@ -12,7 +12,7 @@
  *   clock             — world time, daylight palettes and clock persistence
  *   save-slots        — one ordered table of all per-world save files
  *   archive           — validated portable export/import of a whole world
- *   settlements       — settlement query boundary (currently disabled)
+ *   settlements       — planning, stamping and furnishing facade
  */
 export * from "./types";
 export * from "./profile";

@@ -157,6 +157,19 @@ export function eatBerries(state: SurvivalState): SurvivalState {
   };
 }
 
+/** A cooked meal restores hunger without touching the berry pouch. */
+export function canEatMeal(state: SurvivalState, count = 1): boolean {
+  return state.alive && count > 0 && state.hunger < MAX_HUNGER;
+}
+
+export function eatMeal(state: SurvivalState, nutrition: number): SurvivalState {
+  if (!canEatMeal(state) || !Number.isFinite(nutrition) || nutrition <= 0) return state;
+  return {
+    ...state,
+    hunger: Math.min(MAX_HUNGER, state.hunger + nutrition),
+  };
+}
+
 /** Converts a landing speed into health points, rounded so every fall matters. */
 export function fallDamage(impactSpeed: number, difficulty: Difficulty): number {
   if (!Number.isFinite(impactSpeed) || impactSpeed <= FALL_DAMAGE_SPEED) return 0;

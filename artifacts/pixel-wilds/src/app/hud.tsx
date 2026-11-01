@@ -227,7 +227,17 @@ export function WorldRulesPanel({ open, onClose }: { open: boolean; onClose: () 
   );
 }
 
-export function SurvivalHud({ state, onEat }: { state: SurvivalState; onEat: () => void }) {
+export function SurvivalHud({
+  state,
+  breadCount,
+  onEat,
+  onEatBread,
+}: {
+  state: SurvivalState;
+  breadCount: number;
+  onEat: () => void;
+  onEatBread: () => void;
+}) {
   const hearts = Array.from({ length: 10 }, (_, index) => state.health - index * 2);
   const meals = Array.from({ length: 10 }, (_, index) => state.hunger - index * 2);
   const bubbles = Array.from({ length: 5 }, (_, index) =>
@@ -312,6 +322,19 @@ export function SurvivalHud({ state, onEat }: { state: SurvivalState; onEat: () 
         <span>Wild berries <b>{state.berries}</b></span>
         <em>Eat <kbd className="keycap">F</kbd></em>
       </button>
+      {breadCount > 0 && (
+        <button
+          className="berry-eat bread-eat"
+          type="button"
+          onClick={onEatBread}
+          disabled={state.hunger >= MAX_HUNGER}
+          title="Eat a loaf of fresh bread"
+          data-testid="button-eat-bread"
+        >
+          <span>Fresh bread <b>{breadCount}</b></span>
+          <em>Eat</em>
+        </button>
+      )}
     </section>
   );
 }
