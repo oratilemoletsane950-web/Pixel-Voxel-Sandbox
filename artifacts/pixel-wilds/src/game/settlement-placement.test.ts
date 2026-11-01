@@ -7,6 +7,23 @@ import { resolveHierarchyPlan } from "./settlements";
 import { createHierarchyPlan } from "./settlement-hierarchy";
 import { Terrain } from "./terrain";
 
+test("bounded resolution defers house rosters outside the requested chunks", () => {
+  const seed = 42;
+  const source = createHierarchyPlan(seed);
+  const resolved = resolveHierarchyPlan(source, new Terrain(seed), {
+    minX: 0,
+    minZ: 0,
+    maxX: 16,
+    maxZ: 16,
+  });
+  const houses = resolved.nodes.filter((node) => node.level === "house");
+  assert.ok(houses.length > 0, "the hierarchy still describes its global house roster");
+  assert.ok(
+    houses.every((node) => node.metadata.placementValid !== true),
+    "houses thousands of blocks away must not be resolved by a local chunk request",
+  );
+});
+
 test("resolved hierarchy sites are terrain-safe and globally footprint-reserved", () => {
   const seed = 42;
   const source = createHierarchyPlan(seed);

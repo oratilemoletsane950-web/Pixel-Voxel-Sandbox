@@ -709,8 +709,25 @@ function stampCastleTower(
 type ResolvedFootprint = { x: number; z: number; halfW: number; halfD: number; ownerId: string; level: string };
 const resolvedPlansByTerrain = new WeakMap<Terrain, Map<string, HierarchyPlan>>();
 
-export function resolveHierarchyPlan(source: HierarchyPlan, terrain: Terrain): HierarchyPlan {
-  const nodes: SettlementNode[] = source.nodes.map((node) => ({ ...node, children: [...node.children], metadata: { ...node.metadata } }));
+/** World-space box used to avoid resolving the entire global house roster. */
+export interface HierarchyResolveBounds {
+  minX: number;
+  minZ: number;
+  maxX: number;
+  maxZ: number;
+}
+
+export function resolveHierarchyPlan(
+  source: HierarchyPlan,
+  terrain: Terrain,
+  bounds?: HierarchyResolveBounds,
+  previous?: HierarchyPlan,
+): HierarchyPlan {
+  const nodes: SettlementNode[] = (previous ?? source).nodes.map((node) => ({
+    ...node,
+    children: [...node.children],
+    metadata: { ...node.metadata },
+  }));
   const byId = new Map(nodes.map((node) => [node.id, node]));
   const originalById = new Map(source.nodes.map((node) => [node.id, node]));
   const major: ResolvedFootprint[] = [];
@@ -723,7 +740,13 @@ export function resolveHierarchyPlan(source: HierarchyPlan, terrain: Terrain): H
     if (bucket) bucket.push(site);
     else buckets.set(key, [site]);
   };
-  const overlaps = (x: number, z: number, halfW: number, halfD: number, parentId: string | null) => {
+  const overlaps = (
+    x: number,
+    z: number,
+    halfW: number,
+    halfD: number,
+    parentId: string | null,
+  ) => {
     for (let bx = Math.floor((x - halfW - 20) / bucketSize); bx <= Math.floor((x + halfW + 20) / bucketSize); bx += 1) {
       for (let bz = Math.floor((z - halfD - 20) / bucketSize); bz <= Math.floor((z + halfD + 20) / bucketSize); bz += 1) {
         for (const other of buckets.get(bx + ":" + bz) ?? []) {
@@ -766,18 +789,58 @@ export function resolveHierarchyPlan(source: HierarchyPlan, terrain: Terrain): H
     return { ground, spread };
   };
 
+  // Reuse previously resolved positions. This keeps a node's world position
+  // stable as the streamer asks for neighbouring chunks, and lets the same
+  // world plan accumulate local house resolutions instead of redoing them.
+  if (previous) {
+    for (const node of nodes) {
+      if (node.metadata.placementValid !== true) continue;
+      if (["city", "town", "village", "castle"].includes(node.level)) {
+        const size = node.level === "city" ? 20 : node.level === "town" ? 55 : node.level === "village" ? 10 : 66;
+        const footprint = { x: node.x, z: node.z, halfW: size, halfD: size, ownerId: node.id, level: node.level };
+        major.push(footprint);
+        if (node.level === "village") addHouseSite(footprint);
+      } else if (node.level === "house") {
+        const archetype = Math.max(0, Math.min(HOUSE_BLUEPRINTS.length - 1, Math.floor(Number(node.metadata.archetypeIndex) || 0)));
+        const bp = blueprintById("village", HOUSE_BLUEPRINTS[archetype]);
+        addHouseSite({
+          x: node.x,
+          z: node.z,
+          halfW: Math.ceil(bp.w / 2),
+          halfD: Math.ceil(bp.d / 2),
+          ownerId: node.id,
+          level: "house",
+        });
+      }
+    }
+  }
+
   // Resolve major sites once per world. Children follow their resolved parent's displacement.
   const majorNodes = nodes.filter((node) => ["city", "town", "village", "castle"].includes(node.level));
   const rank = { city: 0, town: 1, village: 2, castle: 3 } as const;
   majorNodes.sort((a, b) => rank[a.level as keyof typeof rank] - rank[b.level as keyof typeof rank] || a.id.localeCompare(b.id));
   for (const node of majorNodes) {
+    if (node.metadata.placementValid === true) continue;
+    if (node.metadata.placementFailed === true) continue;
     const original = originalById.get(node.id)!;
     const parent = node.parentId ? byId.get(node.parentId) : undefined;
     const originalParent = node.parentId ? originalById.get(node.parentId) : undefined;
-    const anchorX = Math.round(original.x + (parent && originalParent ? parent.x - originalParent.x : 0));
-    const anchorZ = Math.round(original.z + (parent && originalParent ? parent.z - originalParent.z : 0));
     const size = node.level === "city" ? 20 : node.level === "town" ? 55 : node.level === "village" ? 10 : 66;
     const radiusMax = node.level === "city" ? 384 : node.level === "town" ? 256 : node.level === "village" ? 128 : 320;
+    if (bounds) {
+      // Include enough reach for parents and roads connecting nearby nodes.
+      const reach = radiusMax + 900;
+      if (
+        original.x < bounds.minX - reach || original.x > bounds.maxX + reach ||
+        original.z < bounds.minZ - reach || original.z > bounds.maxZ + reach
+      ) {
+        node.metadata.placementDeferred = true;
+        node.metadata.placementValid = false;
+        continue;
+      }
+    }
+    const anchorX = Math.round(original.x + (parent && originalParent ? parent.x - originalParent.x : 0));
+    const anchorZ = Math.round(original.z + (parent && originalParent ? parent.z - originalParent.z : 0));
     const maxSpread = node.level === "city" ? 10 : node.level === "town" ? 8 : node.level === "village" ? 7 : 36;
     const maxHeight = node.level === "city" ? 32 : node.level === "town" ? 30 : node.level === "village" ? 12 : 52;
     let best: { x: number; z: number; ground: number; score: number } | null = null;
@@ -801,23 +864,46 @@ export function resolveHierarchyPlan(source: HierarchyPlan, terrain: Terrain): H
       const nearEnough = Math.hypot(dx, dz) <= (node.level === "castle" ? 160 : 96);
       if (site.spread <= preferredSpread && nearEnough) break;
     }
-    if (!best) { node.metadata.placementValid = false; continue; }
+    if (!best) {
+      node.metadata.placementFailed = true;
+      node.metadata.placementValid = false;
+      continue;
+    }
     node.x = best.x; node.z = best.z;
     node.metadata.resolvedGround = best.ground;
     node.metadata.placementValid = true;
+    delete node.metadata.placementDeferred;
+    delete node.metadata.placementFailed;
     const footprint: ResolvedFootprint = { x: node.x, z: node.z, halfW: size, halfD: size, ownerId: node.id, level: node.level };
     major.push(footprint);
     if (node.level === "village") addHouseSite(footprint);
   }
 
-  // Resolve all residential footprints once, with reservations shared across every village.
+  // Resolve residential footprints only where chunks can actually request
+  // them. The global plan contains thousands of houses, most thousands of
+  // blocks from the player; resolving those on the first chunk blocked the
+  // worker for ~19 seconds. A 240-block apron covers the largest house shift.
   const blueprintIds = HOUSE_BLUEPRINTS;
   for (const node of nodes) {
     if (node.level !== "house") continue;
+    if (node.metadata.placementValid === true) continue;
+    if (node.metadata.placementFailed === true) continue;
     const parent = node.parentId ? byId.get(node.parentId) : undefined;
     const original = originalById.get(node.id)!;
     const originalParent = node.parentId ? originalById.get(node.parentId) : undefined;
-    if (!parent || parent.metadata.placementValid !== true) { node.metadata.placementValid = false; continue; }
+    if (bounds && (
+      original.x < bounds.minX - 240 || original.x > bounds.maxX + 240 ||
+      original.z < bounds.minZ - 240 || original.z > bounds.maxZ + 240
+    )) {
+      node.metadata.placementDeferred = true;
+      node.metadata.placementValid = false;
+      continue;
+    }
+    if (!parent || parent.metadata.placementValid !== true) {
+      node.metadata.placementFailed = true;
+      node.metadata.placementValid = false;
+      continue;
+    }
     const anchorX = Math.round(original.x + parent.x - (originalParent?.x ?? parent.x));
     const anchorZ = Math.round(original.z + parent.z - (originalParent?.z ?? parent.z));
     const archetype = Math.max(0, Math.min(HOUSE_BLUEPRINTS.length - 1, Math.floor(Number(node.metadata.archetypeIndex) || 0)));
@@ -838,27 +924,48 @@ export function resolveHierarchyPlan(source: HierarchyPlan, terrain: Terrain): H
       if (overlaps(x, z, halfW, halfD, node.parentId)) continue;
       const site = assess(x, z, halfW, halfD, 5, bp.stories * 6 + 8);
       if (!site) continue;
+      // The first usable site is enough. Searching every candidate for a
+      // slightly flatter one made the initial chunk spend ~19 seconds resolving
+      // thousands of distant houses before any terrain could stream.
       const score = site.spread * 10 + Math.hypot(dx, dz);
-      if (!chosen || score < chosen.score) chosen = { x, z, ground: site.ground, score };
-      if (site.spread <= 4) break;
+      chosen = { x, z, ground: site.ground, score };
+      break;
     }
-    if (!chosen) { node.metadata.placementValid = false; continue; }
+    if (!chosen) {
+      node.metadata.placementFailed = true;
+      node.metadata.placementValid = false;
+      continue;
+    }
     node.x = chosen.x; node.z = chosen.z;
     node.metadata.resolvedGround = chosen.ground;
     node.metadata.placementValid = true;
+    delete node.metadata.placementDeferred;
+    delete node.metadata.placementFailed;
     addHouseSite({ x: node.x, z: node.z, halfW, halfD, ownerId: node.id, level: "house" });
   }
   return { ...source, nodes };
 }
 
-function resolvedHierarchyPlanFor(terrain: Terrain, seed: number, originX: number, originZ: number): HierarchyPlan {
-  const key = (seed >>> 0) + ":" + Math.round(originX) + ":" + Math.round(originZ);
+function resolvedHierarchyPlanFor(
+  terrain: Terrain,
+  seed: number,
+  originX: number,
+  originZ: number,
+  bounds: HierarchyResolveBounds,
+): HierarchyPlan {
+  const key = [seed >>> 0, Math.round(originX), Math.round(originZ)].join(":");
   let cache = resolvedPlansByTerrain.get(terrain);
   if (!cache) { cache = new Map<string, HierarchyPlan>(); resolvedPlansByTerrain.set(terrain, cache); }
-  const existing = cache.get(key);
-  if (existing) return existing;
-  const resolved = resolveHierarchyPlan(hierarchyPlanFor(seed, { originX, originZ }), terrain);
-  if (cache.size >= 2) cache.delete(cache.keys().next().value!);
+  const previous = cache.get(key);
+  // One persistent plan per world keeps house positions stable across chunk
+  // boundaries. New chunks add only their local unresolved homes.
+  const resolved = resolveHierarchyPlan(
+    hierarchyPlanFor(seed, { originX, originZ }),
+    terrain,
+    bounds,
+    previous,
+  );
+  if (cache.size >= 6) cache.delete(cache.keys().next().value!);
   cache.set(key, resolved);
   return resolved;
 }
@@ -867,11 +974,16 @@ function stampHierarchyHouseNodes(writer: ChunkWriter, terrain: Terrain, seed: n
   const start = getSettlement(terrain, 0, 0);
   const originX = start?.kind === "kingdom" ? start.centerX : 0;
   const originZ = start?.kind === "kingdom" ? start.centerZ : 0;
-  const plan = resolvedHierarchyPlanFor(terrain, seed, originX, originZ);
   const chunkMinX = writer.startX;
   const chunkMinZ = writer.startZ;
   const chunkMaxX = chunkMinX + CHUNK_SIZE - 1;
   const chunkMaxZ = chunkMinZ + CHUNK_SIZE - 1;
+  const plan = resolvedHierarchyPlanFor(terrain, seed, originX, originZ, {
+    minX: chunkMinX,
+    minZ: chunkMinZ,
+    maxX: chunkMaxX,
+    maxZ: chunkMaxZ,
+  });
   // Pull endpoints far enough away to draw the roads crossing this chunk.
   const nodes = hierarchyNodesInBounds(plan, chunkMinX, chunkMinZ, chunkMaxX, chunkMaxZ, 520);
   const byId = new Map(plan.nodes.map((node) => [node.id, node]));
