@@ -145,13 +145,16 @@ export function StoragePanel({
     event.preventDefault();
     const payload = readPayload(event);
     if (!payload || payload.source !== "pack" || !container) return;
-    onDepositAll(payload.item);
+    // A normal drag moves the stack; Shift-drag moves exactly one item.
+    if (event.shiftKey) onDeposit(payload.item, 1);
+    else onDepositAll(payload.item);
   };
   const dropOnPack = (event: DragEvent) => {
     event.preventDefault();
     const payload = readPayload(event);
     if (!payload || payload.source !== "container" || !container) return;
-    onWithdrawAll(payload.item);
+    if (event.shiftKey) onWithdraw(payload.item, 1);
+    else onWithdrawAll(payload.item);
   };
 
   return (
@@ -248,6 +251,7 @@ export function StoragePanel({
                 inventory={inventory}
                 onDeposit={onFurnaceDeposit}
                 onWithdraw={onFurnaceWithdraw}
+                onDepositAll={onDepositAll}
               />
             ) : (
               <GenericContainerPane
@@ -265,7 +269,7 @@ export function StoragePanel({
       </div>
       <footer className="storage-foot">
         {container
-          ? "Drag a pack item onto storage to store the stack · drag stored items back to the pack · B closes the pack"
+          ? "Drag a pack item onto storage to store the stack · Shift-drag moves one · drag stored items back · B closes the pack"
           : "B opens the pack · drag blocks to a storage panel · C opens the workbench"}
       </footer>
     </section>
@@ -331,11 +335,13 @@ function FurnacePane({
   inventory,
   onDeposit,
   onWithdraw,
+  onDepositAll,
 }: {
   furnace: FurnaceState | undefined;
   inventory: Inventory;
   onDeposit: (item: BlockType, amount: number) => void;
   onWithdraw: (amount: number) => void;
+  onDepositAll: (item: BlockType) => void;
 }) {
   if (!furnace) return <p className="storage-empty">This furnace has no usable state.</p>;
   const recipe = SMELT_RECIPES.find((entry) => entry.input === furnace.input);
@@ -370,6 +376,15 @@ function FurnacePane({
         {recipe ? recipe.label : "Add sand, clay, cobble, wood or mud to the input."}
         {furnace.burn > 0 && " · fire is drawing air"}
       </p>
+      <div className="furnace-recipes" data-testid="furnace-recipes">
+        <strong>Kiln and oven recipes</strong>
+        {SMELT_RECIPES.map((entry) => (
+          <div className="furnace-recipe" key={entry.input} data-testid={`furnace-recipe-${entry.input}`}>
+            <span>{BLOCK_META[entry.input].short} → {BLOCK_META[entry.output].short}</span>
+            <small>{entry.seconds}s · {BLOCK_META[entry.output].label}</small>
+          </div>
+        ))}
+      </div>
       <details open>
         <summary>Load input</summary>
         <div className="furnace-buttons">
@@ -379,6 +394,8 @@ function FurnacePane({
               type="button"
               disabled={inventory[entry.input] < 1}
               onClick={() => onDeposit(entry.input, 1)}
+              onDoubleClick={() => onDepositAll(entry.input)}
+              title="Click to load one · double-click to load the stack"
               data-testid={`button-furnace-input-${entry.input}`}
             >
               {BLOCK_META[entry.input].short} ×1

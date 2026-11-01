@@ -64,6 +64,8 @@ export const BLOCK_TYPES = [
   "wheat_seeds",
   "wheat_grain",
   "bread",
+  "carrot_seeds",
+  "carrot",
 ] as const;
 
 /** Scenery that is part of the world but is cleared rather than collected. */
@@ -80,16 +82,24 @@ export const APPENDED_COLLECTIBLE_BLOCK_TYPES = [
   "wheat_seeds",
   "wheat_grain",
   "bread",
+  "carrot_seeds",
+  "carrot",
 ] as const;
 
 /** Growth stages are scenery: harvested through farming rules, not placed. */
-export const CROP_STAGE_BLOCK_TYPES = ["wheat_sprout", "wheat_ripe"] as const;
+export const CROP_STAGE_BLOCK_TYPES = [
+  "wheat_sprout",
+  "wheat_ripe",
+  "carrot_sprout",
+  "carrot_ripe",
+] as const;
 export type CropStageBlockType = (typeof CROP_STAGE_BLOCK_TYPES)[number];
 
 /** Items that live in the pack but can never be placed as construction blocks. */
 export const NON_PLACEABLE_BLOCK_TYPES = [
   "wheat_grain",
   "bread",
+  "carrot",
   ...CROP_STAGE_BLOCK_TYPES,
 ] as const;
 export type NonPlaceableBlockType = (typeof NON_PLACEABLE_BLOCK_TYPES)[number];

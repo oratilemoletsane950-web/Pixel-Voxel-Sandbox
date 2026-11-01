@@ -5,7 +5,7 @@
  * Gameplay lives in `app/game-screen.tsx`; screens live in `app/world-menu.tsx`.
  * This file only owns profiles, settings and routing.
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useRef, useState } from "react";
 
 import {
   createWorldArchive,
@@ -23,7 +23,6 @@ import {
   type WorldProfile,
 } from "./game/world";
 import { readSettings, saveSettings, type AppSettings } from "./game/settings";
-import { GameScreen } from "./app/game-screen";
 import {
   MainMenu,
   SettingsScreen,
@@ -31,6 +30,13 @@ import {
   WorldSelect,
   type CreateWorldInput,
 } from "./app/world-menu";
+
+// Keep the launcher light: the renderer, Three.js and the game session are
+// loaded only when a world is opened.
+const GameScreen = lazy(async () => {
+  const module = await import("./app/game-screen");
+  return { default: module.GameScreen };
+});
 
 type View =
   | { kind: "menu" }
@@ -177,16 +183,25 @@ function App() {
 
   if (view.kind === "game" && activeProfile) {
     return (
-      <GameScreen
-        key={activeProfile.id}
-        profile={activeProfile}
-        settings={settings}
-        onSettingsChange={changeSettings}
-        onExit={() => {
-          refreshProfiles();
-          setView({ kind: "worlds" });
-        }}
-      />
+      <Suspense
+        fallback={
+          <div className="game-loading" role="status" data-testid="game-loading">
+            <span className="game-loading-mark" aria-hidden="true" />
+            <p>Waking the wild…</p>
+          </div>
+        }
+      >
+        <GameScreen
+          key={activeProfile.id}
+          profile={activeProfile}
+          settings={settings}
+          onSettingsChange={changeSettings}
+          onExit={() => {
+            refreshProfiles();
+            setView({ kind: "worlds" });
+          }}
+        />
+      </Suspense>
     );
   }
 

@@ -9,6 +9,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   harvestCrop,
+  isIrrigated,
   plantCrop,
   readCropField,
   saveCropField,
@@ -23,7 +24,7 @@ import type { WorldData } from "../game/world/types";
 export interface FarmingSession {
   crops: CropField;
   cropsRef: { current: CropField };
-  plant: (world: WorldData, x: number, y: number, z: number, worldTime: number) => PlantResult;
+  plant: (world: WorldData, x: number, y: number, z: number, worldTime: number, kind?: "wheat" | "carrot") => PlantResult;
   harvest: (x: number, y: number, z: number, worldTime: number) => CropHarvest;
   saveNow: () => void;
 }
@@ -33,12 +34,14 @@ export function useFarming({
   active,
   worldRef,
   worldTimeRef,
+  rainingRef,
   onWorldChanged,
 }: {
   worldId: string;
   active: boolean;
   worldRef: { current: WorldData };
   worldTimeRef: { current: number };
+  rainingRef: { current: boolean };
   onWorldChanged: (world: WorldData) => void;
 }): FarmingSession {
   const initial = useMemo(() => readCropField(worldId), [worldId]);
@@ -62,18 +65,27 @@ export function useFarming({
   useEffect(() => {
     if (!active) return;
     const timer = window.setInterval(() => {
-      const result = syncCropField(cropsRef.current, worldRef.current, worldTimeRef.current);
-      if (!result.changed) return;
+      const result = syncCropField(cropsRef.current, worldRef.current, worldTimeRef.current, {
+        raining: rainingRef.current,
+      });
+      if (!result.changed && result.field === cropsRef.current) return;
       cropsRef.current = result.field;
       setCrops(result.field);
-      onWorldChanged(result.world);
+      if (result.changed) onWorldChanged(result.world);
     }, 1000);
     return () => window.clearInterval(timer);
-  }, [active, onWorldChanged, worldRef, worldTimeRef]);
+  }, [active, onWorldChanged, rainingRef, worldRef, worldTimeRef]);
 
   const plant = useCallback(
-    (world: WorldData, x: number, y: number, z: number, worldTime: number): PlantResult => {
-      const result = plantCrop(cropsRef.current, world, x, y, z, worldTime);
+    (
+      world: WorldData,
+      x: number,
+      y: number,
+      z: number,
+      worldTime: number,
+      kind: "wheat" | "carrot" = "wheat",
+    ): PlantResult => {
+      const result = plantCrop(cropsRef.current, world, x, y, z, worldTime, kind);
       if (result.planted) commit(result.field);
       return result;
     },
@@ -82,11 +94,14 @@ export function useFarming({
 
   const harvest = useCallback(
     (x: number, y: number, z: number, worldTime: number): CropHarvest => {
-      const result = harvestCrop(cropsRef.current, x, y, z, worldTime);
+      const result = harvestCrop(cropsRef.current, x, y, z, worldTime, {
+        irrigated: isIrrigated(worldRef.current, x, y, z),
+        raining: rainingRef.current,
+      });
       if (result.record) commit(result.field);
       return result;
     },
-    [commit],
+    [commit, rainingRef, worldRef],
   );
 
   const saveNow = useCallback(() => {

@@ -230,13 +230,17 @@ export function WorldRulesPanel({ open, onClose }: { open: boolean; onClose: () 
 export function SurvivalHud({
   state,
   breadCount,
+  carrotCount,
   onEat,
   onEatBread,
+  onEatCarrot,
 }: {
   state: SurvivalState;
   breadCount: number;
+  carrotCount: number;
   onEat: () => void;
   onEatBread: () => void;
+  onEatCarrot: () => void;
 }) {
   const hearts = Array.from({ length: 10 }, (_, index) => state.health - index * 2);
   const meals = Array.from({ length: 10 }, (_, index) => state.hunger - index * 2);
@@ -332,6 +336,19 @@ export function SurvivalHud({
           data-testid="button-eat-bread"
         >
           <span>Fresh bread <b>{breadCount}</b></span>
+          <em>Eat</em>
+        </button>
+      )}
+      {carrotCount > 0 && (
+        <button
+          className="berry-eat carrot-eat"
+          type="button"
+          onClick={onEatCarrot}
+          disabled={state.hunger >= MAX_HUNGER}
+          title="Eat a raw carrot"
+          data-testid="button-eat-carrot"
+        >
+          <span>Carrots <b>{carrotCount}</b></span>
           <em>Eat</em>
         </button>
       )}

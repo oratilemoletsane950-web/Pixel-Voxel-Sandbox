@@ -1,17 +1,21 @@
 /**
- * Wheat farming.
+ * Crop farming.
  *
  * A crop is a pure record `(position, kind, plantedAt)` plus a stage block.
  * Growth is elapsed world time, so it continues while a chunk is unloaded and
  * survives a reload. The field never writes into an unloaded chunk; when the
  * chunk streams back in, `syncCropField` restores the correct stage.
+ *
+ * Crops grow faster on irrigated soil and while it rains. Ripeness is sticky:
+ * once `syncCropField` observes a ripe crop the record keeps that state, so a
+ * dry spell never rolls a mature field back to sprouts.
  */
 import { ID, type BlockType, type WorldBlockType } from "../blocks";
 import { isChunkLoadedAt, getBlock, setBlock } from "../world/access";
 import type { WorldData } from "../world/types";
 import { DAY_LENGTH_SECONDS } from "../world/clock";
 
-export const CROP_KINDS = ["wheat"] as const;
+export const CROP_KINDS = ["wheat", "carrot"] as const;
 export type CropKind = (typeof CROP_KINDS)[number];
 
 export interface CropDefinition {
@@ -38,6 +42,17 @@ export const CROP_DEFINITIONS: Readonly<Record<CropKind, CropDefinition>> = Obje
     ripeGrain: 3,
     ripeSeeds: 1,
   }),
+  carrot: Object.freeze({
+    kind: "carrot",
+    label: "Carrot",
+    seed: "carrot_seeds",
+    sprout: "carrot_sprout",
+    ripe: "carrot_ripe",
+    grain: "carrot",
+    growSeconds: 95,
+    ripeGrain: 2,
+    ripeSeeds: 1,
+  }),
 });
 
 export interface CropRecord {
@@ -47,6 +62,8 @@ export interface CropRecord {
   z: number;
   /** World-clock seconds at planting; growth wraps with the twelve-minute day. */
   plantedAt: number;
+  /** Set once the crop has reached maturity; maturity is never undone. */
+  ripened?: boolean;
 }
 
 export interface CropField {
@@ -54,6 +71,12 @@ export interface CropField {
 }
 
 export type CropStage = "sprout" | "ripe";
+
+/** Environmental modifiers shared by sync and harvest. */
+export interface CropClimate {
+  irrigated?: boolean;
+  raining?: boolean;
+}
 
 export function createCropField(records: readonly CropRecord[] = []): CropField {
   const seen = new Set<string>();
@@ -82,8 +105,46 @@ export function isCropRecord(value: unknown): value is CropRecord {
     Number.isSafeInteger(record.x) &&
     Number.isSafeInteger(record.y) &&
     Number.isSafeInteger(record.z) &&
-    Number.isFinite(record.plantedAt)
+    Number.isFinite(record.plantedAt) &&
+    (record.ripened === undefined || typeof record.ripened === "boolean")
   );
+}
+
+export function cropDefinitionForSeed(seed: string): CropDefinition | null {
+  return Object.values(CROP_DEFINITIONS).find((definition) => definition.seed === seed) ?? null;
+}
+
+export function isCropStageBlock(value: string | null | undefined): boolean {
+  if (!value) return false;
+  return Object.values(CROP_DEFINITIONS).some(
+    (definition) => definition.sprout === value || definition.ripe === value,
+  );
+}
+
+export function cropDefinitionForBlock(value: string | null | undefined): CropDefinition | null {
+  if (!value) return null;
+  return (
+    Object.values(CROP_DEFINITIONS).find(
+      (definition) => definition.sprout === value || definition.ripe === value,
+    ) ?? null
+  );
+}
+
+/** Loaded water within two blocks of the crop or its soil keeps it watered. */
+export function isIrrigated(world: WorldData, x: number, y: number, z: number): boolean {
+  for (let dx = -2; dx <= 2; dx += 1) {
+    for (let dz = -2; dz <= 2; dz += 1) {
+      if (getBlock(world, x + dx, y, z + dz) === "water") return true;
+      if (getBlock(world, x + dx, y - 1, z + dz) === "water") return true;
+    }
+  }
+  return false;
+}
+
+/** Growth multiplier: irrigated soil 1.5x, rain 1.35x, capped at 1.75x. */
+export function cropMoistureFactor(climate: CropClimate = {}): number {
+  const factor = 1 + (climate.irrigated ? 0.5 : 0) + (climate.raining ? 0.35 : 0);
+  return Math.min(1.75, factor);
 }
 
 /** Elapsed growth, safe across the clock wrapping at midnight. */
@@ -92,13 +153,23 @@ export function cropElapsed(record: CropRecord, worldTime: number): number {
   return ((delta % DAY_LENGTH_SECONDS) + DAY_LENGTH_SECONDS) % DAY_LENGTH_SECONDS;
 }
 
-export function cropGrowth(record: CropRecord, worldTime: number): number {
+export function cropGrowth(
+  record: CropRecord,
+  worldTime: number,
+  climate: CropClimate = {},
+): number {
+  if (record.ripened) return 1;
   const definition = CROP_DEFINITIONS[record.kind];
-  return Math.min(1, cropElapsed(record, worldTime) / definition.growSeconds);
+  const effectiveSeconds = cropElapsed(record, worldTime) * cropMoistureFactor(climate);
+  return Math.min(1, effectiveSeconds / definition.growSeconds);
 }
 
-export function cropStage(record: CropRecord, worldTime: number): CropStage {
-  return cropGrowth(record, worldTime) >= 1 ? "ripe" : "sprout";
+export function cropStage(
+  record: CropRecord,
+  worldTime: number,
+  climate: CropClimate = {},
+): CropStage {
+  return cropGrowth(record, worldTime, climate) >= 1 ? "ripe" : "sprout";
 }
 
 export function cropBlockForStage(kind: CropKind, stage: CropStage): WorldBlockType {
@@ -151,32 +222,48 @@ export interface CropSyncResult {
 }
 
 /** Restores crop stage blocks for every loaded record and prunes invalid ones. */
-export function syncCropField(field: CropField, world: WorldData, worldTime: number): CropSyncResult {
+export function syncCropField(
+  field: CropField,
+  world: WorldData,
+  worldTime: number,
+  climate: CropClimate = {},
+): CropSyncResult {
   let nextWorld = world;
-  let changed = false;
+  let worldChanged = false;
+  let fieldChanged = false;
   const kept: CropRecord[] = [];
   for (const record of field.records) {
     if (!isChunkLoadedAt(world, record.x, record.z)) {
       kept.push(record);
       continue;
     }
+    const definition = CROP_DEFINITIONS[record.kind];
     const soil = getBlock(world, record.x, record.y - 1, record.z);
     const current = getBlock(world, record.x, record.y, record.z);
-    if (soil !== "farmland" || (current !== "wheat_sprout" && current !== "wheat_ripe")) {
-      changed = true;
+    if (soil !== "farmland" || (current !== definition.sprout && current !== definition.ripe)) {
+      fieldChanged = true;
       continue;
     }
-    kept.push(record);
-    const expected = cropBlockForStage(record.kind, cropStage(record, worldTime));
+    const stage = cropStage(record, worldTime, {
+      irrigated: isIrrigated(world, record.x, record.y, record.z),
+      raining: climate.raining,
+    });
+    let nextRecord = record;
+    if (stage === "ripe" && !record.ripened) {
+      nextRecord = { ...record, ripened: true };
+      fieldChanged = true;
+    }
+    kept.push(nextRecord);
+    const expected = cropBlockForStage(record.kind, stage);
     if (current !== expected) {
       nextWorld = setBlock(nextWorld, record.x, record.y, record.z, expected);
-      changed = true;
+      worldChanged = true;
     }
   }
   return {
     world: nextWorld,
-    field: changed && kept.length !== field.records.length ? { records: kept } : field,
-    changed,
+    field: fieldChanged ? { records: kept } : field,
+    changed: worldChanged,
   };
 }
 
@@ -188,10 +275,17 @@ export interface CropHarvest {
 }
 
 /** Removes a planted crop and returns its deterministic yield. */
-export function harvestCrop(field: CropField, x: number, y: number, z: number, worldTime: number): CropHarvest {
+export function harvestCrop(
+  field: CropField,
+  x: number,
+  y: number,
+  z: number,
+  worldTime: number,
+  climate: CropClimate = {},
+): CropHarvest {
   const record = cropAt(field, x, y, z);
   if (!record) return { field, record: null, stage: "ripe", yields: [] };
-  const stage = cropStage(record, worldTime);
+  const stage = cropStage(record, worldTime, climate);
   const definition = CROP_DEFINITIONS[record.kind];
   const yields = stage === "ripe"
     ? [

@@ -112,8 +112,16 @@ import {
   type SurvivalEnvironment,
   type SurvivalState,
 } from "../game/player/survival";
-import { FOODS, wildWheatYield } from "../game/farming";
+import {
+  FOODS,
+  cropDefinitionForBlock,
+  cropDefinitionForSeed,
+  isCropStageBlock,
+  wildWheatYield,
+} from "../game/farming";
 import { useFarming } from "./use-farming";
+import { useContainerSession } from "./use-container-session";
+import { useWorldSave } from "./use-world-save";
 import type { AppSettings } from "../game/settings";
 import {
   addWaypoint,
@@ -197,10 +205,6 @@ export function GameScreen({
   const toolStateRef = useRef(toolState);
   toolStateRef.current = toolState;
   const dropField = useMemo(() => createDropField(readDropSave(profile.id)), [profile.id]);
-  const savedContainers = useMemo(() => readContainers(profile.id), [profile.id]);
-  const [containers, setContainers] = useState<ContainerMap>(savedContainers);
-  const containersRef = useRef(containers);
-  containersRef.current = containers;
 
   const [openChest, setOpenChest] = useState<{ x: number; y: number; z: number } | null>(null);
   const [playerPosition, setPlayerPosition] = useState<Position | null>(
@@ -260,6 +264,22 @@ export function GameScreen({
   }, []);
 
   useEffect(() => () => window.clearTimeout(noticeTimeout.current), []);
+
+  const {
+    containers,
+    containersRef,
+    transferChestItem,
+    transferFurnaceItem,
+    takeFurnaceOutput,
+    removeContainerAt,
+  } = useContainerSession({
+    worldId: profile.id,
+    worldRef,
+    inventory,
+    setInventory,
+    openChest,
+    showNotice,
+  });
 
   // Leaving pointer lock hands the mouse back so panels can be clicked.
   useEffect(() => {
@@ -342,32 +362,6 @@ export function GameScreen({
     return () => window.clearInterval(timer);
   }, [dropField, profile.id]);
 
-  useEffect(() => {
-    saveContainers(profile.id, containers);
-  }, [containers, profile.id]);
-
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      setContainers((current) => {
-        const next = tickFurnaces(current, 0.5);
-        if (next !== current) containersRef.current = next;
-        return next;
-      });
-    }, 500);
-    return () => window.clearInterval(timer);
-  }, []);
-
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      setContainers((current) => {
-        const next = tickHoppers(current);
-        if (next !== current) containersRef.current = next;
-        return next;
-      });
-    }, 2000);
-    return () => window.clearInterval(timer);
-  }, []);
-
   // The player's chunk is only recorded here. A worker generates the prefetch
   // ring in priority order, so the render loop never waits for terrain.
   const streamChunks = useCallback((chunkX: number, chunkZ: number) => {
@@ -435,12 +429,37 @@ export function GameScreen({
     (next: WorldData) => setWorldEdited(() => next),
     [setWorldEdited],
   );
+  const biome = getBiomeAt(world.seed, playerPosition?.x ?? 0.5, playerPosition?.z ?? 0.5);
+  const weather = useMemo(
+    () => weatherAt(world.seed, worldTime, isColdBiome(biome)),
+    [biome, world.seed, worldTime],
+  );
+  const rainingRef = useRef(weather.wet);
+  rainingRef.current = weather.wet;
   const farming = useFarming({
     worldId: profile.id,
     active: started && !paused,
     worldRef,
     worldTimeRef,
+    rainingRef,
     onWorldChanged: applyCropWorld,
+  });
+  const playerPositionRef = useRef(playerPosition);
+  playerPositionRef.current = playerPosition;
+  const saveNow = useWorldSave({
+    worldId: profile.id,
+    worldRef,
+    worldTimeRef,
+    playerPositionRef,
+    inventory,
+    survivalMode,
+    survivalRef,
+    toolStateRef,
+    dropField,
+    containersRef,
+    farming,
+    setSaveState,
+    showNotice,
   });
 
   const useBlock = useCallback((cell: BlockCell) => {
@@ -449,80 +468,6 @@ export function GameScreen({
     setCraftOpen(false);
     setOpenChest({ x: cell.x, y: cell.y, z: cell.z });
   }, []);
-
-  const transferChestItem = useCallback(
-    (item: BlockType, amount: number, mode: "deposit" | "withdraw") => {
-      if (!openChest) return;
-      const key = containerKey(openChest);
-      const found = getBlock(worldRef.current, openChest.x, openChest.y, openChest.z);
-      const kind = containerKindForBlock(found ?? "") ?? "chest";
-      if (kind === "furnace") {
-        showNotice("Use the furnace's input and output controls");
-        return;
-      }
-      const current = containersRef.current[key] ?? createContainer(kind);
-      const result = mode === "deposit"
-        ? depositIntoContainer(current, inventory, item, amount)
-        : withdrawFromContainer(current, inventory, item, amount);
-      if (result.moved === 0) {
-        showNotice(result.blocked ? "That storage is full" : "Nothing to move");
-        return;
-      }
-      const next = { ...containersRef.current };
-      if (containerTotal(result.container) === 0) delete next[key];
-      else next[key] = result.container;
-      containersRef.current = next;
-      setContainers(next);
-      setInventory(result.inventory as Inventory);
-      saveContainers(profile.id, next);
-      showNotice(`${mode === "deposit" ? "Stored" : "Took"} ${result.moved} ${BLOCK_META[item].label.toLowerCase()}`);
-    },
-    [inventory, openChest, profile.id, showNotice],
-  );
-
-  const transferFurnaceItem = useCallback(
-    (item: BlockType, amount: number) => {
-      if (!openChest) return;
-      const key = containerKey(openChest);
-      const found = getBlock(worldRef.current, openChest.x, openChest.y, openChest.z);
-      if (found !== "furnace") return;
-      const current = containersRef.current[key] ?? createContainer("furnace");
-      const result = furnaceDeposit(current, inventory, item, amount);
-      if (result.moved === 0) {
-        showNotice("The furnace cannot take that item");
-        return;
-      }
-      const next = { ...containersRef.current, [key]: result.container };
-      containersRef.current = next;
-      setContainers(next);
-      setInventory(result.inventory as Inventory);
-      saveContainers(profile.id, next);
-      showNotice(`Loaded ${result.moved} ${BLOCK_META[item].label.toLowerCase()}`);
-    },
-    [inventory, openChest, profile.id, showNotice],
-  );
-
-  const takeFurnaceOutput = useCallback(
-    (amount: number) => {
-      if (!openChest) return;
-      const key = containerKey(openChest);
-      const found = getBlock(worldRef.current, openChest.x, openChest.y, openChest.z);
-      if (found !== "furnace") return;
-      const current = containersRef.current[key] ?? createContainer("furnace");
-      const result = furnaceWithdraw(current, inventory, amount);
-      if (result.moved === 0) {
-        showNotice("The output is empty");
-        return;
-      }
-      const next = { ...containersRef.current, [key]: result.container };
-      containersRef.current = next;
-      setContainers(next);
-      setInventory(result.inventory as Inventory);
-      saveContainers(profile.id, next);
-      showNotice(`Took ${result.moved} from the furnace`);
-    },
-    [inventory, openChest, profile.id, showNotice],
-  );
 
   const collectDrops = useCallback(
     (drops: ItemDrop[]) => {
@@ -597,7 +542,8 @@ export function GameScreen({
         return;
       }
 
-      if (found === "wheat" || found === "wheat_ripe" || found === "wheat_sprout") {
+      const crop = cropDefinitionForBlock(found);
+      if (isCropStageBlock(found) || found === "wheat") {
         const harvested = farming.harvest(
           cell.x,
           cell.y,
@@ -606,17 +552,18 @@ export function GameScreen({
         );
         const yields = harvested.record
           ? harvested.yields
-          : found === "wheat_sprout"
-            ? [{ item: "wheat_seeds" as const, count: 1 }]
+          : crop
+            ? [{ item: crop.seed, count: 1 }]
             : wildWheatYield();
         setWorldEdited((latestWorld) => setBlock(latestWorld, cell.x, cell.y, cell.z, null));
         const reward = collectBlockRewards(dropField, inventory, yields, cell);
         if (reward.gathered > 0) setInventory(reward.inventory);
         saveDropState(profile.id, dropField);
+        const cropLabel = crop?.label ?? "Wheat";
         const yieldMessage =
           harvested.stage === "ripe" || found === "wheat"
-            ? "Wheat harvested · grain and seed"
-            : "Young wheat picked · seed returned";
+            ? `${cropLabel} harvested · ${crop?.grain ?? "grain"} and seed`
+            : `Young ${cropLabel.toLowerCase()} picked · seed returned`;
         showNotice(reward.gathered > 0 ? `${yieldMessage} · pack full, kept in bag` : yieldMessage);
         return;
       }
@@ -656,12 +603,7 @@ export function GameScreen({
         setToolState(worn.state);
         if (worn.broke) message = `${message} · ${activeTool.label} broke`;
       }
-      if (containerCellKey) {
-        const next = { ...containersRef.current };
-        delete next[containerCellKey];
-        containersRef.current = next;
-        setContainers(next);
-      }
+      if (containerCellKey) removeContainerAt(cell);
       if (storedTotal > 0) {
         setInventory((currentInventory) => {
           let next = currentInventory;
@@ -721,13 +663,15 @@ export function GameScreen({
         showNotice(`${BLOCK_INFO[selected].label} is an item, not a building block`);
         return;
       }
-      if (selected === "wheat_seeds") {
+      const crop = cropDefinitionForSeed(selected);
+      if (crop) {
         const result = farming.plant(
           currentWorld,
           adjacent.x,
           adjacent.y,
           adjacent.z,
           worldTimeRef.current,
+          crop.kind,
         );
         if (!result.planted) {
           showNotice(
@@ -735,20 +679,20 @@ export function GameScreen({
               ? "Something already grows here"
               : result.reason === "blocked"
                 ? "Clear the space above the soil"
-                : "Wheat needs tilled farmland below it",
+                : `${crop.label} needs tilled farmland below it`,
           );
           return;
         }
         setWorldEdited((latestWorld) =>
-          setBlock(latestWorld, adjacent.x, adjacent.y, adjacent.z, "wheat_sprout"),
+          setBlock(latestWorld, adjacent.x, adjacent.y, adjacent.z, crop.sprout),
         );
         if (!unlimited) {
           setInventory((current) => ({
             ...current,
-            wheat_seeds: Math.max(0, current.wheat_seeds - 1),
+            [selected]: Math.max(0, current[selected] - 1),
           }));
         }
-        showNotice("Wheat planted · it ripens with the world clock");
+        showNotice(`${crop.label} planted · irrigated or rainy soil grows it faster`);
         return;
       }
       const occupant = getBlock(worldRef.current, adjacent.x, adjacent.y, adjacent.z);
@@ -900,6 +844,25 @@ export function GameScreen({
     showNotice("Fresh bread restores hunger");
   }, [inventory.bread, showNotice, survivalMode]);
 
+  const eatCarrot = useCallback(() => {
+    if (!survivalMode) return;
+    const current = survivalRef.current;
+    if ((inventory.carrot ?? 0) < 1) {
+      showNotice("No carrots yet — plant carrot seeds above farmland");
+      return;
+    }
+    if (!canEatMeal(current)) {
+      showNotice("Not hungry yet");
+      return;
+    }
+    const nutrition = FOODS.carrot?.nutrition ?? 3;
+    const next = eatMeal(current, nutrition);
+    survivalRef.current = next;
+    setSurvival(next);
+    setInventory((bag) => ({ ...bag, carrot: Math.max(0, bag.carrot - 1) }));
+    showNotice("A crisp carrot takes the edge off hunger");
+  }, [inventory.carrot, showNotice, survivalMode]);
+
   const handleFall = useCallback(
     (impactSpeed: number) => {
       if (!survivalMode) return;
@@ -1009,28 +972,14 @@ export function GameScreen({
     window.addEventListener("pixel-wilds-slot", onSlot);
     window.addEventListener("keydown", onPageKey);
     document.addEventListener("pointerlockchange", onPointerChange);
-    const saveOnExit = () => {
-      saveWorldData(profile.id, worldRef.current);
-      savePlayerState();
-      saveWorldClock(profile.id, worldTimeRef.current);
-      if (survivalMode) saveSurvival(profile.id, survivalRef.current);
-      saveToolState(profile.id, toolStateRef.current);
-      saveDropState(profile.id, dropField);
-      saveContainers(profile.id, containersRef.current);
-      farming.saveNow();
-    };
-    window.addEventListener("beforeunload", saveOnExit);
-    window.addEventListener("pagehide", saveOnExit);
     return () => {
       window.removeEventListener("pixel-wilds-select", onSelect);
       window.removeEventListener("pixel-wilds-cycle", onCycle);
       window.removeEventListener("pixel-wilds-slot", onSlot);
       window.removeEventListener("keydown", onPageKey);
       document.removeEventListener("pointerlockchange", onPointerChange);
-      window.removeEventListener("beforeunload", saveOnExit);
-      window.removeEventListener("pagehide", saveOnExit);
     };
-  }, [craftOpen, cycleEquippedTool, dropField, eatForaged, farming.saveNow, mapOpen, openChest, packOpen, pauseOpen, profile.id, savePlayerState, started, supportsWebGL, survivalMode, useBlock]);
+  }, [craftOpen, cycleEquippedTool, eatForaged, mapOpen, openChest, packOpen, pauseOpen, started, supportsWebGL, useBlock]);
 
   useEffect(() => {
     savePlayerState();
@@ -1071,11 +1020,6 @@ export function GameScreen({
 
   const loadedBlockCount = useMemo(() => getLoadedBlockCount(world), [world]);
   const loadedChunkCount = useMemo(() => getLoadedChunkCount(world), [world]);
-  const biome = getBiomeAt(world.seed, playerPosition?.x ?? 0.5, playerPosition?.z ?? 0.5);
-  const weather = useMemo(
-    () => weatherAt(world.seed, worldTime, isColdBiome(biome)),
-    [biome, world.seed, worldTime],
-  );
   const sheltered = useMemo(
     () =>
       playerPosition
@@ -1122,25 +1066,6 @@ export function GameScreen({
   const coordinates = playerPosition
     ? `${Math.floor(playerPosition.x)} · ${Math.floor(playerPosition.y)} · ${Math.floor(playerPosition.z)}`
     : "ROAM FREE";
-
-  const saveNow = () => {
-    try {
-      saveWorldData(profile.id, worldRef.current);
-      savePlayerState();
-      saveWorldClock(profile.id, worldTimeRef.current);
-      if (survivalMode) saveSurvival(profile.id, survivalRef.current);
-      saveToolState(profile.id, toolStateRef.current);
-      saveDropState(profile.id, dropField);
-      saveContainers(profile.id, containersRef.current);
-      farming.saveNow();
-      setSaveState("saved");
-      showNotice("Landscape tucked away");
-      return true;
-    } catch {
-      showNotice("Could not save this landscape");
-      return false;
-    }
-  };
 
   const saveAndQuit = () => {
     if (document.pointerLockElement) document.exitPointerLock?.();
@@ -1250,8 +1175,10 @@ export function GameScreen({
           <SurvivalHud
             state={survival}
             breadCount={inventory.bread ?? 0}
+            carrotCount={inventory.carrot ?? 0}
             onEat={eatForaged}
             onEatBread={eatBread}
+            onEatCarrot={eatCarrot}
           />
         )}
         <Crosshair target={target} miningProgress={miningProgress} />

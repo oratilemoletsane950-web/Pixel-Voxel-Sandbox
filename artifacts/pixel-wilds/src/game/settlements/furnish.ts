@@ -47,12 +47,16 @@ export function furnishInterior(
   const hz = (b.d - 1) / 2;
   const interiorLimitX = hx - 1;
   const interiorLimitZ = hz - 1;
-  const place = (dx: number, dz: number, id: number): void => {
-    if (Math.abs(dx) > interiorLimitX || Math.abs(dz) > interiorLimitZ) return;
+  const occupied = new Set<string>();
+  const place = (dx: number, dz: number, id: number): boolean => {
+    if (Math.abs(dx) > interiorLimitX || Math.abs(dz) > interiorLimitZ) return false;
     const x = b.x + dx;
     const z = b.z + dz;
-    if (stairKeys.has(`${x},${ground + 1},${z}`)) return;
+    const key = `${x},${ground + 1},${z}`;
+    if (stairKeys.has(key) || occupied.has(key)) return false;
+    occupied.add(key);
     writer.set(x, ground + 1, z, id);
+    return true;
   };
   const alongDoor = b.facing === 0 || b.facing === 2;
   const backRow =
@@ -82,5 +86,32 @@ export function furnishInterior(
       place(backRow, -2, ID.chair);
       place(backRow, 2, ID.chair);
     }
+  }
+
+  if (b.open) return;
+  const name = b.blueprint.toLowerCase();
+  const cornerA = alongDoor ? -interiorLimitX : -interiorLimitZ;
+  const cornerB = alongDoor ? interiorLimitX : interiorLimitZ;
+  const storage = /baker|forge|smith/.test(name)
+    ? ID.furnace
+    : /store|warehouse|granary|tavern|brewery/.test(name)
+      ? ID.barrel
+      : ID.chest;
+  // Keep storage off the back-wall table and out of the central aisle.
+  const sideZ = backRow + Math.min(2, Math.max(1, interiorLimitZ - Math.abs(backRow)));
+  const sideA = alongDoor ? -interiorLimitX : -interiorLimitZ;
+  const sideB = alongDoor ? interiorLimitX : interiorLimitZ;
+  if (name.includes("warehouse") || name.includes("granary") || name.includes("store")) {
+    if (alongDoor) {
+      place(sideA, sideZ, ID.barrel);
+      place(sideB, sideZ, ID.barrel);
+    } else {
+      place(sideZ, sideA, ID.barrel);
+      place(sideZ, sideB, ID.barrel);
+    }
+  } else if (alongDoor) {
+    place(cornerA < 0 ? sideB : sideA, sideZ, storage);
+  } else {
+    place(sideZ, cornerB > 0 ? sideB : sideA, storage);
   }
 }

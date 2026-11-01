@@ -741,6 +741,21 @@ function layoutHuman(settlement: Settlement, spec: KindSpec, regionX: number, re
     settlement.wall = { height: 9, block: ID.spruce_wood, palisade: true, gateHalfWidth: 3, gates: [0, 1, 2, 3] };
   }
 
+  // Castle and kingdom wards need a readable route from the keep to every
+  // gate; without this the outer wards are only reachable by crossing lawns.
+  if (tier === "castle" || tier === "kingdom") {
+    for (const [dx, dz] of [[0, 1], [1, 0], [0, -1], [-1, 0]] as const) {
+      const ex = cx + dx * half;
+      const ez = cz + dz * half;
+      settlement.paths.push({
+        x0: Math.min(cx, ex),
+        x1: Math.max(cx, ex),
+        z0: Math.min(cz, ez),
+        z1: Math.max(cz, ez),
+      });
+    }
+  }
+
   if (settlement.wall && !settlement.wall.palisade) {
     const corner = half - 1;
     for (const sx of [-1, 1]) {

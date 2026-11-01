@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { ID } from "../blocks";
 import { ChunkWriter } from "../chunk";
 import { getTerrain } from "../world";
 import { furnishInterior, stairCells } from "./furnish";
@@ -70,6 +71,42 @@ test("stairs are inside the building and furniture never occupies a step", () =>
   for (const key of written.keys()) {
     assert.equal(stairKeys.has(key), false, "furniture skipped the stairwell");
   }
+  assert.ok([...written.values()].includes(ID.chest), "a home receives a storage block");
+});
+
+test("baker and forge interiors receive a working furnace without blocking circulation", () => {
+  const base: Building = {
+    x: 0,
+    z: 0,
+    w: 9,
+    d: 9,
+    wall: 6,
+    stories: 1,
+    facing: 0,
+    roof: "gable",
+    wallBlock: 1,
+    frameBlock: 1,
+    roofBlock: 1,
+    floorBlock: 1,
+    foundation: 1,
+    chimney: 1,
+    glazed: true,
+    blueprint: "bakers_house",
+    accent: 0,
+    open: false,
+    turret: 0,
+    spire: false,
+    forge: false,
+    furniture: 1,
+  };
+  const written = new Map<string, number>();
+  const writer = {
+    inside: () => true,
+    set: (x: number, y: number, z: number, id: number) => written.set(`${x},${y},${z}`, id),
+  };
+  furnishInterior(writer as never, base, 20, new Set());
+  assert.ok([...written.values()].includes(ID.furnace), "the baker receives a furnace");
+  assert.equal(written.get("0,20,0"), undefined, "the central aisle stays clear");
 });
 
 test("the stamping module writes a deterministic building slice", () => {

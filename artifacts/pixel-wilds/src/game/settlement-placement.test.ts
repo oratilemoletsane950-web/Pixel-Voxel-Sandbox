@@ -41,10 +41,20 @@ test("resolved hierarchy sites are terrain-safe and globally footprint-reserved"
 
   const houses = placed.filter((node) => node.level === "house");
   assert.ok(houses.length > 0);
-  const blueprintIds = ["simple_home", "farmers_cottage", "fishermans_hut", "woodcutters_cabin", "bakers_house"] as const;
+  const blueprintIds = [
+    "simple_home",
+    "farmers_cottage",
+    "fishermans_hut",
+    "woodcutters_cabin",
+    "bakers_house",
+    "carpenters_shop",
+    "healers_house",
+    "tavern",
+    "general_store",
+  ] as const;
   const byId = new Map(resolved.nodes.map((node) => [node.id, node]));
   const dimensions = (node: typeof houses[number]) => {
-    const index = Math.max(0, Math.min(4, Math.floor(Number(node.metadata.archetypeIndex) || 0)));
+    const index = Math.max(0, Math.min(blueprintIds.length - 1, Math.floor(Number(node.metadata.archetypeIndex) || 0)));
     const bp = blueprintById("village", blueprintIds[index]);
     return { halfW: Math.ceil(bp.w / 2), halfD: Math.ceil(bp.d / 2) };
   };

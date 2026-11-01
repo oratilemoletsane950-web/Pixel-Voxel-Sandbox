@@ -6,9 +6,11 @@ import { createContainer, furnaceDeposit, furnaceWithdraw, tickFurnace } from ".
 import { createWorld, getBlock, setBlock } from "../world";
 import {
   cropGrowth,
+  cropDefinitionForSeed,
   cropStage,
   createCropField,
   harvestCrop,
+  isIrrigated,
   plantCrop,
   syncCropField,
   wildWheatYield,
@@ -62,6 +64,53 @@ test("growth wraps safely across midnight and sync writes stage blocks", () => {
     { item: "wheat_grain", count: 2 },
     { item: "wheat_seeds", count: 1 },
   ]);
+});
+
+test("carrots use the same record machinery with their own stage blocks", () => {
+  assert.equal(cropDefinitionForSeed("carrot_seeds")?.kind, "carrot");
+  const world = setBlock(
+    setBlock(setBlock(createWorld(42, 0, 0, 1), 3, 40, 3, "farmland"), 3, 41, 3, null),
+    5,
+    41,
+    3,
+    "water",
+  );
+  const planted = plantCrop(createCropField(), world, 3, 41, 3, 0, "carrot");
+  assert.equal(planted.planted, true);
+  const withSprout = setBlock(planted.field.records.length ? world : world, 3, 41, 3, "carrot_sprout");
+  const grown = syncCropField(planted.field, withSprout, 95, { irrigated: true });
+  assert.equal(getBlock(grown.world, 3, 41, 3), "carrot_ripe");
+  assert.equal(grown.field.records[0].ripened, true);
+  const harvested = harvestCrop(grown.field, 3, 41, 3, 200);
+  assert.deepEqual(harvested.yields, [
+    { item: "carrot", count: 2 },
+    { item: "carrot_seeds", count: 1 },
+  ]);
+});
+
+test("irrigation and rain accelerate growth, and ripeness never rolls back", () => {
+  const record = { kind: "wheat" as const, x: 2, y: 41, z: 2, plantedAt: 0 };
+  const dry = cropGrowth(record, 50);
+  const rainy = cropGrowth(record, 50, { raining: true });
+  const irrigated = cropGrowth(record, 50, { irrigated: true });
+  assert.ok(rainy > dry, "rain should grow crops faster");
+  assert.ok(irrigated > rainy, "irrigated soil should be the strongest bonus");
+
+  const world = setBlock(
+    setBlock(setBlock(createWorld(42, 0, 0, 1), 2, 40, 2, "farmland"), 2, 41, 2, "wheat_sprout"),
+    4,
+    41,
+    2,
+    "water",
+  );
+  assert.equal(isIrrigated(world, 2, 41, 2), true);
+  const field = createCropField([record]);
+  const ripe = syncCropField(field, world, 76);
+  assert.equal(getBlock(ripe.world, 2, 41, 2), "wheat_ripe");
+  assert.equal(ripe.field.records[0].ripened, true);
+  const drySpell = syncCropField(ripe.field, ripe.world, 77);
+  assert.equal(getBlock(drySpell.world, 2, 41, 2), "wheat_ripe");
+  assert.equal(harvestCrop(drySpell.field, 2, 41, 2, 500).stage, "ripe");
 });
 
 test("wheat grain bakes into bread in the existing furnace", () => {

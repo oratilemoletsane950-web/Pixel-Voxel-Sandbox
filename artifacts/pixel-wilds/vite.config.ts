@@ -63,6 +63,16 @@ export default defineConfig({
   build: {
     outDir: path.resolve(import.meta.dirname, 'dist/public'),
     emptyOutDir: true,
+    // Three.js is the largest dependency and is needed only inside the lazy
+    // game screen; keep it in its own long-lived vendor chunk.
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('/node_modules/three/')) return 'three';
+          return undefined;
+        },
+      },
+    },
   },
   server: {
     port,

@@ -33,6 +33,19 @@ import { furnishInterior, stairCells } from "./furnish";
 
 const DIRS: ReadonlyArray<readonly [number, number]> = [[0, 1], [1, 0], [0, -1], [-1, 0]];
 
+/** Residential roster shared by hierarchy stamps and placement tests. */
+const HOUSE_BLUEPRINTS = [
+  "simple_home",
+  "farmers_cottage",
+  "fishermans_hut",
+  "woodcutters_cabin",
+  "bakers_house",
+  "carpenters_shop",
+  "healers_house",
+  "tavern",
+  "general_store",
+] as const;
+
 /** Market stall: paved floor, corner posts, a back wall, a counter and a canopy. */
 function stampStall(writer: ChunkWriter, b: Building, ground: number): void {
   const hx = (b.w - 1) / 2;
@@ -798,7 +811,7 @@ export function resolveHierarchyPlan(source: HierarchyPlan, terrain: Terrain): H
   }
 
   // Resolve all residential footprints once, with reservations shared across every village.
-  const blueprintIds = ["simple_home", "farmers_cottage", "fishermans_hut", "woodcutters_cabin", "bakers_house"] as const;
+  const blueprintIds = HOUSE_BLUEPRINTS;
   for (const node of nodes) {
     if (node.level !== "house") continue;
     const parent = node.parentId ? byId.get(node.parentId) : undefined;
@@ -807,7 +820,7 @@ export function resolveHierarchyPlan(source: HierarchyPlan, terrain: Terrain): H
     if (!parent || parent.metadata.placementValid !== true) { node.metadata.placementValid = false; continue; }
     const anchorX = Math.round(original.x + parent.x - (originalParent?.x ?? parent.x));
     const anchorZ = Math.round(original.z + parent.z - (originalParent?.z ?? parent.z));
-    const archetype = Math.max(0, Math.min(4, Math.floor(Number(node.metadata.archetypeIndex) || 0)));
+    const archetype = Math.max(0, Math.min(HOUSE_BLUEPRINTS.length - 1, Math.floor(Number(node.metadata.archetypeIndex) || 0)));
     const bp = blueprintById("village", blueprintIds[archetype]);
     const halfW = Math.ceil(bp.w / 2);
     const halfD = Math.ceil(bp.d / 2);
@@ -1140,8 +1153,8 @@ function stampHierarchyHouseNodes(writer: ChunkWriter, terrain: Terrain, seed: n
 
     if (node.level !== "house") continue;
     if (node.metadata.placementValid !== true) continue;
-    const archetype = Math.max(0, Math.min(4, Math.floor(Number(node.metadata.archetypeIndex) || 0)));
-    const blueprintIds = ["simple_home", "farmers_cottage", "fishermans_hut", "woodcutters_cabin", "bakers_house"] as const;
+    const archetype = Math.max(0, Math.min(HOUSE_BLUEPRINTS.length - 1, Math.floor(Number(node.metadata.archetypeIndex) || 0)));
+    const blueprintIds = HOUSE_BLUEPRINTS;
     const bp = blueprintById("village", blueprintIds[archetype]);
     const halfW = Math.ceil(bp.w / 2);
     const halfD = Math.ceil(bp.d / 2);

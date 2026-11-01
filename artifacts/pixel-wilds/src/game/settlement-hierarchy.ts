@@ -167,7 +167,7 @@ export function createHierarchyPlan(seed: number, options: HierarchyOptions = {}
           const houseZ = village.z + (row - (rows - 1) / 2) * 13 + jitterZ;
           add(`${villageId}-house-${hi + 1}`, generatedName(seed, 30000 + ci * 10000 + ti * 1000 + vi * 100 + hi, "house"),
             "house", villageId, houseX, houseZ,
-            { archetypeIndex: intBetween(seed, 40000 + ci * 10000 + ti * 1000 + vi * 100 + hi, 0, 4) });
+            { archetypeIndex: intBetween(seed, 40000 + ci * 10000 + ti * 1000 + vi * 100 + hi, 0, 8) });
         }
       }
     }

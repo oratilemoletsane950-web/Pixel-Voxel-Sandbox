@@ -17,6 +17,7 @@ src/game/
   world/          types · terrain cache · access · streaming · spawn · clock · persistence
                   profile (validated world metadata) · registry (in persistence)
                   save-slots (one table of per-world files) · archive (portable JSON)
+                  cave-light (bounded flood-fill visibility and source reach)
   chunk.ts        chunk storage (unchanged)
   mesher.ts       chunk -> meshes (unchanged)
   textures.ts     atlas generation (unchanged)
@@ -30,11 +31,12 @@ src/game/
   world/weather.ts   seed-and-clock weather episodes shared by renderers
   settlements/    stable facade: plan.ts (sites/layouts) · stamp.ts (blocks) ·
                   furnish.ts (stairs/furniture); settlements.ts re-exports it
-  farming/        crops (time/save/stages) · food values · crop persistence
+  farming/        crops (time/moisture/save/stages) · food values · crop persistence
 
 src/app/          the UI: game-screen (session composition) · world-menu ·
                   game-world (WebGL view) · cave-lights · chunk-mesh ·
-                  voxel-fallback (2D) · hud panels · use-farming session hook
+                  voxel-fallback (2D) · hud panels · use-farming ·
+                  use-container-session · use-world-save
 src/game/storage.ts   KeyValueStorage seam and save-key constants
 src/game/settings.ts  validated, persisted app settings
 src/game/player/  inventory & save · aiming/raycast · session (world + spawn) ·
@@ -185,32 +187,40 @@ delete, per-world terrain and player saves with migration, pause + Save and
 7. **Done:** a maintenance repair bench, complete save copying when duplicating
    a world, and portable JSON world archives with validated import under a new
    identity. Every per-world save is enumerated from one slot table.
-8. **Done:** structures wired to profiles; cave entrances, glow-crystal lighting,
-   cave dressing, wheat farming/cooking, a split settlement pipeline, and a
-   dedicated app farming session with module-level tests.
-9. **Next:** LAN hosting/discovery over WebRTC or a local relay (a browser
-   cannot listen on a port).
+8. **Done:** structures wired to profiles; cave entrances, flood-fill visibility
+   for glow-crystal lighting, cave dressing, wheat and carrot farming with
+   irrigation/rain bonuses, cooking/food, a split settlement pipeline with
+   globally reserved footprints and furnished interiors, and dedicated app
+   farming/container/save sessions.
+9. **Done:** the launcher now lazy-loads the game screen; Three.js is emitted as
+   a separate vendor chunk instead of loading with the menu.
+10. **Next:** LAN hosting/discovery over WebRTC or a local relay (a browser
+    cannot listen on a port).
 
 ## Known remaining work
 
-- Weather drives wetness/warmth, shelter and audio; crops intentionally mature
-  on world time rather than rain, so irrigation is still a future rule.
+- Weather drives wetness/warmth, shelter and audio. Crops receive an irrigation
+  bonus near water and a rain bonus while precipitation is active; growth is
+  evaluated when a loaded crop syncs, not simulated minute by minute while the
+  chunk is unloaded.
 - Caves leave a three-block roof outside their deliberate stair entrances and
-  skip water columns. Glow crystals provide local light; a full flood-fill
-  light model is still not implemented.
+  skip water columns. Cave lights now use a bounded flood fill for visibility
+  and reach, and are culled when rock hides their source; per-voxel baked
+  lighting is still not implemented.
 - Tools cover pickaxe, axe and shovel work and can be repaired for a cheaper
   cost than recrafting; tool art is HUD/held geometry rather than unique
-  textures. The backpack supports stacks and containers but not drag-and-drop
-  between arbitrary slots.
+  textures. The backpack supports stack drag-to-container, Shift-drag for one
+  item, and stack transfer buttons, but not arbitrary slot-to-slot sorting.
 - Chests are keyed by block position. Duplicating a world copies every
   per-world save, including containers, crops, inventory, vitals, clock, tools
   and drops. World deletion removes all registered slot files.
 - Portable archives include every per-world save, but there is no cloud sync
   or automatic backup rotation yet; the downloaded JSON archive is the current
   backup path.
-- The production bundle is still a single large renderer chunk; code-splitting
-  Three.js remains a packaging improvement.
-- The item catalogue now distinguishes placeable blocks from food/crop-stage
+- The launcher is lazy-loaded away from the game, and Three.js is a separate
+  vendor chunk; further asset/texture splitting is possible but no longer
+  blocks first paint.
+- The item catalogue distinguishes placeable blocks from food/crop-stage
   items. Harvest rewards use `game/items/rewards.ts`: when the capped visible
   drop field is full the reward is stored directly in the pack. Planted crops,
   world data and clock state are flushed on both `pagehide` and `beforeunload`.
@@ -219,9 +229,11 @@ delete, per-world terrain and player saves with migration, pause + Save and
 
 ## UI layout
 
-`App.tsx` remains wiring only: launcher state, profiles, settings and routing.
-`src/app/game-screen.tsx` composes one running world; domain state lives in
-`game/*` modules, crop session state in `use-farming.ts`, and cave lighting in
+`App.tsx` remains wiring only: launcher state, profiles, settings and routing,
+with `React.lazy` for the game screen. `src/app/game-screen.tsx` composes one
+running world; domain state lives in `game/*` modules, crop state in
+`use-farming.ts`, container state/transfers in `use-container-session.ts`,
+ordered snapshots in `use-world-save.ts`, and cave lighting in
 `cave-lights.tsx`. The 3D and 2D renderers implement the same callback contract,
 so either can be replaced without changing the session shell. `data-testid`
 names remain the stable UI contract.

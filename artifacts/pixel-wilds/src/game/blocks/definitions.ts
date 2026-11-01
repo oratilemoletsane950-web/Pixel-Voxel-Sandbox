@@ -150,6 +150,10 @@ const CATALOGUE: BlockDefinition[] = [
   defineBlock(PLANT, { name: "bread", hardness: 0.18, label: "Fresh bread", short: "BRD", colors: ["#b9773e", "#d99b55", "#925b31"], speckle: ["#efc07a", "#7b4727", "#c98a4b"], pattern: "bread" }),
   defineBlock(PLANT, { name: "wheat_sprout", hardness: 0.12, label: "Wheat sprout", short: "WSP", colors: ["#6f9a4e", "#8bb45f", "#5b8140"], speckle: ["#b8d47d", "#496b34", "#7fa958"], pattern: "wheat" }),
   defineBlock(PLANT, { name: "wheat_ripe", hardness: 0.18, label: "Ripe wheat", short: "WRP", colors: ["#c9b24a", "#dfca62", "#ad9639"], speckle: ["#f4e28d", "#947c2d", "#c9b24a"], pattern: "wheat" }),
+  defineBlock(PLANT, { name: "carrot_seeds", hardness: 0.18, label: "Carrot seeds", short: "CSE", colors: ["#b77b43", "#d99a58", "#966133"], speckle: ["#efc07a", "#7b4a26", "#c98a4b"], pattern: "speckle" }),
+  defineBlock(PLANT, { name: "carrot", hardness: 0.18, label: "Carrot", short: "CRT", colors: ["#c76d2c", "#e68b3d", "#a95420"], speckle: ["#f0ad5d", "#8f471d", "#d37b36"], pattern: "speckle" }),
+  defineBlock(PLANT, { name: "carrot_sprout", hardness: 0.12, label: "Carrot sprout", short: "CSP", colors: ["#5f8f46", "#7fae58", "#4d7438"], speckle: ["#a9cc75", "#3f5f2b", "#6d9a4c"], pattern: "fern" }),
+  defineBlock(PLANT, { name: "carrot_ripe", hardness: 0.18, label: "Ripe carrots", short: "CRP", colors: ["#5f8f46", "#d88135", "#4d7438"], speckle: ["#f0ad5d", "#3f5f2b", "#a95420"], pattern: "tall_grass" }),
 ];
 
 export const BLOCK_DEFINITIONS: readonly BlockDefinition[] = Object.freeze(CATALOGUE);
