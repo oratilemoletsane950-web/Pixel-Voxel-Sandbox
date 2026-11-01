@@ -87,7 +87,11 @@ export const CROP_STAGE_BLOCK_TYPES = ["wheat_sprout", "wheat_ripe"] as const;
 export type CropStageBlockType = (typeof CROP_STAGE_BLOCK_TYPES)[number];
 
 /** Items that live in the pack but can never be placed as construction blocks. */
-export const NON_PLACEABLE_BLOCK_TYPES = ["wheat_grain", "bread"] as const;
+export const NON_PLACEABLE_BLOCK_TYPES = [
+  "wheat_grain",
+  "bread",
+  ...CROP_STAGE_BLOCK_TYPES,
+] as const;
 export type NonPlaceableBlockType = (typeof NON_PLACEABLE_BLOCK_TYPES)[number];
 
 // Keep existing numeric ids stable: chest and the newer container blocks are

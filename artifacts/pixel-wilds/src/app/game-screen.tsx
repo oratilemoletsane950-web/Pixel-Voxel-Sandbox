@@ -30,6 +30,7 @@ import {
   type WorldProfile,
 } from "../game/world";
 import { BLOCK_INFO } from "../game/blocks";
+import { collectBlockRewards } from "../game/items/rewards";
 import { MAX_BUILD_HEIGHT } from "../game/chunk";
 import { PLAYER_RADIUS, type Position } from "../game/physics";
 import { applyCraft, canCraft, type CraftRecipe } from "../game/crafting";
@@ -609,15 +610,14 @@ export function GameScreen({
             ? [{ item: "wheat_seeds" as const, count: 1 }]
             : wildWheatYield();
         setWorldEdited((latestWorld) => setBlock(latestWorld, cell.x, cell.y, cell.z, null));
-        for (const { item, count } of yields) {
-          for (let n = 0; n < count; n += 1) dropField.spawn(item, cell);
-        }
+        const reward = collectBlockRewards(dropField, inventory, yields, cell);
+        if (reward.gathered > 0) setInventory(reward.inventory);
         saveDropState(profile.id, dropField);
-        showNotice(
+        const yieldMessage =
           harvested.stage === "ripe" || found === "wheat"
-            ? "Wheat harvested · grain and seed dropped"
-            : "Young wheat picked · seed returned",
-        );
+            ? "Wheat harvested · grain and seed"
+            : "Young wheat picked · seed returned";
+        showNotice(reward.gathered > 0 ? `${yieldMessage} · pack full, kept in bag` : yieldMessage);
         return;
       }
 
@@ -630,18 +630,14 @@ export function GameScreen({
         if (unlimited) {
           message = `${BLOCK_META[item].label} cleared`;
         } else {
-          const drop = dropField.spawn(item, cell);
-          if (drop) {
+          const reward = collectBlockRewards(dropField, inventory, [{ item, count: 1 }], cell);
+          if (reward.gathered > 0) setInventory(reward.inventory);
+          if (reward.dropped > 0) {
             saveDropState(profile.id, dropField);
             message = foraged
               ? `${BLOCK_META[item].label} dropped · wild berries +1`
               : `${BLOCK_META[item].label} dropped · walk over to collect`;
           } else {
-            // Never lose a block just because the visible drop field is full.
-            setInventory((currentInventory) => ({
-              ...currentInventory,
-              [item]: currentInventory[item] + 1,
-            }));
             message = foraged
               ? `${BLOCK_META[item].label} gathered · wild berries +1`
               : `${BLOCK_META[item].label} gathered`;
@@ -719,6 +715,10 @@ export function GameScreen({
       }
       if (!unlimited && inventory[selected] < 1) {
         showNotice(`Out of ${BLOCK_META[selected].label.toLowerCase()}`);
+        return;
+      }
+      if (!BLOCK_INFO[selected].placeable) {
+        showNotice(`${BLOCK_INFO[selected].label} is an item, not a building block`);
         return;
       }
       if (selected === "wheat_seeds") {
@@ -1010,14 +1010,17 @@ export function GameScreen({
     window.addEventListener("keydown", onPageKey);
     document.addEventListener("pointerlockchange", onPointerChange);
     const saveOnExit = () => {
+      saveWorldData(profile.id, worldRef.current);
       savePlayerState();
       saveWorldClock(profile.id, worldTimeRef.current);
       if (survivalMode) saveSurvival(profile.id, survivalRef.current);
       saveToolState(profile.id, toolStateRef.current);
       saveDropState(profile.id, dropField);
       saveContainers(profile.id, containersRef.current);
+      farming.saveNow();
     };
     window.addEventListener("beforeunload", saveOnExit);
+    window.addEventListener("pagehide", saveOnExit);
     return () => {
       window.removeEventListener("pixel-wilds-select", onSelect);
       window.removeEventListener("pixel-wilds-cycle", onCycle);
@@ -1025,8 +1028,9 @@ export function GameScreen({
       window.removeEventListener("keydown", onPageKey);
       document.removeEventListener("pointerlockchange", onPointerChange);
       window.removeEventListener("beforeunload", saveOnExit);
+      window.removeEventListener("pagehide", saveOnExit);
     };
-  }, [craftOpen, cycleEquippedTool, dropField, eatForaged, mapOpen, openChest, packOpen, pauseOpen, profile.id, savePlayerState, started, supportsWebGL, survivalMode, useBlock]);
+  }, [craftOpen, cycleEquippedTool, dropField, eatForaged, farming.saveNow, mapOpen, openChest, packOpen, pauseOpen, profile.id, savePlayerState, started, supportsWebGL, survivalMode, useBlock]);
 
   useEffect(() => {
     savePlayerState();

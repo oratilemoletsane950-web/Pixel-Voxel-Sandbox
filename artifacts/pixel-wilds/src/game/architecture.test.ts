@@ -98,6 +98,15 @@ test("pipeline runs in order, skips disabled stages and rejects duplicates", () 
   assert.throws(() => pipeline.register({ id: "first", order: 1, run: () => {} }), /duplicate stage/);
 });
 
+test("food and crop stages are never placeable construction blocks", () => {
+  assert.equal(BLOCK_INFO.bread.placeable, false);
+  assert.equal(BLOCK_INFO.wheat_grain.placeable, false);
+  assert.equal(BLOCK_INFO.wheat_sprout.placeable, false);
+  assert.equal(BLOCK_INFO.wheat_ripe.placeable, false);
+  assert.equal(BLOCK_INFO.wheat_seeds.placeable, true);
+  assert.equal(BLOCK_INFO.stone.placeable, true);
+});
+
 test("block ids, catalogue and lookup tables agree", () => {
   assert.equal(WORLD_BLOCK_TYPES.length, BLOCK_DEFINITIONS.length);
   WORLD_BLOCK_TYPES.forEach((name, index) => {

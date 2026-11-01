@@ -14,6 +14,7 @@ import {
   saveDropState,
 } from "./drops";
 import { DROP_SAVE_PREFIX, type KeyValueStorage } from "../storage";
+import { collectBlockRewards } from "../items/rewards";
 
 class MemoryStorage implements KeyValueStorage {
   private readonly entries = new Map<string, string>();
@@ -49,6 +50,22 @@ test("a block drop falls, settles on the surface and keeps its identity", () => 
   assert.ok(Math.abs(drop.y - (surface + DROP_HALF_SIZE)) < 0.06, `settled at ${drop.y}`);
   assert.ok(drop.x > x && drop.x < x + 1);
   assert.ok(drop.z > z && drop.z < z + 1);
+});
+
+test("a full drop field stores rewards in the inventory instead of losing them", () => {
+  const field = createDropField();
+  const cell = { x: 4, y: 10, z: 4 };
+  for (let index = 0; index < MAX_DROPS; index += 1) {
+    assert.ok(field.spawn("stone", cell));
+  }
+  assert.equal(field.items.length, MAX_DROPS);
+
+  const result = collectBlockRewards(field, { stone: 2 }, [{ item: "wheat_grain", count: 3 }], cell);
+  assert.equal(result.dropped, 0);
+  assert.equal(result.gathered, 3);
+  assert.equal(result.inventory.wheat_grain, 3);
+  assert.equal(result.inventory.stone, 2, "unrelated inventory counts are preserved");
+  assert.equal(field.items.length, MAX_DROPS, "the visible field stays capped");
 });
 
 test("pickup waits for the spin-up delay and then collects the drop", () => {

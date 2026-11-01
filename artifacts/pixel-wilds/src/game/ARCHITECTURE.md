@@ -210,6 +210,10 @@ delete, per-world terrain and player saves with migration, pause + Save and
   backup path.
 - The production bundle is still a single large renderer chunk; code-splitting
   Three.js remains a packaging improvement.
+- The item catalogue now distinguishes placeable blocks from food/crop-stage
+  items. Harvest rewards use `game/items/rewards.ts`: when the capped visible
+  drop field is full the reward is stored directly in the pack. Planted crops,
+  world data and clock state are flushed on both `pagehide` and `beforeunload`.
 - `artifacts/mockup-sandbox` duplicates the shadcn UI components in this app;
   it is a design sandbox, not shipped game code.
 
